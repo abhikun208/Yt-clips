@@ -1,0 +1,87 @@
+import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+export interface Config {
+  rootDir: string;
+  dataDir: string;
+  dirs: { sources: string; rawClips: string; editedShorts: string; manifests: string; thumbnails: string; transcripts: string; tmp: string; assets: string };
+  dbPath: string;
+  timezone: string;
+  clip: {
+    minSec: number; maxSec: number; targetSec: number; maxClipsPerVideo: number;
+    minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number;
+  };
+  edit: {
+    width: number; height: number; fps: number; crf: number; preset: string;
+    reframe: 'crop' | 'fit_blur'; treatmentTarget: number; targetLufs: number; font: string;
+  };
+  schedule: { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number };
+  /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
+  gates: { publishEnabled: boolean; commentsAutoPost: boolean; publicVisibilityAllowed: boolean };
+  resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number };
+}
+
+const DEFAULTS = (rootDir: string): Config => {
+  const dataDir = join(rootDir, 'data');
+  return {
+    rootDir, dataDir,
+    dirs: {
+      sources: join(dataDir, 'source_videos'),
+      rawClips: join(dataDir, 'raw_clips'),
+      editedShorts: join(dataDir, 'edited_shorts'),
+      manifests: join(dataDir, 'manifests'),
+      thumbnails: join(dataDir, 'thumbnails'),
+      transcripts: join(dataDir, 'transcripts'),
+      tmp: join(dataDir, 'tmp'),
+      assets: join(rootDir, 'assets'),
+    },
+    dbPath: join(dataDir, 'yt-clips.sqlite'),
+    timezone: 'Asia/Kolkata',
+    clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30 },
+    edit: { width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins' },
+    schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
+    gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
+    resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4 },
+  };
+};
+
+function deepMerge<T>(base: T, over: unknown): T {
+  if (!over || typeof over !== 'object') return base;
+  const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+  for (const [k, v] of Object.entries(over as Record<string, unknown>)) {
+    const b = out[k];
+    out[k] = b && typeof b === 'object' && !Array.isArray(b) && v && typeof v === 'object' && !Array.isArray(v) ? deepMerge(b, v) : v;
+  }
+  return out as T;
+}
+
+/** Load config: defaults <- data/config.json (owner-edited) <- YT_CLIPS_DATA_DIR override. Creates data dirs. */
+export function loadConfig(rootDir = resolve(process.cwd()), opts: { dataDir?: string; overrides?: Record<string, unknown>; mkdirs?: boolean } = {}): Config {
+  let cfg = DEFAULTS(rootDir);
+  const dataDir = opts.dataDir ?? process.env.YT_CLIPS_DATA_DIR;
+  if (dataDir) {
+    const d = resolve(dataDir);
+    const base = DEFAULTS(rootDir);
+    cfg = { ...base, dataDir: d, dbPath: join(d, 'yt-clips.sqlite'), dirs: {
+      ...base.dirs,
+      sources: join(d, 'source_videos'), rawClips: join(d, 'raw_clips'), editedShorts: join(d, 'edited_shorts'),
+      manifests: join(d, 'manifests'), thumbnails: join(d, 'thumbnails'), transcripts: join(d, 'transcripts'), tmp: join(d, 'tmp'),
+    } };
+  }
+  const file = join(cfg.dataDir, 'config.json');
+  if (existsSync(file)) {
+    try { cfg = deepMerge(cfg, JSON.parse(readFileSync(file, 'utf8'))); }
+    catch (e) { throw new Error(`Invalid ${file}: ${(e as Error).message}`); }
+  }
+  if (opts.overrides) cfg = deepMerge(cfg, opts.overrides);
+  if (opts.mkdirs !== false) {
+    for (const d of [cfg.dataDir, cfg.dirs.sources, cfg.dirs.rawClips, cfg.dirs.editedShorts, cfg.dirs.manifests, cfg.dirs.thumbnails, cfg.dirs.transcripts, cfg.dirs.tmp]) mkdirSync(d, { recursive: true });
+  }
+  return cfg;
+}
+
+/** Throws unless the owner has explicitly enabled publishing in config. Tests passing never enables this. */
+export function assertPublishAllowed(cfg: Config, visibility: 'private' | 'unlisted' | 'public'): void {
+  if (!cfg.gates.publishEnabled) throw new Error('PUBLISH_DISABLED: gates.publishEnabled is false. Owner must enable it explicitly in data/config.json.');
+  if (visibility === 'public' && !cfg.gates.publicVisibilityAllowed) throw new Error('PUBLIC_DISABLED: gates.publicVisibilityAllowed is false.');
+}

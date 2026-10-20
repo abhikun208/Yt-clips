@@ -1,0 +1,18 @@
+{
+  "name": "yt-clips",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted video repurposing pipeline: source -> full-timeline analysis -> clips -> non-destructive editing -> metadata -> gated publishing",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor",
+    "cli": "node --disable-warning=ExperimentalWarning src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.0"
+  }
+}
