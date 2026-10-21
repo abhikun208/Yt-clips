@@ -17,10 +17,18 @@ export async function sttEngine(rootDir: string): Promise<{ cmd: string; args: s
   return { cmd: 'python3', args: ['-I', join(rootDir, 'tools', 'transcribe.py')], name: 'faster-whisper' };
 }
 
+/** Engines may print log lines before the JSON and may pretty-print it. Try: whole output, then from the first line starting with '{', then the last line. */
+function parseLooseJson(out: string): unknown {
+  const t = out.trim();
+  try { return JSON.parse(t); } catch { /* fall through */ }
+  const lines = t.split('\n'); const first = lines.findIndex((l) => l.trimStart().startsWith('{'));
+  if (first >= 0) { try { return JSON.parse(lines.slice(first).join('\n')); } catch { /* fall through */ } }
+  return JSON.parse(lines[lines.length - 1] ?? '');
+}
 interface RawSeg { start: number; end: number; text: string; words?: { start: number; end: number; word?: string; text?: string }[] }
 /** Validate + normalise engine output. Drops malformed segments/words; never invents timing. */
 export function parseSttJson(stdout: string): { cues: Cue[]; language?: string } {
-  const j = JSON.parse(stdout.trim().split('\n').filter(Boolean).pop() ?? '{}') as { error?: string; language?: string; segments?: RawSeg[] };
+  const j = parseLooseJson(stdout) as { error?: string; language?: string; segments?: RawSeg[] };
   if (j.error) throw new Error(j.error);
   const cues: Cue[] = [];
   for (const s of j.segments ?? []) {

@@ -80,6 +80,8 @@ test('polling reports clearly when yt-dlp is missing', async () => {
 test('STT JSON parsing: validates, drops garbage, keeps real word timing', () => {
   const ok = parseSttJson('log line\n' + JSON.stringify({ language: 'hi', segments: [{ start: 1, end: 3, text: ' ye hai ', words: [{ start: 1, end: 1.5, word: 'ye' }, { start: 2, end: 1, word: 'bad' }, { start: 1.6, end: 2, word: 'hai' }] }, { start: 5, end: 4, text: 'reversed' }, { start: 6, end: 7, text: '   ' }] }));
   assert.equal(ok.cues.length, 1); assert.deepEqual(ok.cues[0]!.words!.map((w) => w.text), ['ye', 'hai']); assert.equal(ok.language, 'hi');
+  const pretty = parseSttJson('loading model...\n{\n  "language": "en",\n  "segments": [\n    {"start": 1, "end": 2, "text": "hi"}\n  ]\n}\n');
+  assert.equal(pretty.cues.length, 1, 'multi-line JSON after log lines is accepted'); assert.equal(parseSttJson('{"segments":[{"start":0,"end":1,"text":"a"}]}').cues.length, 1);
   assert.throws(() => parseSttJson('{"error":"faster_whisper_missing"}'), /faster_whisper_missing/);
   assert.throws(() => parseSttJson('not json'));
 });

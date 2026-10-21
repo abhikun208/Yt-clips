@@ -49,6 +49,7 @@
 - Docker build, systemd unit, install-vps.sh, PaaS deploy: NOT verified.
 - autocap.in's own templates: not copyable (proprietary, only names/tags visible). We provide original presets instead.
 - speed_ramp, beat_effects, caption translation, per-word recolor/timing editor in the UI, sports tracking, LLM metadata: NOT implemented.
+- One caption font per clip: a clip mixing Hindi + Latin uses the dominant Indic font for all words (Noto/FreeSans include Latin glyphs, so it renders, but Latin words won't use Poppins).
 - Scoring is heuristic, not a learned model.
 
 ## Known limitations (honest)
@@ -60,6 +61,7 @@
 ## Verification log
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
+- Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.
 - No upload/comment code path was ever exercised against a real platform.
 
 ## NEXT STEP (priority order)
