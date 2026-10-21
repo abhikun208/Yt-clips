@@ -1,7 +1,7 @@
 # PROGRESS.md — persistent ledger (kisi bhi AI/session ko yahin se resume karna hai)
 
 > Rule: sirf wahi "DONE" jo code + test/verify ho chuka hai. Baaki sab PARTIAL / TODO / BLOCKED.
-> Last updated: 2026-10-20 (session 1)
+> Last updated: 2026-10-21 (session 1)
 
 ## Resume kaise karein
 1. `Prompt` file = original owner requirements (Hinglish). `BRAIN.md` = architecture + decisions.
@@ -12,19 +12,31 @@
 - Node v22.22, ffmpeg/ffprobe 6.1.1 (libx264, aac, subtitles/libass, loudnorm, zoompan, scdet, silencedetect), python3 + opencv (face helper optional).
 - NOT available here: yt-dlp, whisper/whisper.cpp, npm registry (403). Isliye: YouTube download aur speech-to-text optional adapters hain; sidecar `.srt/.vtt/.json` transcript supported.
 
-## Status
+## Status (verified = test or real run)
 | Area | Status | Evidence |
 |---|---|---|
-| Config + safety gates (publish/comments/public all OFF) | DONE | src/config.ts |
-| SQLite store, non-destructive migrations, persistent job queue (lease/backoff/jitter/DEAD) | DONE (smoke-tested) | src/db.ts |
-| Local source ingest + fingerprint dedup (original copied, never modified) | DONE (real run) | src/sources/local.ts |
-| Full-timeline analysis (silence, scenes, audio energy, black, intro/outro detect) | DONE (real run on synthetic fixture: intro 6.03s, outro 83.82s detected) | src/analysis/* |
-| Candidate ranking + overlap NMS + snap to pauses + cross-run dedup fingerprint | DONE (real run) | src/analysis/select.ts |
-| Editing engine: raw clip + edited short in separate folder, manifest, ffprobe QC | DONE (real render: 1080x1920 h264/aac, -14.1 LUFS, QC pass) | src/edit/* |
-| Treatment coverage = 13/16 dimensions (measured in manifest, not a legality claim) | DONE | manifest.treatmentCoverage |
-| speed_ramp, beat_effects, music ducking (needs owner-supplied music) | TODO / not implemented | — |
-| SEO metadata/thumbnail, scheduler, publish state machine, comments, CLI, tests, platform adapters | IN PROGRESS (this session) | see NEXT STEP |
-| YouTube/Instagram/TikTok real API upload | BLOCKED until owner OAuth creds + explicit authorization | gates OFF |
+| Config + safety gates (publish/comments/public all OFF by default) | DONE | test/core.test.ts |
+| SQLite store, additive migrations, persistent job queue (lease, expiry reclaim, backoff+jitter, DEAD) | DONE | test/core.test.ts |
+| Local ingest, fingerprint dedup, corrupt/unsupported rejected, original untouched | DONE | test/e2e.test.ts |
+| Full-timeline analysis + intro/outro detection (overridable) + resumable checkpoint | DONE | analysis + e2e tests; real 90s fixture: intro 6.03s, outro 83.82s |
+| Candidate ranking, NMS overlap, pause snapping, stable dedup fingerprints, late-moment coverage | DONE (heuristic scoring) | test/analysis.test.ts |
+| Editing engine -> separate `edited_shorts`, raw clip kept, manifest, measured ffprobe/ebur128 QC | DONE | real render 1080x1920 h264/aac -14.1 LUFS; frames inspected |
+| Thumbnail (validated 1280x720, rejects flat images) | DONE | e2e |
+| Metadata (Hinglish template, no invented links) | DONE (template only) | test/publish.test.ts |
+| Scheduler (caps, min gap, quiet hours, jitter, measured vs baseline) | DONE (logic) | test/publish.test.ts |
+| Upload state machine, unlisted-first, remote verify, idempotency, retry, gates enforced | DONE with DryRunAdapter | test/publish.test.ts |
+| Comments: classify, PII/spam never answered, drafts only, posting needs opt-in + approval | DONE (no posting adapter) | test/publish.test.ts |
+| Job worker (analyze->render->meta), restart is a no-op, never uploads by itself | DONE | e2e test 2 |
+| CLI + doctor | DONE | `npm run doctor` |
+| Reference research + honest matrix | DONE | docs/FEATURE_MATRIX.md |
+
+### Not done / blocked (do NOT claim these)
+- Real YouTube/Instagram/TikTok/Facebook adapters: **BLOCKED** (needs owner OAuth app credentials + explicit authorization). Only DryRunAdapter exists.
+- Platform analytics ingestion for the scheduler: NOT implemented (scheduler uses baseline until stats are supplied).
+- Speech-to-text: NOT implemented (whisper/faster-whisper absent here). Captions work from sidecar `.srt/.vtt/.json`.
+- YouTube channel watching / yt-dlp download: NOT implemented (yt-dlp absent; outbound network is allowlisted).
+- speed_ramp, beat_effects, caption translation, sports tracking, LLM metadata: NOT implemented.
+- Thumbnail text with Devanagari relies on system font fallback; unverified on a real Hindi title.
 
 ## Known limitations (honest)
 - Word timing in captions is APPROXIMATED from cue duration (no forced alignment).
@@ -32,5 +44,14 @@
 - Face tracking uses OpenCV Haar (basic); falls back to centered crop and says so in the manifest.
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
-## NEXT STEP
-Build seo/, schedule/, publish/ state machine, comments/, cli.ts, tests, BRAIN.md; then commit + push.
+## Verification log (session 1)
+- `npm test`: 30/30 pass (unit + real ffmpeg end-to-end). Typecheck: 0 errors (global tsc + sandbox @types/node via typeRoots; repo's own `npm install` was blocked by the sandbox proxy, so run `npm install` once on your machine).
+- `npm run doctor`: ffmpeg/ffprobe/node OK; yt-dlp & whisper WARN (optional).
+- Safety: no upload or comment code path was exercised against a real platform.
+
+## NEXT STEP (in priority order)
+1. Owner: run `npm install` locally, `npm test`, then `npm run cli -- add <video> --authorized` and `run`; review `data/edited_shorts` + manifests.
+2. STT adapter: call `whisper-cli`/`faster-whisper` when installed -> write `<video>.json` sidecar (src/analysis/transcript.ts already reads it); then test with a real speech sample.
+3. Source adapter: yt-dlp wrapper (+ channel polling) behind `sources/`, only for authorized channels.
+4. Real YouTube adapter (Data API resumable upload, unlisted->verify) in `src/publish/`; needs owner OAuth creds; keep gates OFF until owner approves.
+5. speed_ramp + beat effects, then LLM metadata adapter (optional, key via .env).

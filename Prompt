@@ -1,3 +1,7 @@
+[UPDATE 2026-10-21] Ye original owner-prompt hai (history ke liye jyon ka tyon). Ab primary spec: MASTER_RUN_PROMPT.md, progress ledger: PROGRESS.md, design: BRAIN.md, research: docs/FEATURE_MATRIX.md. Naya session shuru karte waqt pehle PROGRESS.md padho aur "NEXT STEP" se aage badho; kuch dobara shuru mat karo.
+
+--------------------------------------------------------------------------------
+
 Claude ke thinking ke anusar ye prompt banao ki Claude kaise sochta kr isko kaise banata
 
 1. Sources channel se video lena ya local video jo hum upload karenge
