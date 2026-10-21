@@ -1,0 +1,22 @@
+# /etc/systemd/system/yt-clips.service  (see DEPLOY.md)
+[Unit]
+Description=yt-clips video repurposing server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ytclips
+WorkingDirectory=/opt/yt-clips
+EnvironmentFile=/etc/yt-clips.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/server/main.ts
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/yt-clips
+
+[Install]
+WantedBy=multi-user.target

@@ -10,4 +10,6 @@ npm run cli -- run          # analyze -> render -> metadata (resumable job queue
 npm run cli -- status
 npm test
 ```
+Web UI + API + worker: `npm start` (needs `YT_CLIPS_TOKEN` when not on localhost). Deploy anywhere: see `DEPLOY.md` (Docker / VPS / PaaS). Caption presets: `npm run cli -- presets`.
+
 Outputs: `data/edited_shorts/*.mp4`, `data/manifests/*.json` (treatments + QC), `data/thumbnails/*.jpg`. Publishing/comments are OFF by default (see `MASTER_RUN_PROMPT.md`). Progress ledger: `PROGRESS.md`.

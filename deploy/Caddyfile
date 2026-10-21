@@ -1,0 +1,13 @@
+# Automatic HTTPS reverse proxy. Replace clips.example.com with your domain (DNS A record -> VPS IP).
+clips.example.com {
+	request_body {
+		max_size 4GB
+	}
+	reverse_proxy 127.0.0.1:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 1h
+			write_timeout 1h
+		}
+	}
+}

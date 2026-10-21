@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 export interface Config {
@@ -13,12 +13,14 @@ export interface Config {
   };
   edit: {
     width: number; height: number; fps: number; crf: number; preset: string;
-    reframe: 'crop' | 'fit_blur'; treatmentTarget: number; targetLufs: number; font: string;
+    reframe: 'crop' | 'fit_blur'; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean;
   };
   schedule: { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number };
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
   gates: { publishEnabled: boolean; commentsAutoPost: boolean; publicVisibilityAllowed: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number };
+  stt: { mode: 'auto' | 'off'; model: string; language: string };
+  youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
 }
 
 const DEFAULTS = (rootDir: string): Config => {
@@ -38,10 +40,12 @@ const DEFAULTS = (rootDir: string): Config => {
     dbPath: join(dataDir, 'yt-clips.sqlite'),
     timezone: 'Asia/Kolkata',
     clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30 },
-    edit: { width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins' },
+    edit: { width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true },
     schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4 },
+    stt: { mode: 'auto', model: 'small', language: 'auto' },
+    youtube: { pollMinutes: 60, maxPerPoll: 3, maxDurationMin: 180, maxHeight: 1080 },
   };
 };
 
@@ -84,4 +88,15 @@ export function loadConfig(rootDir = resolve(process.cwd()), opts: { dataDir?: s
 export function assertPublishAllowed(cfg: Config, visibility: 'private' | 'unlisted' | 'public'): void {
   if (!cfg.gates.publishEnabled) throw new Error('PUBLISH_DISABLED: gates.publishEnabled is false. Owner must enable it explicitly in data/config.json.');
   if (visibility === 'public' && !cfg.gates.publicVisibilityAllowed) throw new Error('PUBLIC_DISABLED: gates.publicVisibilityAllowed is false.');
+}
+
+/** Merge a patch into the owner's data/config.json atomically. Callers must whitelist keys (gates are NEVER writable via API). */
+export function updateOwnerConfig(cfg: Config, patch: Record<string, unknown>): void {
+  const file = join(cfg.dataDir, 'config.json');
+  let cur: Record<string, unknown> = {};
+  if (existsSync(file)) cur = JSON.parse(readFileSync(file, 'utf8'));
+  const merged = deepMerge(cur, patch);
+  const tmp = file + '.tmp';
+  writeFileSync(tmp, JSON.stringify(merged, null, 2));
+  renameSync(tmp, file);
 }

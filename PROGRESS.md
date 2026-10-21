@@ -1,7 +1,7 @@
 # PROGRESS.md — persistent ledger (kisi bhi AI/session ko yahin se resume karna hai)
 
 > Rule: sirf wahi "DONE" jo code + test/verify ho chuka hai. Baaki sab PARTIAL / TODO / BLOCKED.
-> Last updated: 2026-10-21 (session 1)
+> Last updated: 2026-10-22 (session 2)
 
 ## Resume kaise karein
 1. `Prompt` file = original owner requirements (Hinglish). `BRAIN.md` = architecture + decisions.
@@ -30,13 +30,26 @@
 | CLI + doctor | DONE | `npm run doctor` |
 | Reference research + honest matrix | DONE | docs/FEATURE_MATRIX.md |
 
+### Added in session 2 (2026-10-21/22)
+| Area | Status | Evidence |
+|---|---|---|
+| Caption engine: 72 original presets (12 styles x 6 palettes), 5 modes (highlight/build/one-word/karaoke/typewriter), emphasis words, Hindi + 9 Indian scripts font selection with warning when no font | DONE | test/captions.test.ts (every preset builds valid ASS; real libass burn-in; frames inspected visually) |
+| Real per-word timing used when STT provides it; otherwise approximate (manifest says which) | DONE | captions tests, adapters test |
+| SRT/VTT export per clip (`data/captions/`) | DONE | captions test |
+| Web UI + HTTP API + background daemon (`npm start`): token auth, cookie+CSRF header, brute-force limit, streaming upload, Range file serving, preset previews, config whitelist (gates NOT writable), graceful SIGTERM | DONE | test/server.test.ts, test/process.test.ts (real process) |
+| YouTube source adapter (yt-dlp): authorized channels/playlists/videos only, new uploads + backlog, bounded per poll, retry, skip too-long | DONE as adapter; tested with a FAKE yt-dlp | test/adapters.test.ts |
+| STT adapter (faster-whisper helper or `YT_CLIPS_STT_CMD`), non-fatal on failure | DONE as adapter; tested with a FAKE engine | test/adapters.test.ts |
+| Re-analysis never duplicates rendered clips | DONE | test/e2e.test.ts |
+| Deploy files: Dockerfile, compose, systemd unit, install script, Caddyfile, Procfile, .env.example, DEPLOY.md | WRITTEN, **NOT BUILT/RUN here** (no Docker daemon, no registry/apt access in the sandbox). `bash -n` syntax check only | DEPLOY.md |
+
 ### Not done / blocked (do NOT claim these)
-- Real YouTube/Instagram/TikTok/Facebook adapters: **BLOCKED** (needs owner OAuth app credentials + explicit authorization). Only DryRunAdapter exists.
-- Platform analytics ingestion for the scheduler: NOT implemented (scheduler uses baseline until stats are supplied).
-- Speech-to-text: NOT implemented (whisper/faster-whisper absent here). Captions work from sidecar `.srt/.vtt/.json`.
-- YouTube channel watching / yt-dlp download: NOT implemented (yt-dlp absent; outbound network is allowlisted).
-- speed_ramp, beat_effects, caption translation, sports tracking, LLM metadata: NOT implemented.
-- Thumbnail text with Devanagari relies on system font fallback; unverified on a real Hindi title.
+- Real YouTube/Instagram/TikTok/Facebook upload adapters: **BLOCKED** (needs owner OAuth creds + explicit authorization). Only DryRunAdapter exists.
+- Platform analytics ingestion for the scheduler: NOT implemented (baseline hours until stats supplied).
+- Real faster-whisper model run and real yt-dlp download: NOT tested here (not installed / network allowlist). Adapters are covered by fake-binary tests only.
+- Docker build, systemd unit, install-vps.sh, PaaS deploy: NOT verified.
+- autocap.in's own templates: not copyable (proprietary, only names/tags visible). We provide original presets instead.
+- speed_ramp, beat_effects, caption translation, per-word recolor/timing editor in the UI, sports tracking, LLM metadata: NOT implemented.
+- Scoring is heuristic, not a learned model.
 
 ## Known limitations (honest)
 - Word timing in captions is APPROXIMATED from cue duration (no forced alignment).
@@ -44,14 +57,13 @@
 - Face tracking uses OpenCV Haar (basic); falls back to centered crop and says so in the manifest.
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
-## Verification log (session 1)
-- `npm test`: 30/30 pass (unit + real ffmpeg end-to-end). Typecheck: 0 errors (global tsc + sandbox @types/node via typeRoots; repo's own `npm install` was blocked by the sandbox proxy, so run `npm install` once on your machine).
-- `npm run doctor`: ffmpeg/ffprobe/node OK; yt-dlp & whisper WARN (optional).
-- Safety: no upload or comment code path was exercised against a real platform.
+## Verification log
+- Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
+- Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
+- No upload/comment code path was ever exercised against a real platform.
 
-## NEXT STEP (in priority order)
-1. Owner: run `npm install` locally, `npm test`, then `npm run cli -- add <video> --authorized` and `run`; review `data/edited_shorts` + manifests.
-2. STT adapter: call `whisper-cli`/`faster-whisper` when installed -> write `<video>.json` sidecar (src/analysis/transcript.ts already reads it); then test with a real speech sample.
-3. Source adapter: yt-dlp wrapper (+ channel polling) behind `sources/`, only for authorized channels.
-4. Real YouTube adapter (Data API resumable upload, unlisted->verify) in `src/publish/`; needs owner OAuth creds; keep gates OFF until owner approves.
-5. speed_ramp + beat effects, then LLM metadata adapter (optional, key via .env).
+## NEXT STEP (priority order)
+1. Owner: deploy (DEPLOY.md), set `YT_CLIPS_TOKEN`, upload a video you have rights to, check `data/edited_shorts` + manifests + caption preset choice.
+2. First real run of yt-dlp + faster-whisper on the target server; fix whatever breaks (see "NOT tested" above).
+3. Real YouTube adapter (Data API resumable upload, unlisted->verify) in `src/publish/`; needs owner OAuth creds; keep gates OFF until the owner approves.
+4. Analytics ingestion for the scheduler; speed_ramp + beat effects; per-word caption editor; LLM metadata adapter (optional, key via env).

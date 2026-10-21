@@ -5,14 +5,17 @@ import type { Config } from '../config.ts';
 import { run, which } from '../util/proc.ts';
 import { probe } from '../media/probe.ts';
 import { loadTranscript } from '../analysis/transcript.ts';
-import { buildAss } from './ass.ts';
+import { buildStyledAss, type CaptionResult } from './captions.ts';
+import { getPreset } from './captionPresets.ts';
+import { cuesToSubtitles } from '../analysis/transcript.ts';
+import { installedFonts } from '../util/fonts.ts';
 import { buildVideoGraph, buildAudioGraph, treatmentCoverage, type Treatment } from './filters.ts';
 import { qcClip } from './qc.ts';
 import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean }
+export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -61,13 +64,17 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
 
   // 2) edit
   const cues = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, ''));
-  let assPath: string | undefined;
-  if (cues.length) {
+  let assPath: string | undefined; let cap: CaptionResult | undefined;
+  const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
+  if (presetId !== 'none' && (cues.length || ro.title)) {
+    cap = buildStyledAss(cues, c.start_sec, c.end_sec, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
-    writeFileSync(assPath, buildAss(cues, c.start_sec, c.end_sec, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, font: cfg.edit.font, highlight: '&H0000F0FF&', wordsPerChunk: 3 }), 'utf8');
-  } else if (ro.title) {
-    assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
-    writeFileSync(assPath, buildAss([], c.start_sec, c.end_sec, ro.title, { width: cfg.edit.width, height: cfg.edit.height, font: cfg.edit.font, highlight: '&H0000F0FF&', wordsPerChunk: 3 }), 'utf8');
+    writeFileSync(assPath, cap.ass, 'utf8');
+  }
+  if (cues.length && cfg.edit.exportSubtitles) {
+    mkdirSync(join(cfg.dataDir, 'captions'), { recursive: true });
+    writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.srt`), cuesToSubtitles(cues, 'srt', c.start_sec, dur));
+    writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.vtt`), cuesToSubtitles(cues, 'vtt', c.start_sec, dur));
   }
   const reframe = ro.reframe ?? cfg.edit.reframe;
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(rawPath, cfg.rootDir) : undefined;
@@ -87,6 +94,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const cov = treatmentCoverage(treatments);
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
+    captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,
     render: { width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? 'owner-supplied file' : null },
     treatments, treatmentCoverage: cov, qc, createdAt: new Date().toISOString(),
   };

@@ -41,9 +41,10 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
 }
 
 /** Process jobs until the queue is empty (or `maxJobs`). Crash-safe: leases expire and jobs are re-claimed. */
-export async function work(store: Store, cfg: Config, o: { maxJobs?: number } = {}): Promise<{ done: number; failed: number; dead: number }> {
+export async function work(store: Store, cfg: Config, o: { maxJobs?: number; shouldStop?: () => boolean } = {}): Promise<{ done: number; failed: number; dead: number }> {
   let done = 0, failed = 0, dead = 0;
   for (let i = 0; i < (o.maxJobs ?? 1e9); i++) {
+    if (o.shouldStop?.()) break; // graceful shutdown between jobs; in-flight leases expire and are re-claimed after restart
     const job = claim(store);
     if (!job) break;
     try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); }

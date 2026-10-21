@@ -6,8 +6,9 @@ import { probe } from '../media/probe.ts';
 import { detectSilence, detectScenes, audioEnergy, detectBlack, normalizeEnergy } from './signals.ts';
 import { detectBoundaries } from './boundaries.ts';
 import { loadTranscript } from './transcript.ts';
-import { selectCandidates } from './select.ts';
-import { info } from '../util/log.ts';
+import { selectCandidates, overlapRatio } from './select.ts';
+import { info, warn } from '../util/log.ts';
+import { transcribeVideo } from './stt.ts';
 
 export interface AnalysisFile {
   videoId: number; duration: number; introEnd: number; outroStart: number; boundaryReasons: string[];
@@ -28,6 +29,11 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       info('analysis resumed from checkpoint', { videoId });
     } else {
       const m = await probe(v.path);
+      // Speech-to-text only when no transcript sidecar exists and an engine is available. Failure is non-fatal (clips just lack captions).
+      if (cfg.stt.mode === 'auto' && m.hasAudio && loadTranscript(v.path.replace(/\.[^.]+$/, '')).length === 0) {
+        const t = await transcribeVideo(cfg, v.path);
+        if (t.status === 'failed') warn('transcription failed; continuing without captions', { videoId, error: t.error });
+      }
       const [silence, scenes, black, en] = await Promise.all([
         detectSilence(v.path), detectScenes(v.path), detectBlack(v.path), m.hasAudio ? audioEnergy(v.path, 0.5) : Promise.resolve({ step: 0.5, values: [] }),
       ]);
@@ -42,9 +48,14 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
     let inserted = 0;
     store.tx(() => {
+      // Re-analysis (e.g. new transcript): unrendered candidates are re-ranked; already-rendered clips are never duplicated.
+      store.exec(`UPDATE candidates SET status='superseded' WHERE video_id=? AND status='candidate'`, videoId);
+      const rendered = store.all<{ start_sec: number; end_sec: number }>(`SELECT start_sec, end_sec FROM candidates WHERE video_id=? AND status='rendered'`, videoId);
       for (const c of cands) {
+        if (rendered.some((r) => overlapRatio([c.start, c.end], [r.start_sec, r.end_sec]) > 0.5)) continue;
         const r = store.exec(
-          `INSERT OR IGNORE INTO candidates(video_id, start_sec, end_sec, score, category, reason, hook, transcript, language, confidence, signals_json, fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO candidates(video_id, start_sec, end_sec, score, category, reason, hook, transcript, language, confidence, signals_json, fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(fingerprint) DO UPDATE SET status=CASE WHEN candidates.status='superseded' THEN 'candidate' ELSE candidates.status END, score=excluded.score, reason=excluded.reason, hook=excluded.hook, transcript=excluded.transcript, language=excluded.language, signals_json=excluded.signals_json`,
           videoId, c.start, c.end, c.score, c.category, c.reason, c.hook, c.transcript, c.language, c.confidence, JSON.stringify(c.signals), c.fingerprint!);
         inserted += r.changes;
       }

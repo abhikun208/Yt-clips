@@ -60,6 +60,20 @@ test('job worker end-to-end (analyze->render->meta) and restart is a no-op', { t
   s.close();
 });
 
+test('re-analysis never duplicates already-rendered clips and keeps candidate counts stable', { timeout: 200_000 }, async () => {
+  const cfg = testConfig(small); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'r.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src);
+  await analyzeVideo(s, cfg, r.videoId);
+  const first = s.get<{ id: number; start_sec: number; end_sec: number }>('SELECT id, start_sec, end_sec FROM candidates ORDER BY score DESC')!;
+  await renderCandidate(s, cfg, first.id, { zoom: false, glow: false });
+  await analyzeVideo(s, cfg, r.videoId, { force: true }); await analyzeVideo(s, cfg, r.videoId, { force: true });
+  const rows = s.all<{ id: number; status: string; start_sec: number; end_sec: number }>('SELECT id, status, start_sec, end_sec FROM candidates');
+  assert.equal(rows.filter((x) => x.status === 'rendered').length, 1);
+  for (const x of rows.filter((y) => y.status === 'candidate')) assert.ok(Math.min(x.end_sec, first.end_sec) - Math.max(x.start_sec, first.start_sec) <= 0.5 * Math.min(x.end_sec - x.start_sec, first.end_sec - first.start_sec), 'no candidate overlaps the rendered clip by >50%');
+  assert.equal(new Set(rows.map((x) => `${x.start_sec}-${x.end_sec}`)).size, rows.length, 'no duplicate windows');
+  s.close();
+});
+
 test('bad inputs: missing, unsupported, corrupt, no-video', async () => {
   const cfg = testConfig(small); const s = new Store(cfg.dbPath); const d = tmpDir();
   await assert.rejects(ingestLocal(s, cfg, join(d, 'nope.mp4')), /not found/i);

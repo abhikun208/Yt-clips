@@ -6,6 +6,10 @@ import { which, run } from './util/proc.ts';
 import { freeMb } from './util/disk.ts';
 import { planSlots } from './schedule/scheduler.ts';
 import { ingestComment } from './comments/comments.ts';
+import { addYoutubeSource, pollSources } from './sources/youtube.ts';
+import { transcribeVideo } from './analysis/stt.ts';
+import { PRESETS, getPreset } from './edit/captionPresets.ts';
+import { updateOwnerConfig } from './config.ts';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const cfg = loadConfig();
@@ -30,7 +34,7 @@ async function doctor(): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | run [maxJobs] | status | plan <n> | comment <platform> <id> <text...>'); return 0; }
+  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | comment <platform> <id> <text...>  (server: npm start)'); return 0; }
   if (cmd === 'doctor') return doctor();
   const s = new Store(cfg.dbPath);
   try {
@@ -38,6 +42,11 @@ async function main(): Promise<number> {
       const f = rest.find((a) => !a.startsWith('--')); if (!f) throw new Error('usage: add <file> [--authorized]');
       const r = await ingestLocal(s, cfg, f, { authorized: rest.includes('--authorized') }); console.log(r); return 0;
     }
+    if (cmd === 'watch') { const u = rest.find((a) => !a.startsWith('--')); if (!u) throw new Error('usage: watch <youtube-url> --authorized'); console.log(addYoutubeSource(s, u, rest.includes('--authorized'))); return 0; }
+    if (cmd === 'poll') { console.log(await pollSources(s, cfg)); return 0; }
+    if (cmd === 'transcribe') { const v = s.get<{ path: string }>('SELECT path FROM videos WHERE id=?', Number(rest[0])); if (!v) throw new Error('unknown video id'); const r = await transcribeVideo(cfg, v.path); console.log({ status: r.status, cues: r.cues.length, engine: r.engine, error: r.error }); return r.status === 'ok' || r.status === 'no_speech' ? 0 : 1; }
+    if (cmd === 'presets') { for (const p of PRESETS) console.log(`${p.presetId.padEnd(24)} ${p.mode.padEnd(10)} ${p.tags.join(',')}`); console.log(`${PRESETS.length} presets (+ 'none')`); return 0; }
+    if (cmd === 'preset') { const id = rest[0]; if (id !== 'none' && !getPreset(id ?? '')) throw new Error('unknown preset (see: presets)'); updateOwnerConfig(cfg, { edit: { captionPreset: id } }); console.log('default caption preset =', id); return 0; }
     if (cmd === 'run') { console.log('seeded', seedJobs(s, cfg)); console.log(await work(s, cfg, { maxJobs: rest[0] ? Number(rest[0]) : undefined })); return 0; }
     if (cmd === 'status') {
       console.log({ videos: s.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: s.all('SELECT state, count(*) n FROM jobs GROUP BY state'), clips: s.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: s.all('SELECT state, count(*) n FROM uploads GROUP BY state') });

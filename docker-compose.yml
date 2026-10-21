@@ -1,0 +1,13 @@
+services:
+  yt-clips:
+    build:
+      context: .
+      args: { WITH_YTDLP: "1", WITH_WHISPER: "0" }   # set WITH_WHISPER to "1" for automatic transcripts
+    restart: unless-stopped
+    ports: ["8080:8080"]            # put a TLS reverse proxy in front (see deploy/Caddyfile)
+    env_file: .env                  # copy .env.example -> .env and set YT_CLIPS_TOKEN
+    volumes: ["yt-clips-data:/data"]
+    mem_limit: 2g
+    stop_grace_period: 40s
+volumes:
+  yt-clips-data:
