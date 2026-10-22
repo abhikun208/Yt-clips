@@ -1,7 +1,7 @@
 # PROGRESS.md — persistent ledger (kisi bhi AI/session ko yahin se resume karna hai)
 
 > Rule: sirf wahi "DONE" jo code + test/verify ho chuka hai. Baaki sab PARTIAL / TODO / BLOCKED.
-> Last updated: 2026-10-22 (session 2)
+> Last updated: 2026-10-22 (session 3). Resume procedure: AGENTS.md
 
 ## Resume kaise karein
 1. `Prompt` file = original owner requirements (Hinglish). `BRAIN.md` = architecture + decisions.
@@ -53,11 +53,13 @@
 | Transcript word editor API (GET cues, POST edits -> `.edited.json`, timing preserved, original untouched) | DONE as API (no UI screen yet) | test/editor.test.ts |
 | Optional LLM metadata (OpenAI-compatible, env `LLM_BASE_URL`/`LLM_MODEL`/`LLM_API_KEY`), validated, template fallback on any failure | DONE; tested with fake responses only | test/editor.test.ts |
 
+| Analytics for ALL platforms: providers for YouTube (videos.list statistics), Instagram (Graph media insights), Facebook (video_insights total_video_views), TikTok (/v2/video/query/); snapshots table; collector reads only PUBLISHED uploads; per-platform failure isolation; `/api/analytics`, `/api/platforms`, `/api/platforms/:p/token`, CLI `analytics-collect`/`platforms`/`set-token`; auto-collect every `analytics.pollMinutes` (360) in the worker loop | DONE; endpoints/metrics taken from official docs (fetched 2026-10-22) but tested ONLY against fake servers. Tokens for IG/FB/TikTok are owner-supplied (no OAuth/refresh flow for them yet) | test/analytics.test.ts |
+
 ### Not done / blocked (do NOT claim these)
 - Instagram/TikTok/Facebook upload adapters: **BLOCKED** (need owner creds/app review). YouTube adapter exists but is untested against real Google (needs owner OAuth client). Unverified-API-project visibility limits may apply on Google's side.
-- Automatic analytics pull from platforms: NOT implemented (CSV import only; baseline hours until enough rows).
+- IG/FB/TikTok OAuth login + token refresh and their upload adapters: NOT implemented (analytics read with an owner-supplied token only). Real-platform analytics calls never run.
 - Real faster-whisper model run and real yt-dlp download: NOT tested here (not installed / network allowlist). Adapters are covered by fake-binary tests only.
-- Docker build, systemd unit, install-vps.sh, PaaS deploy: NOT verified.
+- Docker build, systemd unit, install-vps.sh, PaaS deploy: NOT verified (sandbox: `docker` CLI exists but no daemon; npm/pip registries unreachable so yt-dlp/faster-whisper cannot be installed here; `npx skills add` also failed for that reason).
 - autocap.in's own templates: not copyable (proprietary, only names/tags visible). We provide original presets instead.
 - speed_ramp (changes duration/captions/QC), caption translation, caption-editor UI screen, per-word recolor, sports tracking, comment posting adapter (needs force-ssl scope), multi-account: NOT implemented.
 - One caption font per clip: a clip mixing Hindi + Latin uses the dominant Indic font for all words (Noto/FreeSans include Latin glyphs, so it renders, but Latin words won't use Poppins).
@@ -70,7 +72,7 @@
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
-- Session 3: 72/72 tests, typecheck clean.
+- Session 3: 73/73 tests, typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.
