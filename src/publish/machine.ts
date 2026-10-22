@@ -81,7 +81,7 @@ function setState(store: Store, id: number, from: string, to: string, extra: { r
  * calls assertPublishAllowed first. Remote state is verified before moving on. Failures are recorded and retryable.
  */
 export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter, uploadId: number, o: { facts: ClipFacts; scheduledAt?: Date | null; approve?: boolean }): Promise<UploadState> {
-  const u = store.get<{ id: number; clip_id: number; platform: string; state: UploadState; idempotency_key: string; remote_id: string | null }>('SELECT id, clip_id, platform, state, idempotency_key, remote_id FROM uploads WHERE id=?', uploadId);
+  const u = store.get<{ id: number; clip_id: number; platform: string; state: UploadState; idempotency_key: string; remote_id: string | null; scheduled_at: string | null }>('SELECT id, clip_id, platform, state, idempotency_key, remote_id, scheduled_at FROM uploads WHERE id=?', uploadId);
   if (!u) throw new Error(`Unknown upload ${uploadId}`);
   const clip = store.get<{ edited_path: string }>('SELECT edited_path FROM clips WHERE id=?', u.clip_id)!;
   const from = u.state;
@@ -109,7 +109,9 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       }
       case 'SCHEDULED_OR_APPROVED': {
         assertPublishAllowed(cfg, 'public');
-        await adapter.publish(u.remote_id!, o.scheduledAt ?? null);
+        // the time chosen at approval is stored; a stored time already in the past means "publish now"
+        const stored = u.scheduled_at ? new Date(u.scheduled_at) : null; const when = o.scheduledAt ?? (stored && stored.getTime() > Date.now() ? stored : null);
+        await adapter.publish(u.remote_id!, when);
         setState(store, u.id, from, 'PUBLISHED', { vis: 'public' }); return 'PUBLISHED';
       }
       default: { const n = nextState(from); if (!n) return from; setState(store, u.id, from, n); return n; }

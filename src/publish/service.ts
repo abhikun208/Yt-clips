@@ -7,6 +7,7 @@ import { TokenProvider, clientCreds, startDeviceFlow, pollDeviceFlow, type Devic
 import { YouTubeAdapter } from './youtube.ts';
 import { instagramProvider, facebookProvider, tiktokProvider, youtubeProvider, type Provider } from '../analytics/providers.ts';
 import { probe } from '../media/probe.ts';
+import { planFromStore } from '../schedule/analytics.ts';
 
 export const secretsFor = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'secrets'));
 
@@ -70,3 +71,32 @@ export function saveTokenFor(cfg: Config, platform: string, accessToken: string)
   secretsFor(cfg).write(platform, { access_token: accessToken });
 }
 export function platformStatus(store: Store, cfg: Config) { return analyticsProviders(store, cfg).map((p) => ({ platform: p.platform, analyticsConnected: p.connected() })); }
+
+export interface TickResult { queued: number; advanced: number; published: number; blocked: Record<string, number>; errors: string[] }
+/**
+ * One automation cycle (called by the worker loop). Does nothing unless the OWNER set automation.autoQueue in data/config.json.
+ * Queues QC-passed clips that have metadata, then advances each pending upload by steps until it blocks. Every step still passes
+ * assertPublishAllowed (gates), so with gates off nothing touches a platform. Scheduling uses measured hours when enough evidence exists.
+ */
+export async function automationTick(store: Store, cfg: Config, now = new Date()): Promise<TickResult> {
+  const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
+  if (!cfg.automation.autoQueue) return r;
+  for (const platform of cfg.automation.platforms) {
+    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c WHERE c.qc_pass=1 AND c.metadata_json IS NOT NULL AND c.edited_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, platform, cfg.automation.maxAdvancePerCycle);
+    for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
+  }
+  const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"}) ORDER BY id LIMIT ?`, ...cfg.automation.platforms, cfg.automation.maxAdvancePerCycle);
+  for (const u of pending) {
+    for (let step = 0; step < 8; step++) {
+      try {
+        const cur = store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', u.id)!.state; let at: Date | null = null;
+        if (cur === 'UNLISTED_VERIFIED' && !cfg.automation.autoApprove) { r.blocked.NEEDS_APPROVAL = (r.blocked.NEEDS_APPROVAL ?? 0) + 1; break; }
+        if (cur === 'UNLISTED_VERIFIED') { at = planFromStore(store, { n: 1, tz: cfg.timezone, cfg: cfg.schedule, from: now, platform: u.platform }).slots[0]?.at ?? null; if (!at) { r.blocked.NO_SLOT = (r.blocked.NO_SLOT ?? 0) + 1; break; } }
+        const res = await advance(store, cfg, u.id, at ? { scheduledAt: at } : {});
+        if ('blocked' in res) { const k = /^[A-Z_]+/.exec(res.blocked)?.[0] ?? 'BLOCKED'; r.blocked[k] = (r.blocked[k] ?? 0) + 1; break; }
+        r.advanced++; if (res.state === 'PUBLISHED') { r.published++; break; } if (res.state === 'QC_FAILED' || res.state === 'FAILED') break;
+      } catch (e) { r.errors.push(`upload ${u.id}: ${(e as Error).message.slice(0, 160)}`); break; }
+    }
+  }
+  return r;
+}

@@ -14,7 +14,7 @@ import { checkDisk, freeMb } from '../util/disk.ts';
 import { info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { UI_HTML } from './ui.ts';
-import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus } from '../publish/service.ts';
+import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick } from '../publish/service.ts';
 import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
 import { collectAnalytics, analyticsSummary } from '../analytics/collect.ts';
 
@@ -62,6 +62,7 @@ export function createApp(o: AppOptions = {}): App {
       try {
         if (Date.now() - lastPoll >= cfg.youtube.pollMinutes * 60_000 && store.get(`SELECT 1 FROM sources WHERE kind IN ('youtube_channel','youtube_video') AND status IN ('active','pending')`)) { lastPoll = Date.now(); const pr = await pollSources(store, cfg); if (pr.discovered || pr.downloaded || pr.failed) info('source poll', pr as unknown as Record<string, unknown>); }
         if (cfg.analytics.pollMinutes > 0 && Date.now() - lastAnalytics >= cfg.analytics.pollMinutes * 60_000) { lastAnalytics = Date.now(); const ar = await collectAnalytics(store, analyticsProviders(store, cfg)); if (ar.some((x) => x.recorded || x.error)) info('analytics collect', { results: ar } as unknown as Record<string, unknown>); }
+        { const tr = await automationTick(store, cfg); if (tr.queued || tr.advanced || tr.errors.length) info('automation tick', tr as unknown as Record<string, unknown>); }
         seedJobs(store, cfg); const r = await work(store, cfg, { shouldStop: () => stopping }); if (r.done || r.failed) info('worker cycle', r); }
       catch (e) { error('worker cycle crashed', { err: (e as Error).message }); }
       finally { running = false; }

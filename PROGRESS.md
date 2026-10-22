@@ -55,6 +55,8 @@
 
 | Analytics for ALL platforms: providers for YouTube (videos.list statistics), Instagram (Graph media insights), Facebook (video_insights total_video_views), TikTok (/v2/video/query/); snapshots table; collector reads only PUBLISHED uploads; per-platform failure isolation; `/api/analytics`, `/api/platforms`, `/api/platforms/:p/token`, CLI `analytics-collect`/`platforms`/`set-token`; auto-collect every `analytics.pollMinutes` (360) in the worker loop | DONE; endpoints/metrics taken from official docs (fetched 2026-10-22) but tested ONLY against fake servers. Tokens for IG/FB/TikTok are owner-supplied (no OAuth/refresh flow for them yet) | test/analytics.test.ts |
 
+| Autonomous loop (`automationTick`, runs in the worker cycle; CLI `tick`): auto-queue QC-passed clips with metadata -> upload unlisted -> verify -> (owner `automation.autoApprove`) schedule at planned slot -> publish. OFF by default (`automation.autoQueue=false`); every step still passes the gates | DONE; fake-Google + real ffmpeg clip. Bug found and fixed by this test: the chosen schedule time was lost at the final publish step (would have published immediately) | test/automation.test.ts |
+
 ### Not done / blocked (do NOT claim these)
 - Instagram/TikTok/Facebook upload adapters: **BLOCKED** (need owner creds/app review). YouTube adapter exists but is untested against real Google (needs owner OAuth client). Unverified-API-project visibility limits may apply on Google's side.
 - IG/FB/TikTok OAuth login + token refresh and their upload adapters: NOT implemented (analytics read with an owner-supplied token only). Real-platform analytics calls never run.
@@ -72,13 +74,14 @@
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
-- Session 3: 73/73 tests, typecheck clean.
+- Session 3: 74/74 tests, typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.
 - No upload/comment code path was ever exercised against a real platform.
 
 ## NEXT STEP (priority order)
+0. To run the autonomous loop the owner edits `data/config.json`: `{"automation":{"autoQueue":true,"autoApprove":false},"gates":{"publishEnabled":true}}`; add `autoApprove:true` and `publicVisibilityAllowed:true` only when ready for public posting.
 1. Owner: deploy (DEPLOY.md), set `YT_CLIPS_TOKEN`, upload a video you have rights to, check `data/edited_shorts` + manifests + caption preset choice.
 2. First real run of yt-dlp + faster-whisper on the target server; fix whatever breaks (see "NOT tested" above).
 3. Owner: create a Google Cloud OAuth client (type "TVs and Limited Input devices"), set `YT_OAUTH_CLIENT_ID/SECRET`, run `npm run cli youtube-connect`, then test ONE private/unlisted upload with gates still limited (edit `data/config.json` yourself: `publishEnabled` only). Fix whatever real Google disagrees with.
