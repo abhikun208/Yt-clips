@@ -13,6 +13,8 @@ import { presetPreview } from '../edit/preview.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { info, warn, error } from '../util/log.ts';
 import { UI_HTML } from './ui.ts';
+import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll } from '../publish/service.ts';
+import { importAnalyticsCsv, planFromStore } from '../schedule/analytics.ts';
 
 export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown> }
 export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean }
@@ -140,6 +142,23 @@ export function createApp(o: AppOptions = {}): App {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean };
         const r = addYoutubeSource(store, String(b.url ?? ''), b.authorized === true); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, ...r, ytdlp: await ytdlpAvailable() });
       }
+      if (p === '/api/uploads' && m === 'GET') return json(res, 200, { uploads: listUploads(store) });
+      if (p === '/api/uploads' && m === 'POST') {
+        const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { clipId?: number; platform?: string };
+        if (!Number.isInteger(b.clipId) || !b.platform) return json(res, 400, { error: 'invalid: clipId (int) and platform required' });
+        return json(res, 200, { ok: true, id: queueUpload(store, b.clipId!, String(b.platform)) });
+      }
+      const adv = /^\/api\/uploads\/(\d+)\/advance$/.exec(p);
+      if (adv && m === 'POST') {
+        const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { approve?: boolean; scheduledAt?: string };
+        const at = b.scheduledAt ? new Date(b.scheduledAt) : null; if (at && Number.isNaN(at.getTime())) return json(res, 400, { error: 'invalid scheduledAt' });
+        const r = await advance(store, cfg, Number(adv[1]), { approve: b.approve === true, scheduledAt: at }); return json(res, 200, r);
+      }
+      if (p === '/api/youtube' && m === 'GET') return json(res, 200, youtubeStatus(store, cfg));
+      if (p === '/api/youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
+      if (p === '/api/youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg));
+      if (p === '/api/analytics/import' && m === 'POST') return json(res, 200, importAnalyticsCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'), url.searchParams.get('platform') ?? undefined));
+      if (p === '/api/schedule' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: cfg.schedule }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
       if (p === '/api/run' && m === 'POST') { void runOnce(); return json(res, 202, { started: true }); }
       if (p === '/api/upload' && m === 'POST') {
         if (url.searchParams.get('authorized') !== '1') return json(res, 400, { error: 'rights/authorization must be confirmed (authorized=1)' });
@@ -162,7 +181,7 @@ export function createApp(o: AppOptions = {}): App {
       }
       return json(res, 404, { error: 'not found' });
     } catch (e) {
-      const err = e as Error & { status?: number }; const status = err.status ?? (/LOW_DISK/.test(err.message) ? 507 : /Unsupported|not found|ffprobe failed|Unexpected token|JSON|authorization required|only https|invalid|unsupported YouTube/i.test(err.message) ? 400 : 500);
+      const err = e as Error & { status?: number }; const status = err.status ?? (/LOW_DISK/.test(err.message) ? 507 : /Unsupported|not found|ffprobe failed|Unexpected token|JSON|authorization required|only https|invalid|Unknown (clip|upload)|unsupported YouTube/i.test(err.message) ? 400 : 500);
       if (status >= 500) error('request failed', { path: p, err: err.message }); else warn('bad request', { path: p, err: err.message.slice(0, 120) });
       if (!res.headersSent) json(res, status, { error: status >= 500 ? 'internal error' : err.message.slice(0, 200) }); else res.end();
     }

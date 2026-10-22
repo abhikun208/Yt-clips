@@ -4,12 +4,14 @@ import { ingestLocal } from './sources/local.ts';
 import { seedJobs, work } from './pipeline.ts';
 import { which, run } from './util/proc.ts';
 import { freeMb } from './util/disk.ts';
-import { planSlots } from './schedule/scheduler.ts';
 import { ingestComment } from './comments/comments.ts';
 import { addYoutubeSource, pollSources } from './sources/youtube.ts';
 import { transcribeVideo } from './analysis/stt.ts';
 import { PRESETS, getPreset } from './edit/captionPresets.ts';
 import { updateOwnerConfig } from './config.ts';
+import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll } from './publish/service.ts';
+import { importAnalyticsCsv, planFromStore } from './schedule/analytics.ts';
+import { readFileSync } from 'node:fs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const cfg = loadConfig();
@@ -34,7 +36,7 @@ async function doctor(): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | comment <platform> <id> <text...>  (server: npm start)'); return 0; }
+  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | comment <platform> <id> <text...>  (server: npm start)'); return 0; }
   if (cmd === 'doctor') return doctor();
   const s = new Store(cfg.dbPath);
   try {
@@ -52,7 +54,18 @@ async function main(): Promise<number> {
       console.log({ videos: s.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: s.all('SELECT state, count(*) n FROM jobs GROUP BY state'), clips: s.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: s.all('SELECT state, count(*) n FROM uploads GROUP BY state') });
       return 0;
     }
-    if (cmd === 'plan') { for (const p of planSlots(Number(rest[0] ?? 3), { from: new Date(), tz: cfg.timezone, cfg: cfg.schedule })) console.log(p.at.toISOString(), `hour=${p.hour}`, p.basis); return 0; }
+    if (cmd === 'youtube-status') { console.log(JSON.stringify(youtubeStatus(s, cfg), null, 2)); return 0; }
+    if (cmd === 'youtube-connect') {
+      const d = await youtubeConnectStart(s, cfg); console.log(`Open ${d.verification_url} and enter code: ${d.user_code}`);
+      const end = Date.now() + d.expires_in * 1000; let wait = Math.max(d.interval, 5) * 1000;
+      while (Date.now() < end) { await new Promise((r) => setTimeout(r, wait)); const r = await youtubeConnectPoll(s, cfg); if (r.status === 'ok') { console.log('connected (refresh token stored in data/secrets)'); return 0; } if (r.status === 'denied' || r.status === 'expired') { console.log(r.status); return 1; } if (r.status === 'slow_down') wait += 5000; }
+      console.log('timed out'); return 1;
+    }
+    if (cmd === 'uploads') { console.table(listUploads(s)); return 0; }
+    if (cmd === 'queue') { console.log('upload id', queueUpload(s, Number(rest[0]), String(rest[1] ?? 'youtube_shorts'))); return 0; }
+    if (cmd === 'advance') { const ai = rest.indexOf('--at'); console.log(await advance(s, cfg, Number(rest[0]), { approve: rest.includes('--approve'), scheduledAt: ai >= 0 ? new Date(rest[ai + 1]!) : null })); return 0; }
+    if (cmd === 'analytics-import') { console.log(importAnalyticsCsv(s, readFileSync(String(rest[0]), 'utf8'))); return 0; }
+    if (cmd === 'plan') { const pl = planFromStore(s, { n: Number(rest[0] ?? 3), tz: cfg.timezone, cfg: cfg.schedule }); console.log(`evidence rows: ${pl.samples}`); for (const p of pl.slots) console.log(p.at.toISOString(), `hour=${p.hour}`, p.basis); return 0; }
     if (cmd === 'comment') { const [pl, id, ...t] = rest; console.log(ingestComment(s, pl!, id!, t.join(' '))); return 0; }
     console.error(`unknown command ${cmd}`); return 2;
   } finally { s.close(); }

@@ -20,7 +20,7 @@ export const PLATFORM_CONSTRAINTS: Record<string, Constraints> = {
   tiktok: { maxDurationSec: 60, minDurationSec: 3, aspect: 'vertical', maxTitle: 150, maxDescription: 2200, note: 'conservative; verify' },
 };
 
-export interface ClipFacts { width: number; height: number; duration: number; title: string; description: string; qcPass: boolean; authorized: boolean }
+export interface ClipFacts { width: number; height: number; duration: number; title: string; description: string; qcPass: boolean; authorized: boolean; tags?: string[]; thumbnailPath?: string | null; categoryId?: string; language?: string }
 export function validateForPlatform(platform: string, f: ClipFacts): string[] {
   const c = PLATFORM_CONSTRAINTS[platform]; const e: string[] = [];
   if (!c) return [`unknown platform ${platform}`];
@@ -37,9 +37,11 @@ export function validateForPlatform(platform: string, f: ClipFacts): string[] {
 export interface Adapter {
   readonly name: string;
   /** Upload privately/unlisted. Must be idempotent on idempotencyKey. Returns remote id. */
-  upload(a: { filePath: string; title: string; description: string; tags: string[]; visibility: 'private' | 'unlisted'; idempotencyKey: string }): Promise<{ remoteId: string }>;
-  /** Check REMOTE processing + metadata state (not just HTTP 200). */
-  verify(remoteId: string): Promise<{ processed: boolean; metadataMatches: boolean; visibility: string }>;
+  upload(a: { filePath: string; title: string; description: string; tags: string[]; visibility: 'private' | 'unlisted'; idempotencyKey: string; categoryId?: string; language?: string }): Promise<{ remoteId: string }>;
+  /** Check REMOTE processing + metadata state (not just HTTP 200). Throw `NOT_READY: ...` while the platform is still processing. */
+  verify(remoteId: string, expect?: { title: string; visibility: string }): Promise<{ processed: boolean; metadataMatches: boolean; visibility: string }>;
+  /** Best-effort custom thumbnail; returns false (never throws for ordinary rejections). */
+  thumbnail?(remoteId: string, path: string): Promise<boolean>;
   publish(remoteId: string, at: Date | null): Promise<void>;
 }
 
@@ -54,7 +56,7 @@ export class DryRunAdapter implements Adapter {
     this.store.set(id, { vis: a.visibility, title: a.title });
     return { remoteId: id };
   }
-  async verify(id: string) { const r = this.store.get(id); return { processed: !!r, metadataMatches: !!r, visibility: r?.vis ?? 'unknown' }; }
+  async verify(id: string, _expect?: { title: string; visibility: string }) { const r = this.store.get(id); return { processed: !!r, metadataMatches: !!r, visibility: r?.vis ?? 'unknown' }; }
   async publish(id: string) { this.calls.push(`publish:${id}`); const r = this.store.get(id); if (r) r.vis = 'public'; }
 }
 
@@ -91,12 +93,13 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UPLOAD_PENDING': assertPublishAllowed(cfg, 'unlisted'); setState(store, u.id, from, 'UPLOADING'); return 'UPLOADING';
       case 'UPLOADING': {
         assertPublishAllowed(cfg, 'unlisted');
-        const r = await adapter.upload({ filePath: clip.edited_path, title: o.facts.title, description: o.facts.description, tags: [], visibility: 'unlisted', idempotencyKey: u.idempotency_key });
+        const r = await adapter.upload({ filePath: clip.edited_path, title: o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
+        if (adapter.thumbnail && o.facts.thumbnailPath) { try { await adapter.thumbnail(r.remoteId, o.facts.thumbnailPath); } catch { /* thumbnails are optional */ } }
         setState(store, u.id, from, 'UPLOAD_VERIFYING', { remote: r.remoteId, vis: 'unlisted' }); return 'UPLOAD_VERIFYING';
       }
       case 'UPLOAD_VERIFYING': {
         assertPublishAllowed(cfg, 'unlisted');
-        const v = await adapter.verify(u.remote_id!);
+        const v = await adapter.verify(u.remote_id!, { title: o.facts.title, visibility: 'unlisted' });
         if (!v.processed || !v.metadataMatches || v.visibility === 'public') throw new Error(`remote verify failed: ${JSON.stringify(v)}`);
         setState(store, u.id, from, 'UNLISTED_VERIFIED'); return 'UNLISTED_VERIFIED';
       }
@@ -113,8 +116,8 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
     }
   } catch (e) {
     const msg = (e as Error).message;
-    // Gate / approval blocks are NOT failures: state stays so it can resume later.
-    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL)/.test(msg)) { store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; }
+    // Gate / approval / not-ready / quota / auth blocks are NOT failures: state stays so it resumes later.
+    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_)/.test(msg)) { store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; }
     setState(store, u.id, from, 'FAILED', { err: msg.slice(0, 500) });
     // keep a retry pointer: FAILED re-enters via READY_FOR_QC which re-validates, upload key is idempotent
     throw e;

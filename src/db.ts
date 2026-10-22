@@ -43,6 +43,14 @@ const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_cand_video ON candidates(video_id);
   CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state, run_after);
   `,
+  // v2 (additive): resumable-upload sessions (crash-safe, no duplicate uploads) and per-day API quota accounting.
+  `
+  CREATE TABLE IF NOT EXISTS upload_sessions (
+    key TEXT PRIMARY KEY, session_uri TEXT, total INTEGER, remote_id TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE TABLE IF NOT EXISTS quota_usage (
+    day TEXT NOT NULL, pool TEXT NOT NULL, units INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, pool));
+  CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+  `,
 ];
 
 export type Row = Record<string, unknown>;
