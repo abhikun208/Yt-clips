@@ -42,13 +42,24 @@
 | Re-analysis never duplicates rendered clips | DONE | test/e2e.test.ts |
 | Deploy files: Dockerfile, compose, systemd unit, install script, Caddyfile, Procfile, .env.example, DEPLOY.md | WRITTEN, **NOT BUILT/RUN here** (no Docker daemon, no registry/apt access in the sandbox). `bash -n` syntax check only | DEPLOY.md |
 
+### Added in session 3 (2026-10-22)
+| Area | Status | Evidence |
+|---|---|---|
+| YouTube adapter: Google device-flow OAuth (scope `youtube`), encrypted refresh-token store (AES-256-GCM via `YT_CLIPS_SECRET_KEY`, else 0600 plaintext), resumable chunked upload (crash-safe session persistence, 5xx retry, status-query resume, 404 restart, no duplicate uploads), remote verify (waits while processing), thumbnail (best-effort), publish/schedule (merges existing status first), per-Pacific-day quota accounting | DONE; tested ONLY against a FAKE Google server written from the official docs. **Never run against real Google.** | test/youtube.test.ts (9), test/fakeGoogle.ts |
+| Upload API/CLI: queue, advance, list, youtube connect/poll/status; gates still enforced and NOT settable via API | DONE | test/publishwire.test.ts |
+| Analytics CSV import (owner-supplied; needs time-of-day + tz) -> measured posting hours for the scheduler (`/api/schedule`, `npm run cli plan`) | DONE (manual import). Automatic pull from YouTube Analytics API: NOT implemented | publishwire tests |
+| Beat effects: punch-zoom (+6%) at audio-energy peaks, recorded in manifest | DONE (graph + real ffmpeg run). Not beat/BPM detection: it is loud-transient peaks | test/beats.test.ts |
+| Bug fixed: zoompan changed clip duration when source fps != output fps (fps filter added before zoompan) | FIXED | beats test |
+| Transcript word editor API (GET cues, POST edits -> `.edited.json`, timing preserved, original untouched) | DONE as API (no UI screen yet) | test/editor.test.ts |
+| Optional LLM metadata (OpenAI-compatible, env `LLM_BASE_URL`/`LLM_MODEL`/`LLM_API_KEY`), validated, template fallback on any failure | DONE; tested with fake responses only | test/editor.test.ts |
+
 ### Not done / blocked (do NOT claim these)
-- Real YouTube/Instagram/TikTok/Facebook upload adapters: **BLOCKED** (needs owner OAuth creds + explicit authorization). Only DryRunAdapter exists.
-- Platform analytics ingestion for the scheduler: NOT implemented (baseline hours until stats supplied).
+- Instagram/TikTok/Facebook upload adapters: **BLOCKED** (need owner creds/app review). YouTube adapter exists but is untested against real Google (needs owner OAuth client). Unverified-API-project visibility limits may apply on Google's side.
+- Automatic analytics pull from platforms: NOT implemented (CSV import only; baseline hours until enough rows).
 - Real faster-whisper model run and real yt-dlp download: NOT tested here (not installed / network allowlist). Adapters are covered by fake-binary tests only.
 - Docker build, systemd unit, install-vps.sh, PaaS deploy: NOT verified.
 - autocap.in's own templates: not copyable (proprietary, only names/tags visible). We provide original presets instead.
-- speed_ramp, beat_effects, caption translation, per-word recolor/timing editor in the UI, sports tracking, LLM metadata: NOT implemented.
+- speed_ramp (changes duration/captions/QC), caption translation, caption-editor UI screen, per-word recolor, sports tracking, comment posting adapter (needs force-ssl scope), multi-account: NOT implemented.
 - One caption font per clip: a clip mixing Hindi + Latin uses the dominant Indic font for all words (Noto/FreeSans include Latin glyphs, so it renders, but Latin words won't use Poppins).
 - Scoring is heuristic, not a learned model.
 
@@ -59,6 +70,7 @@
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
+- Session 3: 72/72 tests, typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.
@@ -67,5 +79,5 @@
 ## NEXT STEP (priority order)
 1. Owner: deploy (DEPLOY.md), set `YT_CLIPS_TOKEN`, upload a video you have rights to, check `data/edited_shorts` + manifests + caption preset choice.
 2. First real run of yt-dlp + faster-whisper on the target server; fix whatever breaks (see "NOT tested" above).
-3. Real YouTube adapter (Data API resumable upload, unlisted->verify) in `src/publish/`; needs owner OAuth creds; keep gates OFF until the owner approves.
-4. Analytics ingestion for the scheduler; speed_ramp + beat effects; per-word caption editor; LLM metadata adapter (optional, key via env).
+3. Owner: create a Google Cloud OAuth client (type "TVs and Limited Input devices"), set `YT_OAUTH_CLIENT_ID/SECRET`, run `npm run cli youtube-connect`, then test ONE private/unlisted upload with gates still limited (edit `data/config.json` yourself: `publishEnabled` only). Fix whatever real Google disagrees with.
+4. Unbuilt: speed_ramp, caption-editor UI screen, comment-posting adapter, YouTube Analytics API auto-pull, Instagram/TikTok/Facebook adapters, Docker/VPS verification on a real host.

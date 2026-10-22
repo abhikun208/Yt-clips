@@ -25,14 +25,15 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Hook title overlay | Ssemble | ASS animated title | DONE | real frame inspected |
 | Color grade, vignette, glow, zoom, fades, sharpen | CapCut | FFmpeg | DONE | manifest + render |
 | Auto zoom | CapCut | zoompan | DONE (slow push-in) | filters test |
-| Speed ramp / beat-sync effects | CapCut | FFmpeg + beat detection | NOT IMPLEMENTED | listed as not applied in every manifest |
+| Beat effects (punch-zoom at audio peaks) | CapCut | FFmpeg zoompan + energy peaks | DONE (peaks, not BPM) | test/beats.test.ts |
+| Speed ramp | CapCut | FFmpeg setpts/atempo | NOT IMPLEMENTED | listed as not applied in every manifest |
 | Voice enhance, noise reduction, loudness -14 LUFS | Descript Studio Sound-like | afftdn+compressor+loudnorm | DONE | QC measured -14.1 LUFS |
 | BGM with ducking | CapCut | sidechaincompress | DONE only when owner puts licensed music in `assets/music/` (none bundled) | filters test |
-| Hinglish SEO titles/desc/tags/hashtags | Ssemble (LLM) | Template (offline); LLM adapter possible | PARTIAL: template-based, honest, no LLM | metadata test |
+| Hinglish SEO titles/desc/tags/hashtags | Ssemble (LLM) | Template (offline); LLM adapter possible | DONE: template by default; optional OpenAI-compatible LLM via env (fake-tested only) | metadata test |
 | Thumbnail | Ssemble | FFmpeg frame + text, validated | DONE | e2e test |
-| Scheduler (caps, gaps, quiet hours, measured vs baseline) | Ssemble | pure logic | DONE (logic). Analytics ingestion from platforms: NOT implemented | scheduler test |
+| Scheduler (caps, gaps, quiet hours, measured vs baseline) | Ssemble | pure logic | DONE; analytics via owner CSV import. Auto-pull from platform APIs: NOT implemented | scheduler test |
 | Upload state machine, unlisted-first, remote verify, idempotency | — | logic | DONE with DryRun adapter | publish tests |
-| Real YouTube / Instagram / TikTok / Facebook upload | Ssemble | Official APIs need owner OAuth + app review | BLOCKED: no adapter shipped; needs creds + explicit authorization | gates OFF |
+| Real YouTube / Instagram / TikTok / Facebook upload | Ssemble | Official APIs need owner OAuth + app review | YouTube adapter DONE but fake-Google-tested only; Instagram/TikTok/Facebook BLOCKED (creds/app review) | gates OFF |
 | Channel monitoring / yt-dlp download (new uploads + backlog, bounded) | Ssemble | yt-dlp | DONE as adapter, tested with a fake yt-dlp; real yt-dlp/network NOT tested here | test/adapters.test.ts |
 | Comment classify + draft replies (approval mode) | — | rules | DONE; posting adapter NOT implemented | comments test |
 | Clip rewards, game-video layout | Ssemble | n/a | NOT IMPLEMENTED / out of scope | — |

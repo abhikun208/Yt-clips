@@ -27,15 +27,40 @@ export function parseSubtitles(text: string): Cue[] {
 
 /** Load a sidecar transcript if present (.srt/.vtt/.json [{start,end,text}]). Returns [] when none (no fake transcript). */
 export function loadTranscript(base: string): Cue[] {
+  if (existsSync(base + '.edited.json')) { const e = loadJsonCues(base + '.edited.json'); if (e.length) return e; }
   for (const ext of ['.srt', '.vtt']) if (existsSync(base + ext)) return parseSubtitles(readFileSync(base + ext, 'utf8'));
-  if (existsSync(base + '.json')) {
-    try {
-      const j = JSON.parse(readFileSync(base + '.json', 'utf8')) as Cue[];
-      return j.filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start && c.text).map((c) => ({
-        ...c, words: Array.isArray(c.words) ? c.words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start && w.text) : undefined }));
-    } catch { return []; }
-  }
+  if (existsSync(base + '.json')) return loadJsonCues(base + '.json');
   return [];
+}
+function loadJsonCues(file: string): Cue[] {
+  try {
+    const j = JSON.parse(readFileSync(file, 'utf8')) as Cue[];
+    return j.filter((c) => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end > c.start && c.text).map((c) => ({
+      ...c, words: Array.isArray(c.words) ? c.words.filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start && w.text) : undefined }));
+  } catch { return []; }
+}
+
+export interface CueEdit { cue: number; text?: string; words?: { i: number; text: string }[] }
+/**
+ * Fix transcript wording WITHOUT moving timing. Word edits replace the word text (timing kept) and rebuild the cue text;
+ * a cue-text edit on a cue with measured words keeps the word timings only if the word count is unchanged, otherwise drops them
+ * (so captions fall back to honest approximate timing instead of misaligned "measured" timing).
+ */
+export function applyCueEdits(cues: Cue[], edits: CueEdit[]): Cue[] {
+  const out = cues.map((c) => ({ ...c, words: c.words?.map((w) => ({ ...w })) }));
+  for (const e of edits) {
+    const c = out[e.cue]; if (!c) throw new Error(`invalid: no cue ${e.cue}`);
+    if (e.words) {
+      if (!c.words) throw new Error(`invalid: cue ${e.cue} has no word timing to edit`);
+      for (const w of e.words) { const t = c.words[w.i]; if (!t) throw new Error(`invalid: no word ${w.i} in cue ${e.cue}`); const nt = w.text.trim(); if (!nt || nt.length > 60) throw new Error('invalid: word text must be 1..60 chars'); t.text = nt; }
+      c.text = c.words.map((w) => w.text).join(' ');
+    } else if (typeof e.text === 'string') {
+      const nt = e.text.replace(/\s+/g, ' ').trim(); if (!nt || nt.length > 500) throw new Error('invalid: cue text must be 1..500 chars');
+      const n = nt.split(' ').length; c.text = nt;
+      if (c.words) { if (c.words.length === n) c.words.forEach((w, i) => { w.text = nt.split(' ')[i]!; }); else delete c.words; }
+    }
+  }
+  return out;
 }
 
 export function textInRange(cues: Cue[], start: number, end: number): string {

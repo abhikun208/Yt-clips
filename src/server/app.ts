@@ -12,6 +12,7 @@ import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { info, warn, error } from '../util/log.ts';
+import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { UI_HTML } from './ui.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll } from '../publish/service.ts';
 import { importAnalyticsCsv, planFromStore } from '../schedule/analytics.ts';
@@ -171,6 +172,16 @@ export function createApp(o: AppOptions = {}): App {
           const r = await ingestLocal(store, cfg, tmp, { authorized: true, title: safeName(url.searchParams.get('name') ?? '') });
           void runOnce(); return json(res, 200, { ok: true, videoId: r.videoId, duplicate: r.duplicate });
         } finally { rmSync(tmp, { force: true }); }
+      }
+      if (p === '/api/transcript' && m === 'GET') {
+        const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', Number(url.searchParams.get('video'))); if (!v) return json(res, 404, { error: 'unknown video' });
+        return json(res, 200, { cues: loadTranscript(v.path.replace(/\.[^.]+$/, '')) });
+      }
+      if (p === '/api/transcript/edit' && m === 'POST') {
+        const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', Number(url.searchParams.get('video'))); if (!v) return json(res, 404, { error: 'unknown video' });
+        const b = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8') || '{}') as { edits?: CueEdit[] }; if (!Array.isArray(b.edits) || !b.edits.length || b.edits.length > 500) return json(res, 400, { error: 'invalid: edits[] required (1..500)' });
+        const base = v.path.replace(/\.[^.]+$/, ''); const next = applyCueEdits(loadTranscript(base), b.edits);
+        writeFileSync(base + '.edited.json', JSON.stringify(next)); return json(res, 200, { ok: true, cues: next.length, note: 'saved as .edited.json (original transcript untouched); used by future renders' });
       }
       if (p === '/api/transcript' && m === 'POST') {
         const id = Number(url.searchParams.get('video')); const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', id); if (!v) return json(res, 404, { error: 'unknown video' });
