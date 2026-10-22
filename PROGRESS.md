@@ -1,12 +1,14 @@
 # PROGRESS.md — persistent ledger (kisi bhi AI/session ko yahin se resume karna hai)
 
 > Rule: sirf wahi "DONE" jo code + test/verify ho chuka hai. Baaki sab PARTIAL / TODO / BLOCKED.
-> Last updated: 2026-10-22 (session 3). Resume procedure: AGENTS.md
+> Last updated: 2026-10-22 (session 3).
 
 ## Resume kaise karein
 1. `Prompt` file = original owner requirements (Hinglish). `BRAIN.md` = architecture + decisions.
 2. `npm run typecheck && npm test` chalao, phir neeche "NEXT STEP" se aage badho.
-3. Runtime dependencies ZERO (Node >=22.18, `node:sqlite`, `node:test`). Dev: typescript, @types/node (is sandbox mein npm registry blocked tha, typecheck global `tsc` se hota hai).
+3. Har NEXT STEP item: implement -> test -> `npm test` (fail 0) -> PROGRESS.md update -> commit+push `main`. Item tabhi DONE jab test pass ho; fake server se hua to "fake-tested" likho. Ant mein `git status -sb` = `main...origin/main`.
+4. Guardrails: gates (`publishEnabled`, `publicVisibilityAllowed`, `commentsAutoPost`) sirf owner `data/config.json` mein badle (API/env se kabhi nahi); migrations additive; secrets logs/API mein nahi; owner ko Hinglish mein reply.
+5. Runtime dependencies ZERO (Node >=22.18, `node:sqlite`, `node:test`). Dev: typescript, @types/node (is sandbox mein npm registry blocked tha, typecheck global `tsc` se hota hai).
 
 ## Environment facts (verified)
 - Node v22.22, ffmpeg/ffprobe 6.1.1 (libx264, aac, subtitles/libass, loudnorm, zoompan, scdet, silencedetect), python3 + opencv (face helper optional).
