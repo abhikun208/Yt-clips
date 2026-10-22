@@ -9,13 +9,15 @@ import { buildStyledAss, type CaptionResult } from './captions.ts';
 import { getPreset } from './captionPresets.ts';
 import { cuesToSubtitles } from '../analysis/transcript.ts';
 import { installedFonts } from '../util/fonts.ts';
+import { pickPeaks } from './beats.ts';
+import { audioEnergy } from '../analysis/signals.ts';
 import { buildVideoGraph, buildAudioGraph, treatmentCoverage, type Treatment } from './filters.ts';
 import { qcClip } from './qc.ts';
 import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean }
+export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -78,7 +80,9 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   }
   const reframe = ro.reframe ?? cfg.edit.reframe;
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(rawPath, cfg.rootDir) : undefined;
-  const vg = buildVideoGraph({ inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, cropXFrac: cx, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true });
+  let punch: number[] = [];
+  if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(rawPath, 0.25), { duration: m.duration }); } catch { punch = []; } }
+  const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, cropXFrac: cx, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true });
   const music = pickMusic(cfg.dirs.assets);
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
@@ -90,7 +94,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
 
   // 3) QC (measured)
   const qc = await qcClip(finalPath, { width: cfg.edit.width, height: cfg.edit.height, duration: m.duration, targetLufs: cfg.edit.targetLufs, requireAudio: m.hasAudio });
-  const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, { dimension: 'speed_ramp', applied: false, detail: 'not implemented in this version' }, { dimension: 'beat_effects', applied: false, detail: 'not implemented in this version' }];
+  const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, { dimension: 'speed_ramp', applied: false, detail: 'not implemented in this version' }];
   const cov = treatmentCoverage(treatments);
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,

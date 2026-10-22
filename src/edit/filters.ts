@@ -1,3 +1,4 @@
+import { zoomExpr } from './beats.ts';
 // Pure filtergraph builders (unit-testable). Every treatment is recorded so the manifest is truthful.
 export type Mood = 'funny' | 'sad' | 'happy' | 'shock' | 'aggressive' | 'cute' | 'high_energy' | 'dynamic_visuals' | 'dialogue' | 'general' | string;
 
@@ -19,7 +20,7 @@ export function gradeFor(mood: Mood): { eq: string; balance: string; detail: str
 export interface VideoGraphOpts {
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
   reframe: 'crop' | 'fit_blur'; cropXFrac?: number; // 0..1 center of subject horizontally (from face tracking), default .5
-  assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean;
+  assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[];
 }
 
 /** Escape a path for use inside an ffmpeg filter argument. */
@@ -49,11 +50,13 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
   let cur = 'base'; let n = 0;
   const chain = (f: string) => { const nx = `v${n++}`; parts.push(`[${cur}]${f}[${nx}]`); cur = nx; };
 
-  if (o.zoom) {
+  const punch = o.punch ?? [];
+  if (o.zoom || punch.length) {
     const frames = Math.max(1, Math.round(o.duration * o.fps));
-    chain(`zoompan=z='min(1.0+0.12*on/${frames},1.12)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${o.outW}x${o.outH}:fps=${o.fps}`);
-    t.push({ dimension: 'dynamic_zoom', applied: true, detail: 'slow push-in to 112%' });
+    chain(`fps=${o.fps},zoompan=z='${zoomExpr(frames, o.fps, o.zoom, punch)}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${o.outW}x${o.outH}:fps=${o.fps}`);
+    t.push({ dimension: 'dynamic_zoom', applied: o.zoom, detail: o.zoom ? 'slow push-in to 112%' : 'disabled' });
   } else t.push({ dimension: 'dynamic_zoom', applied: false, detail: 'disabled' });
+  t.push(punch.length ? { dimension: 'beat_effects', applied: true, detail: `punch-zoom (+6%, 0.4s) at audio peaks: ${punch.map((x) => x.toFixed(1) + 's').join(', ')}` } : { dimension: 'beat_effects', applied: false, detail: 'no strong audio peaks found (or disabled)' });
 
   chain(g.eq); chain(g.balance);
   t.push({ dimension: 'color_grade', applied: true, detail: `${o.mood}: ${g.detail}` });
