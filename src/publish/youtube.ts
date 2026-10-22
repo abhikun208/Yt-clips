@@ -6,7 +6,7 @@ import { warn } from '../util/log.ts';
 
 const API = () => process.env.YT_API_BASE ?? 'https://www.googleapis.com';
 /** Costs per Google's quota page (fetched 2026-10-22): videos.insert has its own 100/day cap (1 each); other calls draw on 10,000 units/day. Verify if Google changes them. */
-export const QUOTA = { insert: { pool: 'insert', cost: 1 }, update: { pool: 'units', cost: 50 }, list: { pool: 'units', cost: 1 }, thumbnail: { pool: 'units', cost: 50 } } as const;
+export const QUOTA = { insert: { pool: 'insert', cost: 1 }, update: { pool: 'units', cost: 50 }, list: { pool: 'units', cost: 1 }, thumbnail: { pool: 'units', cost: 50 }, comment: { pool: 'units', cost: 50 } } as const;
 export interface YtOptions { chunkBytes?: number; dailyUnits?: number; dailyInserts?: number; maxRetries?: number; sleep?: (ms: number) => Promise<void>; now?: () => Date; categoryId?: string; notReadyTimeoutMs?: number }
 
 /** Quota day boundary = midnight America/Los_Angeles (Google resets quota in Pacific Time). */
@@ -133,6 +133,22 @@ export class YouTubeAdapter implements Adapter {
       for (const v of j.items ?? []) out.push({ id: v.id, publishedAt: v.snippet?.publishedAt ?? null, views: n(v.statistics?.viewCount), likes: n(v.statistics?.likeCount), comments: n(v.statistics?.commentCount) });
     }
     return out;
+  }
+  /** Top-level comments on one of our videos (commentThreads.list, 1 unit). Pass `ownChannelId` to drop our own comments. */
+  async listComments(videoId: string, ownChannelId?: string | null): Promise<{ id: string; text: string; author: string; canReply: boolean }[]> {
+    this.charge('list'); const r = await this.req(`${API()}/youtube/v3/commentThreads?part=snippet&videoId=${encodeURIComponent(videoId)}&maxResults=50&order=time&textFormat=plainText`);
+    if (r.status === 403) { const t = await r.text(); if (/commentsDisabled/i.test(t)) return []; throw await this.apiError(new Response(t, { status: 403 }), 'commentThreads.list'); }
+    if (!r.ok) throw await this.apiError(r, 'commentThreads.list');
+    const j = await r.json() as { items?: { snippet?: { canReply?: boolean; topLevelComment?: { id: string; snippet?: { textDisplay?: string; textOriginal?: string; authorDisplayName?: string; authorChannelId?: { value?: string } } } } }[] };
+    return (j.items ?? []).flatMap((it) => { const c = it.snippet?.topLevelComment; const sn = c?.snippet; const text = sn?.textOriginal ?? sn?.textDisplay ?? '';
+      if (!c || !text || (ownChannelId && sn?.authorChannelId?.value === ownChannelId)) return []; return [{ id: c.id, text, author: sn?.authorDisplayName ?? '', canReply: it.snippet?.canReply !== false }]; });
+  }
+  /** Reply to a comment (comments.insert, 50 units). Needs the youtube.force-ssl scope: a 403 on the device-flow token surfaces as AUTH_SCOPE. */
+  async replyToComment(parentId: string, text: string): Promise<{ id: string }> {
+    this.charge('comment'); const r = await this.req(`${API()}/youtube/v3/comments?part=snippet`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ snippet: { parentId, textOriginal: text } }), retry: false });
+    if (r.status === 403) { const t = await r.text(); if (/insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(t)) throw new Error('AUTH_SCOPE: comment replies need the youtube.force-ssl scope. Run `npm run cli -- youtube-connect-full` once.'); throw await this.apiError(new Response(t, { status: 403 }), 'comments.insert'); }
+    if (!r.ok) throw await this.apiError(r, 'comments.insert');
+    return { id: ((await r.json()) as { id: string }).id };
   }
   async thumbnail(id: string, path: string): Promise<boolean> {
     try {

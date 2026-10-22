@@ -17,7 +17,7 @@ Ek lambi video (ya YouTube channel) do → ye khud best moments dhoondta hai, un
 | YouTube upload | Sirf jab aap allow karo | Google OAuth client (free) + `data/config.json` mein gate on |
 | Public karna / schedule | Aapke config par (`autoApprove`, `publicVisibilityAllowed`) | Ye decision aapka rehta hai |
 | Analytics → best time | Haan (YouTube/Instagram/Facebook/TikTok token ho to) | Platform token (optional) |
-| Comments ke reply | Draft banta hai; post tabhi jab aap allow karo | — |
+| Comments ke reply | Comments khud padhta + draft banata hai; post tabhi jab aap approve karo + `commentsAutoPost` on karo | Ek baar `youtube-connect-full` (Desktop-app OAuth client) |
 
 Safety: publish, public visibility aur comment-posting teeno **default OFF** hain. Inhe sirf aap server par `data/config.json` edit karke on kar sakte ho, API/env se nahi.
 

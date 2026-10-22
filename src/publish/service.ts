@@ -6,7 +6,10 @@ import { SecretStore } from './secrets.ts';
 import { TokenProvider, clientCreds, startDeviceFlow, pollDeviceFlow, type DeviceStart } from './oauth.ts';
 import { YouTubeAdapter } from './youtube.ts';
 import { instagramProvider, facebookProvider, tiktokProvider, youtubeProvider, type Provider } from '../analytics/providers.ts';
+import { screenText } from './safety.ts';
 import { probe } from '../media/probe.ts';
+import { ingestComment, postApprovedReply } from '../comments/comments.ts';
+import { connectedScope, YT_FORCE_SSL_SCOPE } from './oauth.ts';
 import { planFromStore } from '../schedule/analytics.ts';
 
 export const secretsFor = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'secrets'));
@@ -14,13 +17,14 @@ export const secretsFor = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'se
 /** Real facts about a rendered clip: dimensions/duration are PROBED from the edited file, metadata from the stored SEO step. Never invents values. */
 export async function factsForClip(store: Store, clipId: number): Promise<ClipFacts> {
   const c = store.get<{ metadata_json: string | null; qc_pass: number | null; thumbnail_path: string | null; candidate_id: number; edited_path: string | null }>('SELECT metadata_json, qc_pass, thumbnail_path, candidate_id, edited_path FROM clips WHERE id=?', clipId);
+  const tx = store.get<{ transcript: string | null }>('SELECT transcript FROM candidates WHERE id=?', c?.candidate_id ?? -1)?.transcript ?? '';
   if (!c) throw new Error(`Unknown clip ${clipId}`);
   if (!c.metadata_json) throw new Error('NOT_READY: metadata not generated yet for this clip');
   if (!c.edited_path) throw new Error('NOT_READY: clip not rendered yet');
   const md = JSON.parse(c.metadata_json) as { title: string; description: string; tags?: string[]; language?: string };
   const m = await probe(c.edited_path);
   const src = store.get<{ authorized: number | null }>('SELECT s.authorized FROM candidates c JOIN videos v ON v.id=c.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE c.id=?', c.candidate_id);
-  return { width: m.width, height: m.height, duration: m.duration, title: md.title, description: md.description, tags: md.tags ?? [], language: md.language, qcPass: !!c.qc_pass, authorized: src?.authorized == null ? true : src.authorized === 1, thumbnailPath: c.thumbnail_path };
+  return { width: m.width, height: m.height, duration: m.duration, title: md.title, description: md.description, tags: md.tags ?? [], language: md.language, risks: screenText(`${md.title} ${md.description} ${tx}`), qcPass: !!c.qc_pass, authorized: src?.authorized == null ? true : src.authorized === 1, thumbnailPath: c.thumbnail_path };
 }
 
 export function adapterFor(store: Store, cfg: Config, platform: string): Adapter {
@@ -99,4 +103,28 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
     }
   }
   return r;
+}
+
+/** Read new top-level comments on our PUBLISHED YouTube videos into the comments table (classified, draft replies; nothing is posted). */
+export async function collectYoutubeComments(store: Store, cfg: Config): Promise<{ videos: number; newComments: number; error?: string }> {
+  const secrets = secretsFor(cfg); const tp = new TokenProvider(secrets); if (!tp.connected()) return { videos: 0, newComments: 0 };
+  const ups = store.all<{ remote_id: string }>(`SELECT remote_id FROM uploads WHERE platform='youtube_shorts' AND remote_id IS NOT NULL AND state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE')`);
+  if (!ups.length) return { videos: 0, newComments: 0 };
+  const ad = new YouTubeAdapter(store, tp); let n = 0;
+  try {
+    let own = store.get<{ v: string }>(`SELECT v FROM kv WHERE k='yt_channel_id'`)?.v ?? null;
+    if (!own) { own = (await ad.whoami())?.id ?? null; if (own) store.exec(`INSERT INTO kv(k,v) VALUES('yt_channel_id',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, own); }
+    for (const u of ups) for (const c of await ad.listComments(u.remote_id, own)) { if (!ingestComment(store, 'youtube_shorts', c.id, c.text).duplicate) n++; }
+    return { videos: ups.length, newComments: n };
+  } catch (e) { return { videos: ups.length, newComments: n, error: (e as Error).message.slice(0, 200) }; }
+}
+
+/** Post ONE approved reply. Needs: gates.commentsAutoPost (owner), per-comment approval, the force-ssl scope, daily cap. */
+export async function postComment(store: Store, cfg: Config, commentId: number): Promise<void> {
+  await postApprovedReply(store, cfg, commentId, async (platform, remoteId, text) => {
+    if (platform !== 'youtube_shorts') throw new Error(`AUTH_NOT_CONNECTED: no comment poster for ${platform}`);
+    const sc = connectedScope(secretsFor(cfg)); if (!sc) throw new Error('AUTH_NOT_CONNECTED: connect YouTube first');
+    if (!sc.split(/\s+/).includes(YT_FORCE_SSL_SCOPE)) throw new Error('AUTH_SCOPE: comment replies need the youtube.force-ssl scope. Run `npm run cli -- youtube-connect-full` once.');
+    await new YouTubeAdapter(store, new TokenProvider(secretsFor(cfg))).replyToComment(remoteId, text);
+  });
 }

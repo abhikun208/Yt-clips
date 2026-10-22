@@ -14,7 +14,8 @@ import { checkDisk, freeMb } from '../util/disk.ts';
 import { info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { UI_HTML } from './ui.ts';
-import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick } from '../publish/service.ts';
+import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment } from '../publish/service.ts';
+import { setCommentStatus } from '../comments/comments.ts';
 import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
 import { collectAnalytics, analyticsSummary } from '../analytics/collect.ts';
 
@@ -52,7 +53,7 @@ export function createApp(o: AppOptions = {}): App {
   const maxUpload = (o.maxUploadMb ?? Number(process.env.MAX_UPLOAD_MB ?? 2048)) * 1024 * 1024;
   const uploadDir = join(cfg.dataDir, 'uploads'); mkdirSync(uploadDir, { recursive: true });
   const previewDir = join(cfg.dirs.tmp, 'preview');
-  let lastPoll = 0; let lastAnalytics = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
+  let lastPoll = 0; let lastAnalytics = 0; let lastComments = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
   const fails = new Map<string, { n: number; t: number }>();
 
   async function runOnce(): Promise<void> {
@@ -62,6 +63,7 @@ export function createApp(o: AppOptions = {}): App {
       try {
         if (Date.now() - lastPoll >= cfg.youtube.pollMinutes * 60_000 && store.get(`SELECT 1 FROM sources WHERE kind IN ('youtube_channel','youtube_video') AND status IN ('active','pending')`)) { lastPoll = Date.now(); const pr = await pollSources(store, cfg); if (pr.discovered || pr.downloaded || pr.failed) info('source poll', pr as unknown as Record<string, unknown>); }
         if (cfg.analytics.pollMinutes > 0 && Date.now() - lastAnalytics >= cfg.analytics.pollMinutes * 60_000) { lastAnalytics = Date.now(); const ar = await collectAnalytics(store, analyticsProviders(store, cfg)); if (ar.some((x) => x.recorded || x.error)) info('analytics collect', { results: ar } as unknown as Record<string, unknown>); }
+        if (cfg.comments.pollMinutes > 0 && Date.now() - lastComments >= cfg.comments.pollMinutes * 60_000) { lastComments = Date.now(); const cr = await collectYoutubeComments(store, cfg); if (cr.newComments || cr.error) info('comments collect', cr as unknown as Record<string, unknown>); }
         { const tr = await automationTick(store, cfg); if (tr.queued || tr.advanced || tr.errors.length) info('automation tick', tr as unknown as Record<string, unknown>); }
         seedJobs(store, cfg); const r = await work(store, cfg, { shouldStop: () => stopping }); if (r.done || r.failed) info('worker cycle', r); }
       catch (e) { error('worker cycle crashed', { err: (e as Error).message }); }
@@ -161,6 +163,14 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/youtube' && m === 'GET') return json(res, 200, youtubeStatus(store, cfg));
       if (p === '/api/youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
       if (p === '/api/youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg));
+      if (p === '/api/comments' && m === 'GET') return json(res, 200, { comments: store.all(`SELECT id, platform, remote_id, text, class, draft, status, created_at FROM comments ORDER BY id DESC LIMIT 200`) });
+      if (p === '/api/comments/collect' && m === 'POST') return json(res, 200, await collectYoutubeComments(store, cfg));
+      const cm = /^\/api\/comments\/(\d+)\/(approve|reject|edit|post)$/.exec(p);
+      if (cm && m === 'POST') {
+        const id = Number(cm[1]); const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { text?: string };
+        if (cm[2] === 'post') { try { await postComment(store, cfg, id); } catch (e) { const msg = (e as Error).message; if (/^(COMMENTS_DISABLED|AUTH_|QUOTA_EXCEEDED)/.test(msg) || /not approved|No draft/.test(msg)) return json(res, 409, { error: msg.slice(0, 300) }); throw e; } return json(res, 200, { ok: true }); }
+        setCommentStatus(store, id, cm[2] as 'approve' | 'reject' | 'edit', b.text); return json(res, 200, { ok: true });
+      }
       if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg) });
       const tk = /^\/api\/platforms\/(\w+)\/token$/.exec(p);
       if (tk && m === 'POST') { const b = JSON.parse((await readBody(req, 8192)).toString('utf8') || '{}') as { accessToken?: string }; saveTokenFor(cfg, tk[1]!, String(b.accessToken ?? '')); return json(res, 200, { ok: true }); }

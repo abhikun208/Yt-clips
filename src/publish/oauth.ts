@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+import { randomBytes, createHash } from 'node:crypto';
 import type { SecretStore } from './secrets.ts';
 
 const base = () => process.env.YT_OAUTH_BASE ?? 'https://oauth2.googleapis.com';
@@ -28,6 +30,38 @@ export async function pollDeviceFlow(secrets: SecretStore, clientId: string, cli
     default: throw new Error(`AUTH_DEVICE_POLL_FAILED: ${r.json.error ?? r.status}`);
   }
 }
+
+/** Needed to post comment replies (comments.insert lists only this scope in Google's docs, fetched 2026-10-22). NOT allowed in the device flow, hence the loopback flow below. */
+export const YT_FORCE_SSL_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+const authBase = () => process.env.YT_OAUTH_AUTH_BASE ?? 'https://accounts.google.com/o/oauth2/v2/auth';
+
+/**
+ * Installed-app OAuth (loopback redirect + PKCE) for the force-ssl scope. Starts a one-shot HTTP listener on 127.0.0.1; the owner opens
+ * `authUrl` in a browser ON THE SAME MACHINE (on a VPS: `ssh -L PORT:127.0.0.1:PORT`). `done` resolves after the refresh token is stored.
+ */
+export async function startLoopbackFlow(secrets: SecretStore, creds: { clientId: string; clientSecret: string }, o: { port?: number; timeoutMs?: number; scope?: string } = {}): Promise<{ authUrl: string; port: number; done: Promise<void>; cancel(): void }> {
+  const verifier = randomBytes(32).toString('base64url'); const challenge = createHash('sha256').update(verifier).digest('base64url'); const state = randomBytes(16).toString('hex');
+  let resolve!: () => void, reject!: (e: Error) => void; const done = new Promise<void>((a, b) => { resolve = a; reject = b; }); done.catch(() => {});
+  const srv = createServer(async (req, res) => {
+    const u = new URL(req.url ?? '/', 'http://127.0.0.1'); if (u.pathname !== '/callback') { res.writeHead(404); return void res.end(); }
+    const fail = (m: string) => { res.writeHead(400, { 'content-type': 'text/plain' }); res.end(`Failed: ${m}`); reject(new Error(`AUTH_LOOPBACK_FAILED: ${m}`)); close(); };
+    if (u.searchParams.get('state') !== state) return fail('state mismatch'); if (u.searchParams.get('error')) return fail(String(u.searchParams.get('error')).slice(0, 60));
+    const code = u.searchParams.get('code'); if (!code) return fail('no code');
+    const port = (srv.address() as { port: number }).port;
+    const r = await form(`${base()}/token`, { client_id: creds.clientId, client_secret: creds.clientSecret, code, code_verifier: verifier, redirect_uri: `http://127.0.0.1:${port}/callback`, grant_type: 'authorization_code' });
+    if (r.status !== 200 || !r.json.refresh_token) return fail(String(r.json.error ?? r.status));
+    secrets.write('youtube', { refresh_token: r.json.refresh_token, scope: r.json.scope ?? o.scope ?? YT_FORCE_SSL_SCOPE, connected_at: new Date().toISOString() });
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); res.end('Connected. Is tab ko band kar sakte ho.'); resolve(); close();
+  });
+  const timer = setTimeout(() => { reject(new Error('AUTH_LOOPBACK_TIMEOUT')); close(); }, o.timeoutMs ?? 10 * 60_000); timer.unref();
+  const close = () => { clearTimeout(timer); srv.close(); srv.closeAllConnections?.(); };
+  await new Promise<void>((ok) => srv.listen(o.port ?? 0, '127.0.0.1', ok)); const port = (srv.address() as { port: number }).port;
+  const q = new URLSearchParams({ client_id: creds.clientId, redirect_uri: `http://127.0.0.1:${port}/callback`, response_type: 'code', scope: o.scope ?? YT_FORCE_SSL_SCOPE, access_type: 'offline', prompt: 'consent', code_challenge: challenge, code_challenge_method: 'S256', state });
+  return { authUrl: `${authBase()}?${q}`, port, done, cancel: () => { reject(new Error('cancelled')); close(); } };
+}
+
+/** Scope string recorded at connect time (device flow records none => the `youtube` scope). */
+export function connectedScope(secrets: SecretStore): string | null { try { const s = secrets.read<{ refresh_token?: string; scope?: string }>('youtube'); return s?.refresh_token ? (s.scope ?? YT_SCOPE) : null; } catch { return null; } }
 
 export interface ClientCreds { clientId: string; clientSecret: string }
 export function clientCreds(secrets: SecretStore): ClientCreds | null {

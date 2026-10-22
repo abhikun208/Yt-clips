@@ -59,6 +59,9 @@
 
 | Autonomous loop (`automationTick`, runs in the worker cycle; CLI `tick`): auto-queue QC-passed clips with metadata -> upload unlisted -> verify -> (owner `automation.autoApprove`) schedule at planned slot -> publish. OFF by default (`automation.autoQueue=false`); every step still passes the gates | DONE; fake-Google + real ffmpeg clip. Bug found and fixed by this test: the chosen schedule time was lost at the final publish step (would have published immediately) | test/automation.test.ts |
 
+| YouTube comments: read new comments on PUBLISHED videos (own comments dropped), classify, draft; owner approve/edit/reject; post reply only with `gates.commentsAutoPost` + approval + force-ssl scope + daily cap (20). Loopback+PKCE OAuth (`youtube-connect-full`, needs a "Desktop app" OAuth client) because the device flow cannot grant force-ssl. API `/api/comments*`, CLI `comments`, `comment-approve`, `comment-post` | DONE; fake-Google tested only. Per Google docs comments.insert lists only `youtube.force-ssl` (fetched 2026-10-22) | test/comments.test.ts |
+| Pre-upload safety screen on transcript/title (block => QC_FAILED, warn => reported). Keyword heuristic only: NO vision/audio model, cannot detect nudity in pixels or copyrighted music | DONE as heuristic | test/publish.test.ts |
+
 ### Not done / blocked (do NOT claim these)
 - Instagram/TikTok/Facebook upload adapters: **BLOCKED** (need owner creds/app review). YouTube adapter exists but is untested against real Google (needs owner OAuth client). Unverified-API-project visibility limits may apply on Google's side.
 - IG/FB/TikTok OAuth login + token refresh and their upload adapters: NOT implemented (analytics read with an owner-supplied token only). Real-platform analytics calls never run.
@@ -76,7 +79,7 @@
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
-- Session 3: 74/74 tests, typecheck clean.
+- Session 3: 77/77 tests, typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.

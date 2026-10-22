@@ -58,6 +58,8 @@ const MIGRATIONS: string[] = [
     published_at TEXT, views REAL, likes REAL, comments REAL, shares REAL, saves REAL, reach REAL, avg_watch_sec REAL);
   CREATE INDEX IF NOT EXISTS idx_snap ON analytics_snapshots(platform, remote_id, taken_at);
   `,
+  // v4 (additive): when a reply was posted (daily reply cap).
+  `ALTER TABLE comments ADD COLUMN posted_at TEXT;`,
 ];
 
 export type Row = Record<string, unknown>;

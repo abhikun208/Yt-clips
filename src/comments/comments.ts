@@ -40,6 +40,16 @@ export async function postApprovedReply(store: Store, cfg: Config, commentId: nu
   const c = store.get<{ platform: string; remote_id: string; draft: string | null; status: string }>('SELECT platform, remote_id, draft, status FROM comments WHERE id=?', commentId);
   if (!c || !c.draft) throw new Error('No draft to post');
   if (c.status !== 'approved') throw new Error('Reply not approved by owner');
+  const today = store.get<{ n: number }>(`SELECT count(*) n FROM comments WHERE status='posted' AND posted_at >= datetime('now','-1 day')`)!.n;
+  if (today >= cfg.comments.maxRepliesPerDay) throw new Error(`QUOTA_EXCEEDED: ${today} replies in the last 24h (cap ${cfg.comments.maxRepliesPerDay})`);
   await poster(c.platform, c.remote_id, c.draft);
-  store.exec(`UPDATE comments SET status='posted' WHERE id=?`, commentId);
+  store.exec(`UPDATE comments SET status='posted', posted_at=datetime('now') WHERE id=?`, commentId);
+}
+
+export function setCommentStatus(store: Store, id: number, action: 'approve' | 'reject' | 'edit', text?: string): void {
+  const c = store.get<{ status: string; draft: string | null }>('SELECT status, draft FROM comments WHERE id=?', id); if (!c) throw new Error(`invalid: unknown comment ${id}`);
+  if (c.status === 'posted') throw new Error('invalid: already posted');
+  if (action === 'edit') { const t = (text ?? '').trim(); if (!t || t.length > 500) throw new Error('invalid: reply must be 1..500 chars'); if (/https?:\/\/|www\./i.test(t)) throw new Error('invalid: links are never allowed in replies'); store.exec(`UPDATE comments SET draft=?, status='draft' WHERE id=?`, t, id); return; }
+  if (action === 'approve') { if (!c.draft) throw new Error('invalid: nothing to approve (no draft)'); store.exec(`UPDATE comments SET status='approved' WHERE id=?`, id); return; }
+  store.exec(`UPDATE comments SET status='ignored' WHERE id=?`, id);
 }

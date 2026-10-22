@@ -103,3 +103,13 @@ test('scheduler: caps, gaps, quiet hours, baseline vs measured, no past slots', 
   const again = planSlots(2, { from, tz, cfg, rnd: () => 0.5, existing: slots.slice(0, 2).map((s) => s.at) });
   assert.ok(again.every((a) => slots.slice(0, 2).every((e) => Math.abs(a.at.getTime() - e.at.getTime()) >= 180 * 60_000)));
 });
+
+import { screenText } from '../src/publish/safety.ts';
+test('safety screen: block-level text stops the upload at QC; warn-level is reported but not blocking; clean text passes', () => {
+  assert.equal(screenText('aaj ka mausam bahut accha hai').length, 0);
+  const warn = screenText('this guaranteed profit scheme'); assert.equal(warn[0]!.severity, 'warn');
+  const block = screenText('porn leak inside'); assert.equal(block[0]!.severity, 'block');
+  const base = { width: 1080, height: 1920, duration: 20, title: 't', description: 'd', qcPass: true, authorized: true };
+  assert.deepEqual(validateForPlatform('youtube_shorts', { ...base, risks: warn }), []);
+  assert.match(validateForPlatform('youtube_shorts', { ...base, risks: block }).join(';'), /safety: sexual_content/);
+});

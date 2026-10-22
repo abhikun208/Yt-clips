@@ -20,7 +20,7 @@ export const PLATFORM_CONSTRAINTS: Record<string, Constraints> = {
   tiktok: { maxDurationSec: 60, minDurationSec: 3, aspect: 'vertical', maxTitle: 150, maxDescription: 2200, note: 'conservative; verify' },
 };
 
-export interface ClipFacts { width: number; height: number; duration: number; title: string; description: string; qcPass: boolean; authorized: boolean; tags?: string[]; thumbnailPath?: string | null; categoryId?: string; language?: string }
+export interface ClipFacts { width: number; height: number; duration: number; title: string; description: string; qcPass: boolean; authorized: boolean; tags?: string[]; thumbnailPath?: string | null; categoryId?: string; language?: string; risks?: { severity: 'block' | 'warn'; category: string; match: string }[] }
 export function validateForPlatform(platform: string, f: ClipFacts): string[] {
   const c = PLATFORM_CONSTRAINTS[platform]; const e: string[] = [];
   if (!c) return [`unknown platform ${platform}`];
@@ -31,6 +31,7 @@ export function validateForPlatform(platform: string, f: ClipFacts): string[] {
   if (c.aspect === 'vertical' && f.height <= f.width) e.push('not vertical');
   if (f.title.length > c.maxTitle) e.push('title too long');
   if (f.description.length > c.maxDescription) e.push('description too long');
+  for (const r of f.risks ?? []) if (r.severity === 'block') e.push(`safety: ${r.category} ("${r.match}")`);
   return e;
 }
 

@@ -3,13 +3,13 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server } 
 export interface Req { method: string; path: string; query: URLSearchParams; headers: IncomingMessage['headers']; body: Buffer }
 export interface Fake {
   server: Server; base: string; log: Req[]; videos: Map<string, any>; sessions: Map<string, { total: number; got: Buffer; init: any }>;
-  opts: { failChunkOnce: number | null; dropAfterStoreOnce: number | null; processedAfterPolls: number; thumbStatus: number; revoked: boolean; device: string[]; initStatus: number; expireSessionOnce: boolean; uploadStatusFinal: string; quotaOnList: boolean };
+  opts: { failChunkOnce: number | null; dropAfterStoreOnce: number | null; processedAfterPolls: number; thumbStatus: number; revoked: boolean; device: string[]; initStatus: number; expireSessionOnce: boolean; uploadStatusFinal: string; quotaOnList: boolean; commentScopeOk: boolean };
   chunkCount: number; polls: Record<string, number>; close(): Promise<void>;
 }
 
 export async function startFake(): Promise<Fake> {
   const f: Fake = { server: null as any, base: '', log: [], videos: new Map(), sessions: new Map(), chunkCount: 0, polls: {}, close: async () => {},
-    opts: { failChunkOnce: null, dropAfterStoreOnce: null, processedAfterPolls: 0, thumbStatus: 200, revoked: false, device: ['pending', 'ok'], initStatus: 200, expireSessionOnce: false, uploadStatusFinal: 'processed', quotaOnList: false } };
+    opts: { failChunkOnce: null, dropAfterStoreOnce: null, processedAfterPolls: 0, thumbStatus: 200, revoked: false, device: ['pending', 'ok'], initStatus: 200, expireSessionOnce: false, uploadStatusFinal: 'processed', quotaOnList: false, commentScopeOk: true } };
   let n = 0;
   const send = (res: ServerResponse, code: number, body?: unknown, h: Record<string, string> = {}) => { res.writeHead(code, { 'content-type': 'application/json', ...h }); res.end(body === undefined ? '' : JSON.stringify(body)); };
   f.server = createServer(async (req, res) => {
@@ -22,6 +22,7 @@ export async function startFake(): Promise<Fake> {
       const p = form();
       if (p.get('grant_type') === 'urn:ietf:params:oauth:grant-type:device_code') { const s = f.opts.device.shift() ?? 'ok'; return s === 'ok' ? send(res, 200, { access_token: 'at', refresh_token: 'REFRESH-TOKEN-XYZ', expires_in: 3600 }) : send(res, 428, { error: s === 'pending' ? 'authorization_pending' : s }); }
       if (p.get('grant_type') === 'refresh_token') { if (f.opts.revoked || p.get('refresh_token') !== 'REFRESH-TOKEN-XYZ') return send(res, 400, { error: 'invalid_grant' }); return send(res, 200, { access_token: `fake-access-${++n}`, expires_in: 3600 }); }
+      if (p.get('grant_type') === 'authorization_code') { if (!p.get('code_verifier') || p.get('code') !== 'AUTHCODE' || !String(p.get('redirect_uri')).startsWith('http://127.0.0.1:')) return send(res, 400, { error: 'invalid_grant' }); return send(res, 200, { access_token: 'at', refresh_token: 'REFRESH-TOKEN-XYZ', expires_in: 3600, scope: 'https://www.googleapis.com/auth/youtube.force-ssl' }); }
       return send(res, 400, { error: 'unsupported_grant_type' });
     }
     // ---- API (all need a bearer) ----
@@ -56,6 +57,12 @@ export async function startFake(): Promise<Fake> {
     }
     if (u.pathname === '/youtube/v3/videos' && req.method === 'PUT') { const b = JSON.parse(body.toString()); const v = f.videos.get(b.id); if (!v) return send(res, 404, { error: { message: 'videoNotFound' } }); v.status = { ...b.status, uploadStatus: v.status.uploadStatus }; v.updateBody = b; return send(res, 200, v); }
     if (u.pathname === '/upload/youtube/v3/thumbnails/set') return send(res, f.opts.thumbStatus, f.opts.thumbStatus === 200 ? { items: [{}] } : { error: { message: 'forbidden' } });
+    if (u.pathname === '/youtube/v3/commentThreads') return send(res, 200, { items: [
+      { snippet: { canReply: true, topLevelComment: { id: 'c1', snippet: { textOriginal: 'Ye kaise banaya?', authorDisplayName: 'A', authorChannelId: { value: 'UCviewer' } } } } },
+      { snippet: { canReply: true, topLevelComment: { id: 'c2', snippet: { textOriginal: 'Great video', authorDisplayName: 'Me', authorChannelId: { value: 'UC123' } } } } },
+      { snippet: { canReply: true, topLevelComment: { id: 'c3', snippet: { textOriginal: 'sub4sub http://spam.com', authorDisplayName: 'S', authorChannelId: { value: 'UCspam' } } } } },
+      { snippet: { canReply: true, topLevelComment: { id: 'c4', snippet: { textOriginal: 'mast video bhai 🔥', authorDisplayName: 'B', authorChannelId: { value: 'UCb' } } } } }] });
+    if (u.pathname === '/youtube/v3/comments' && req.method === 'POST') { if (!f.opts.commentScopeOk) return send(res, 403, { error: { errors: [{ reason: 'insufficientPermissions' }], message: 'Insufficient Permission' } }); const b = JSON.parse(body.toString()); (f as any).replies = [...((f as any).replies ?? []), b.snippet]; return send(res, 200, { id: 'reply1' }); }
     if (u.pathname === '/youtube/v3/channels') return send(res, 200, { items: [{ id: 'UC123', snippet: { title: 'My Channel' } }] });
     send(res, 404, { error: 'unknown' });
   });
