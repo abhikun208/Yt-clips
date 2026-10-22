@@ -21,6 +21,7 @@ export interface Config {
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number };
   stt: { mode: 'auto' | 'off'; model: string; language: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
+  analytics: { pollMinutes: number };
 }
 
 const DEFAULTS = (rootDir: string): Config => {
@@ -46,6 +47,7 @@ const DEFAULTS = (rootDir: string): Config => {
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4 },
     stt: { mode: 'auto', model: 'small', language: 'auto' },
     youtube: { pollMinutes: 60, maxPerPoll: 3, maxDurationMin: 180, maxHeight: 1080 },
+    analytics: { pollMinutes: 360 },
   };
 };
 

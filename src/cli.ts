@@ -9,7 +9,8 @@ import { addYoutubeSource, pollSources } from './sources/youtube.ts';
 import { transcribeVideo } from './analysis/stt.ts';
 import { PRESETS, getPreset } from './edit/captionPresets.ts';
 import { updateOwnerConfig } from './config.ts';
-import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll } from './publish/service.ts';
+import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus } from './publish/service.ts';
+import { collectAnalytics } from './analytics/collect.ts';
 import { importAnalyticsCsv, planFromStore } from './schedule/analytics.ts';
 import { readFileSync } from 'node:fs';
 
@@ -36,7 +37,7 @@ async function doctor(): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | comment <platform> <id> <text...>  (server: npm start)'); return 0; }
+  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | analytics-collect | platforms | set-token <instagram|facebook|tiktok> (token from stdin) | comment <platform> <id> <text...>  (server: npm start)'); return 0; }
   if (cmd === 'doctor') return doctor();
   const s = new Store(cfg.dbPath);
   try {
@@ -61,6 +62,9 @@ async function main(): Promise<number> {
       while (Date.now() < end) { await new Promise((r) => setTimeout(r, wait)); const r = await youtubeConnectPoll(s, cfg); if (r.status === 'ok') { console.log('connected (refresh token stored in data/secrets)'); return 0; } if (r.status === 'denied' || r.status === 'expired') { console.log(r.status); return 1; } if (r.status === 'slow_down') wait += 5000; }
       console.log('timed out'); return 1;
     }
+    if (cmd === 'platforms') { console.table(platformStatus(s, cfg)); return 0; }
+    if (cmd === 'analytics-collect') { console.table(await collectAnalytics(s, analyticsProviders(s, cfg))); return 0; }
+    if (cmd === 'set-token') { const t = readFileSync(0, 'utf8').trim(); saveTokenFor(cfg, String(rest[0]), t); console.log('token stored'); return 0; }
     if (cmd === 'uploads') { console.table(listUploads(s)); return 0; }
     if (cmd === 'queue') { console.log('upload id', queueUpload(s, Number(rest[0]), String(rest[1] ?? 'youtube_shorts'))); return 0; }
     if (cmd === 'advance') { const ai = rest.indexOf('--at'); console.log(await advance(s, cfg, Number(rest[0]), { approve: rest.includes('--approve'), scheduledAt: ai >= 0 ? new Date(rest[ai + 1]!) : null })); return 0; }

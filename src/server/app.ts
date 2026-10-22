@@ -14,8 +14,9 @@ import { checkDisk, freeMb } from '../util/disk.ts';
 import { info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { UI_HTML } from './ui.ts';
-import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll } from '../publish/service.ts';
-import { importAnalyticsCsv, planFromStore } from '../schedule/analytics.ts';
+import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus } from '../publish/service.ts';
+import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
+import { collectAnalytics, analyticsSummary } from '../analytics/collect.ts';
 
 export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown> }
 export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean }
@@ -51,7 +52,7 @@ export function createApp(o: AppOptions = {}): App {
   const maxUpload = (o.maxUploadMb ?? Number(process.env.MAX_UPLOAD_MB ?? 2048)) * 1024 * 1024;
   const uploadDir = join(cfg.dataDir, 'uploads'); mkdirSync(uploadDir, { recursive: true });
   const previewDir = join(cfg.dirs.tmp, 'preview');
-  let lastPoll = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
+  let lastPoll = 0; let lastAnalytics = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
   const fails = new Map<string, { n: number; t: number }>();
 
   async function runOnce(): Promise<void> {
@@ -60,6 +61,7 @@ export function createApp(o: AppOptions = {}): App {
     current = (async () => {
       try {
         if (Date.now() - lastPoll >= cfg.youtube.pollMinutes * 60_000 && store.get(`SELECT 1 FROM sources WHERE kind IN ('youtube_channel','youtube_video') AND status IN ('active','pending')`)) { lastPoll = Date.now(); const pr = await pollSources(store, cfg); if (pr.discovered || pr.downloaded || pr.failed) info('source poll', pr as unknown as Record<string, unknown>); }
+        if (cfg.analytics.pollMinutes > 0 && Date.now() - lastAnalytics >= cfg.analytics.pollMinutes * 60_000) { lastAnalytics = Date.now(); const ar = await collectAnalytics(store, analyticsProviders(store, cfg)); if (ar.some((x) => x.recorded || x.error)) info('analytics collect', { results: ar } as unknown as Record<string, unknown>); }
         seedJobs(store, cfg); const r = await work(store, cfg, { shouldStop: () => stopping }); if (r.done || r.failed) info('worker cycle', r); }
       catch (e) { error('worker cycle crashed', { err: (e as Error).message }); }
       finally { running = false; }
@@ -158,6 +160,11 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/youtube' && m === 'GET') return json(res, 200, youtubeStatus(store, cfg));
       if (p === '/api/youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
       if (p === '/api/youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg));
+      if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg) });
+      const tk = /^\/api\/platforms\/(\w+)\/token$/.exec(p);
+      if (tk && m === 'POST') { const b = JSON.parse((await readBody(req, 8192)).toString('utf8') || '{}') as { accessToken?: string }; saveTokenFor(cfg, tk[1]!, String(b.accessToken ?? '')); return json(res, 200, { ok: true }); }
+      if (p === '/api/analytics/collect' && m === 'POST') return json(res, 200, { results: await collectAnalytics(store, analyticsProviders(store, cfg)) });
+      if (p === '/api/analytics' && m === 'GET') return json(res, 200, { platforms: analyticsSummary(store, cfg.timezone, (pl) => hourStats(store, cfg.timezone, pl)) });
       if (p === '/api/analytics/import' && m === 'POST') return json(res, 200, importAnalyticsCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'), url.searchParams.get('platform') ?? undefined));
       if (p === '/api/schedule' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: cfg.schedule }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
       if (p === '/api/run' && m === 'POST') { void runOnce(); return json(res, 202, { started: true }); }

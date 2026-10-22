@@ -48,10 +48,11 @@ export async function startFake(): Promise<Fake> {
     }
     if (u.pathname === '/youtube/v3/videos' && req.method === 'GET') {
       if (f.opts.quotaOnList) return send(res, 403, { error: { errors: [{ reason: 'quotaExceeded' }], message: 'quota' } });
-      const id = u.searchParams.get('id')!; const v = f.videos.get(id); if (!v) return send(res, 200, { items: [] });
-      f.polls[id] = (f.polls[id] ?? 0) + 1; const ready = f.polls[id]! > f.opts.processedAfterPolls;
-      const out = { ...v, status: { ...v.status, uploadStatus: ready ? f.opts.uploadStatusFinal : 'uploaded' }, processingDetails: { processingStatus: ready ? 'succeeded' : 'processing' } };
-      return send(res, 200, { items: [out] });
+      const idsq = u.searchParams.get('id')!.split(','); const items: any[] = [];
+      for (const id of idsq) { const v = f.videos.get(id); if (!v) continue;
+        f.polls[id] = (f.polls[id] ?? 0) + 1; const ready = f.polls[id]! > f.opts.processedAfterPolls;
+        items.push({ ...v, snippet: { ...v.snippet, publishedAt: '2026-10-01T12:30:00Z' }, statistics: { viewCount: '1234', likeCount: '56', commentCount: '7' }, status: { ...v.status, uploadStatus: ready ? f.opts.uploadStatusFinal : 'uploaded' }, processingDetails: { processingStatus: ready ? 'succeeded' : 'processing' } }); }
+      return send(res, 200, { items });
     }
     if (u.pathname === '/youtube/v3/videos' && req.method === 'PUT') { const b = JSON.parse(body.toString()); const v = f.videos.get(b.id); if (!v) return send(res, 404, { error: { message: 'videoNotFound' } }); v.status = { ...b.status, uploadStatus: v.status.uploadStatus }; v.updateBody = b; return send(res, 200, v); }
     if (u.pathname === '/upload/youtube/v3/thumbnails/set') return send(res, f.opts.thumbStatus, f.opts.thumbStatus === 200 ? { items: [{}] } : { error: { message: 'forbidden' } });

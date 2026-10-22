@@ -5,6 +5,7 @@ import { advanceUpload, queueUpload, DryRunAdapter, type Adapter, type ClipFacts
 import { SecretStore } from './secrets.ts';
 import { TokenProvider, clientCreds, startDeviceFlow, pollDeviceFlow, type DeviceStart } from './oauth.ts';
 import { YouTubeAdapter } from './youtube.ts';
+import { instagramProvider, facebookProvider, tiktokProvider, youtubeProvider, type Provider } from '../analytics/providers.ts';
 import { probe } from '../media/probe.ts';
 
 export const secretsFor = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'secrets'));
@@ -56,3 +57,16 @@ export async function youtubeConnectPoll(store: Store, cfg: Config) {
   if (r.status === 'ok') store.exec(`DELETE FROM kv WHERE k='yt_device_code'`);
   return { status: r.status };
 }
+
+export const TOKEN_PLATFORMS = ['instagram', 'facebook', 'tiktok'] as const;
+export function analyticsProviders(store: Store, cfg: Config): Provider[] {
+  const secrets = secretsFor(cfg); const tp = new TokenProvider(secrets);
+  return [youtubeProvider(new YouTubeAdapter(store, tp), () => tp.connected()), instagramProvider(secrets), facebookProvider(secrets), tiktokProvider(secrets)];
+}
+/** Owner supplies a platform access token (stored encrypted if YT_CLIPS_SECRET_KEY is set). Never echoed back. */
+export function saveTokenFor(cfg: Config, platform: string, accessToken: string): void {
+  if (!(TOKEN_PLATFORMS as readonly string[]).includes(platform)) throw new Error(`invalid: platform must be one of ${TOKEN_PLATFORMS.join(', ')}`);
+  if (accessToken.length < 10 || accessToken.length > 4096) throw new Error('invalid: access token length');
+  secretsFor(cfg).write(platform, { access_token: accessToken });
+}
+export function platformStatus(store: Store, cfg: Config) { return analyticsProviders(store, cfg).map((p) => ({ platform: p.platform, analyticsConnected: p.connected() })); }

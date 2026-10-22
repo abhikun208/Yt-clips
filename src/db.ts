@@ -51,6 +51,13 @@ const MIGRATIONS: string[] = [
     day TEXT NOT NULL, pool TEXT NOT NULL, units INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(day, pool));
   CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')));
   `,
+  // v3 (additive): per-platform metric snapshots (one row per fetch) for ALL platforms.
+  `
+  CREATE TABLE IF NOT EXISTS analytics_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT NOT NULL, remote_id TEXT NOT NULL, taken_at TEXT NOT NULL DEFAULT (datetime('now')),
+    published_at TEXT, views REAL, likes REAL, comments REAL, shares REAL, saves REAL, reach REAL, avg_watch_sec REAL);
+  CREATE INDEX IF NOT EXISTS idx_snap ON analytics_snapshots(platform, remote_id, taken_at);
+  `,
 ];
 
 export type Row = Record<string, unknown>;

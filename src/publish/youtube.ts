@@ -123,6 +123,17 @@ export class YouTubeAdapter implements Adapter {
     const visibility = v.status?.privacyStatus as string;
     return { processed: true, visibility, metadataMatches: !expect || (v.snippet?.title === expect.title && visibility === expect.visibility) };
   }
+  /** Public statistics for up to 50 of our own videos in ONE call (videos.list, 1 quota unit). Missing ids are simply absent. */
+  async stats(ids: string[]): Promise<{ id: string; publishedAt: string | null; views: number | null; likes: number | null; comments: number | null }[]> {
+    const out: { id: string; publishedAt: string | null; views: number | null; likes: number | null; comments: number | null }[] = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      this.charge('list'); const r = await this.req(`${API()}/youtube/v3/videos?part=snippet,statistics&id=${ids.slice(i, i + 50).map(encodeURIComponent).join(',')}`); if (!r.ok) throw await this.apiError(r, 'videos.list(statistics)');
+      const j = await r.json() as { items?: { id: string; snippet?: { publishedAt?: string }; statistics?: Record<string, string> }[] };
+      const n = (x: string | undefined) => (x === undefined || x === '' || !Number.isFinite(Number(x)) ? null : Number(x));
+      for (const v of j.items ?? []) out.push({ id: v.id, publishedAt: v.snippet?.publishedAt ?? null, views: n(v.statistics?.viewCount), likes: n(v.statistics?.likeCount), comments: n(v.statistics?.commentCount) });
+    }
+    return out;
+  }
   async thumbnail(id: string, path: string): Promise<boolean> {
     try {
       this.charge('thumbnail'); const r = await this.req(`${API()}/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(id)}`, { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: readFileSync(path), retry: false });
