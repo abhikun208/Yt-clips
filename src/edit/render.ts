@@ -13,6 +13,9 @@ import { pickPeaks } from './beats.ts';
 import { planRamp, rampedDuration, remapCues, rampFilter, type Ramp } from './ramp.ts';
 import { audioEnergy } from '../analysis/signals.ts';
 import { findLut } from './vfx.ts';
+import { planCuts, cutFilter, remapCuesCuts, type CutPlan } from './jumpcut.ts';
+import { detectSilence } from '../analysis/signals.ts';
+import { keyphrases } from '../seo/local.ts';
 import { measureVisualChange } from './change.ts';
 import { buildVideoGraph, buildAudioGraph, treatmentCoverage, type Treatment } from './filters.ts';
 import { qcClip } from './qc.ts';
@@ -20,7 +23,7 @@ import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean }> }
+export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -66,14 +69,28 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     renameSync(tmp, rawPath);
   }
   let m = await probe(rawPath);
+  // 1a) optional jump cuts: dead-air (long silences) removed; captions re-timed. Verified by duration, else rendered without.
+  let cuts: CutPlan | null = null; let srcPath = rawPath; let cutNote = 'disabled'; const tmpFiles: string[] = [];
+  if ((ro.jumpCuts ?? cfg.edit.jumpCuts) && m.hasAudio) {
+    try {
+      cuts = planCuts(await detectSilence(rawPath, -35, 0.55), m.duration); cutNote = cuts ? '' : 'no long silences / clip too short';
+      if (cuts) {
+        const cp = join(cfg.dirs.tmp, `${outputId}.cut.mp4`); tmpFiles.push(cp);
+        const cr = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', cutFilter(cuts, true), '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', cp], { timeoutMs: 20 * 60_000 });
+        if (cr.code !== 0) { cuts = null; cutNote = 'ffmpeg cut failed; rendered without'; } else {
+          const mc = await probe(cp); if (Math.abs(mc.duration - (m.duration - cuts.saved)) > 0.6) { cuts = null; cutNote = 'cut duration mismatch; rendered without'; } else { srcPath = cp; m = mc; }
+        }
+      }
+    } catch { cuts = null; cutNote = 'jump-cut error; rendered without'; }
+  }
   // 1b) optional slow-motion window at the strongest audio peak (re-timed clip; captions are re-timed to match)
-  let ramp: Ramp | null = null; let editSrc = rawPath; let rampNote = 'disabled';
+  let ramp: Ramp | null = null; let editSrc = srcPath; let rampNote = 'disabled';
   if ((ro.speedRamp ?? cfg.edit.speedRamp) && m.hasAudio) {
     try {
-      const peaks = pickPeaks(await audioEnergy(rawPath, 0.25), { duration: m.duration, max: 1 }); ramp = planRamp(peaks[0], m.duration); rampNote = ramp ? '' : 'no strong peak / clip too short';
+      const peaks = pickPeaks(await audioEnergy(srcPath, 0.25), { duration: m.duration, max: 1 }); ramp = planRamp(peaks[0], m.duration); rampNote = ramp ? '' : 'no strong peak / clip too short';
       if (ramp) {
         const rp = join(cfg.dirs.tmp, `${outputId}.ramp.mp4`);
-        const rr = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', rampFilter(ramp, true), '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', rp], { timeoutMs: 20 * 60_000 });
+        const rr = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', srcPath, '-filter_complex', rampFilter(ramp, true), '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', rp], { timeoutMs: 20 * 60_000 });
         if (rr.code !== 0) { ramp = null; rampNote = 'ffmpeg ramp failed; rendered without'; } else {
           const mr = await probe(rp); if (Math.abs(mr.duration - rampedDuration(m.duration, ramp)) > 0.5) { ramp = null; rampNote = 'ramped duration mismatch; rendered without'; rmSync(rp, { force: true }); } else { editSrc = rp; m = mr; }
         }
@@ -82,7 +99,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   }
 
   // 2) edit
-  const cues0 = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, ''));
+  const cuesRaw = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, '')); const cues0 = cuts ? remapCuesCuts(cuesRaw, c.start_sec, cuts) : cuesRaw;
   const cues = ramp ? remapCues(cues0, c.start_sec, ramp) : cues0; const effEnd = c.start_sec + m.duration;
   let assPath: string | undefined; let cap: CaptionResult | undefined;
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
@@ -100,6 +117,14 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
   let punch: number[] = [];
   if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); } catch { punch = []; } }
+  let emph: string[] = [];
+  if ((ro.emphasisZoom ?? cfg.edit.emphasisZoom) && cues.length) {
+    try {
+      const top = keyphrases(cues.map((x) => x.text).join(' '), 3).map((k) => k.phrase.split(' ')[0]!);
+      const hits: number[] = []; for (const cu of cues) for (const w of cu.words ?? []) { const t = w.start - c.start_sec; if (top.includes(w.text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')) && t > 0.6 && t < m.duration - 0.6 && hits.every((h) => Math.abs(h - t) > 2)) hits.push(t); }
+      const extra = hits.filter((h) => punch.every((q) => Math.abs(q - h) > 1.2)).slice(0, 3); if (extra.length) { punch = [...punch, ...extra].sort((a, b) => a - b); emph = top; }
+    } catch { emph = []; }
+  }
   const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, cropXFrac: cx, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const music = pickMusic(cfg.dirs.assets);
@@ -113,12 +138,12 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
 
   // 3) QC (measured)
   const qc = await qcClip(finalPath, { width: cfg.edit.width, height: cfg.edit.height, duration: m.duration, targetLufs: cfg.edit.targetLufs, requireAudio: m.hasAudio });
-  const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, ramp ? { dimension: 'speed_ramp', applied: true, detail: `slow-motion ${ramp.rate}x from ${ramp.a.toFixed(1)}s to ${ramp.b.toFixed(1)}s (audio atempo, captions re-timed); clip ${(m.duration).toFixed(1)}s` } : { dimension: 'speed_ramp', applied: false, detail: rampNote }];
+  const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, cuts ? { dimension: 'jump_cuts', applied: true, detail: `${cuts.removed.length} dead-air gaps removed, ${cuts.saved.toFixed(1)}s saved; captions re-timed` } : { dimension: 'jump_cuts', applied: false, detail: cutNote }, { dimension: 'emphasis_zoom', applied: emph.length > 0, detail: emph.length ? `punch-zoom on keyword(s): ${emph.join(', ')}` : 'no keyword with measured word timing in this clip (or disabled)' }, ramp ? { dimension: 'speed_ramp', applied: true, detail: `slow-motion ${ramp.rate}x from ${ramp.a.toFixed(1)}s to ${ramp.b.toFixed(1)}s (audio atempo, captions re-timed); clip ${(m.duration).toFixed(1)}s` } : { dimension: 'speed_ramp', applied: false, detail: rampNote }];
   const cov = treatmentCoverage(treatments);
   let visualChange = null as Awaited<ReturnType<typeof measureVisualChange>>;
   try { visualChange = await measureVisualChange(editSrc, finalPath, { inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, reframe, cropXFrac: cx }); } catch { visualChange = null; }
   const targetMet = cov.coverage >= cfg.edit.treatmentTarget;
-  if (editSrc !== rawPath) rmSync(editSrc, { force: true });
+  for (const f of [editSrc, srcPath, ...tmpFiles]) if (f !== rawPath) rmSync(f, { force: true });
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
     captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,

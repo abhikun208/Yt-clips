@@ -7,9 +7,9 @@ import type { Treatment } from './filters.ts';
 export interface VfxOpts {
   w: number; h: number; fps: number; duration: number; mood: string;
   lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean;
-  flashAt: number[]; lutFile?: string;
+  flashAt: number[]; lutFile?: string; progress?: boolean;
 }
-export const VFX_DEFAULTS = { lut: true, grain: true, particles: true, lightLeak: true, flash: true };
+export const VFX_DEFAULTS = { lut: true, grain: true, particles: true, lightLeak: true, flash: true, progress: true };
 
 const q = (s: string) => s.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
 
@@ -76,5 +76,12 @@ export function addVfx(o: VfxOpts, parts: string[], chain: (f: string) => void, 
     parts.push(`[${getCur()}][${src}]blend=all_mode=screen:all_opacity=0.6:shortest=1[${out}]`);
     setCur(out); t.push({ dimension: 'light_leak', applied: true, detail: `${name} light leak sweeping across, pulsing every ~${per}s` });
   } else t.push({ dimension: 'light_leak', applied: false, detail: 'disabled' });
+
+  if (o.progress) {
+    const bar = `b${next()}`; const out = `v${next()}`; const bh = Math.max(6, Math.round(o.h / 190));
+    parts.push(`color=c=white:s=${o.w}x${bh}:r=${o.fps}:d=${d},format=yuv420p[${bar}]`);
+    parts.push(`[${getCur()}][${bar}]overlay=x='-w+w*t/${o.duration.toFixed(2)}':y=${Math.round(o.h * 0.915)}:shortest=1[${out}]`);
+    setCur(out); t.push({ dimension: 'progress_bar', applied: true, detail: 'animated progress bar (retention cue)' });
+  } else t.push({ dimension: 'progress_bar', applied: false, detail: 'disabled' });
   return t;
 }

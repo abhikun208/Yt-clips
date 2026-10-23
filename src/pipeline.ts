@@ -6,7 +6,7 @@ import { analyzeVideo } from './analysis/analyzer.ts';
 import { renderCandidate } from './edit/render.ts';
 import { buildMetadata, validateMetadata } from './seo/metadata.ts';
 import { llmMetadata } from './seo/llm.ts';
-import { llmCreds } from './ai/settings.ts';
+import { llmChain } from './ai/settings.ts';
 import { makeThumbnail } from './seo/thumbnail.ts';
 import { info, error } from './util/log.ts';
 
@@ -34,7 +34,7 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     const row = store.get<{ id: number; candidate_id: number; edited_path: string; output_id: string }>('SELECT id, candidate_id, edited_path, output_id FROM clips WHERE id=?', id)!;
     const cand = store.get<{ category: string; transcript: string; language: string; start_sec: number; end_sec: number; hook: string | null }>('SELECT category, transcript, language, start_sec, end_sec, hook FROM candidates WHERE id=?', row.candidate_id)!;
     let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined });
-    const llm = llmCreds(cfg); if (llm && cand.transcript) md = await llmMetadata(md, cand.transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model });
+    if (cand.transcript) for (const llm of llmChain(cfg)) { const r = await llmMetadata(md, cand.transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }); if (r.source === 'llm') { md = r; break; } md = r; }
     const errs = validateMetadata(md);
     if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);
     const thumb = await makeThumbnail(row.edited_path, join(cfg.dirs.thumbnails, `${row.output_id}.jpg`), md.thumbnailText);

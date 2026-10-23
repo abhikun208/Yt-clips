@@ -14,7 +14,8 @@ export interface Config {
   edit: {
     width: number; height: number; fps: number; crf: number; preset: string;
     reframe: 'crop' | 'fit_blur'; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
-    vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean };
+    vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean };
+    jumpCuts: boolean; emphasisZoom: boolean;
   };
   schedule: { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number };
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
@@ -45,7 +46,7 @@ const DEFAULTS = (rootDir: string): Config => {
     dbPath: join(dataDir, 'yt-clips.sqlite'),
     timezone: 'Asia/Kolkata',
     clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30 },
-    edit: { width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: true, particles: true, lightLeak: true, flash: true } },
+    edit: { width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: true, particles: true, lightLeak: true, flash: true, progress: true }, jumpCuts: true, emphasisZoom: true },
     schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4 },

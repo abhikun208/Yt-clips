@@ -9,6 +9,8 @@ import { loadTranscript } from './transcript.ts';
 import { selectCandidates, overlapRatio } from './select.ts';
 import { info, warn } from '../util/log.ts';
 import { transcribeVideo } from './stt.ts';
+import { rerankCandidates } from '../ai/rerank.ts';
+import { llmChain } from '../ai/settings.ts';
 
 export interface AnalysisFile {
   videoId: number; duration: number; introEnd: number; outroStart: number; boundaryReasons: string[];
@@ -44,8 +46,9 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       writeFileSync(analysisPath, JSON.stringify(a));
     }
     const cues = loadTranscript(v.path.replace(/\.[^.]+$/, ''));
-    const cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues },
+    let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
+    { const rr = await rerankCandidates(cands, llmChain(cfg)); cands = rr.cands; if (rr.used) info('llm rerank', { used: rr.used }); else if (rr.note) warn(rr.note); }
     let inserted = 0;
     store.tx(() => {
       // Re-analysis (e.g. new transcript): unrendered candidates are re-ranked; already-rendered clips are never duplicated.

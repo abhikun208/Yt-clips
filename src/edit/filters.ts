@@ -6,7 +6,7 @@ export type Mood = 'funny' | 'sad' | 'happy' | 'shock' | 'aggressive' | 'cute' |
 export interface Treatment { dimension: string; applied: boolean; detail: string }
 
 /** The full set of editing dimensions this engine can apply. Coverage = applied / total (honest, measured from the manifest). */
-export const DIMENSIONS = ['reframe_9x16', 'color_grade', 'contrast_exposure', 'vignette', 'dynamic_zoom', 'glow', 'sharpen', 'captions', 'title_animation', 'fade_transition', 'voice_enhance', 'loudness_norm', 'noise_reduction', 'music_ducking', 'speed_ramp', 'beat_effects', 'cinematic_lut', 'film_grain', 'particles', 'light_leak', 'flash_transition'] as const;
+export const DIMENSIONS = ['reframe_9x16', 'color_grade', 'contrast_exposure', 'vignette', 'dynamic_zoom', 'glow', 'sharpen', 'captions', 'title_animation', 'fade_transition', 'voice_enhance', 'loudness_norm', 'noise_reduction', 'music_ducking', 'speed_ramp', 'beat_effects', 'cinematic_lut', 'film_grain', 'particles', 'light_leak', 'flash_transition', 'progress_bar', 'jump_cuts', 'emphasis_zoom'] as const;
 
 export function gradeFor(mood: Mood): { eq: string; balance: string; detail: string } {
   switch (mood) {
@@ -85,7 +85,7 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
 
   if (o.vfx) {
     t.push(...addVfx({ ...o.vfx, w: o.outW, h: o.outH, fps: o.fps, duration: o.duration, mood: o.mood }, parts, chain, () => cur, (l) => { cur = l; }, () => n++));
-  } else for (const d of ['cinematic_lut', 'film_grain', 'particles', 'light_leak', 'flash_transition']) t.push({ dimension: d, applied: false, detail: 'disabled' });
+  } else for (const d of ['cinematic_lut', 'film_grain', 'particles', 'light_leak', 'flash_transition', 'progress_bar']) t.push({ dimension: d, applied: false, detail: 'disabled' });
 
   if (o.fade) {
     chain(`fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, o.duration - 0.3).toFixed(2)}:d=0.3`);
