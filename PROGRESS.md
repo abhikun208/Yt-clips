@@ -94,4 +94,4 @@
 1. Owner: deploy (DEPLOY.md), set `YT_CLIPS_TOKEN`, upload a video you have rights to, check `data/edited_shorts` + manifests + caption preset choice.
 2. First real run of yt-dlp + faster-whisper on the target server; fix whatever breaks (see "NOT tested" above).
 3. Owner: create a Google Cloud OAuth client (type "TVs and Limited Input devices"), set `YT_OAUTH_CLIENT_ID/SECRET`, run `npm run cli youtube-connect`, then test ONE private/unlisted upload with gates still limited (edit `data/config.json` yourself: `publishEnabled` only). Fix whatever real Google disagrees with.
-4. Unbuilt: speed_ramp, comment-posting adapter, YouTube Analytics API auto-pull, Instagram/TikTok/Facebook adapters, Docker/VPS verification on a real host.
+4. Unbuilt: speed-up of boring parts, caption translation, Instagram/TikTok/Facebook UPLOAD adapters (need owner app review), YouTube Analytics API (retention/CTR) auto-pull, Docker/VPS verification on a real host.
