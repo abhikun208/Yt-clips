@@ -127,6 +127,7 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/login' && m === 'POST') return json(res, 200, { ok: true }, token ? { 'set-cookie': `ytc_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}` } : {});
       if (p === '/api/status') return json(res, 200, { running, version: VERSION, gates: cfg.gates, captionPreset: cfg.edit.captionPreset,
         videos: store.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: store.all('SELECT state, count(*) n FROM jobs GROUP BY state'), clips: store.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: store.all('SELECT state, count(*) n FROM uploads GROUP BY state') });
+      if (p === '/api/videos') return json(res, 200, { videos: store.all(`SELECT id, path, state FROM videos ORDER BY id DESC LIMIT 200`).map((v) => ({ ...(v as { id: number; path: string; state: string }), title: basename((v as { path: string }).path) })) });
       if (p === '/api/clips') return json(res, 200, { clips: clipRows() });
       if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, palette: x.palette.id, tags: x.tags, mode: x.mode })) });
       const pv = /^\/api\/presets\/([\w-]+)\/preview\.png$/.exec(p);

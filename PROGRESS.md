@@ -64,13 +64,15 @@
 
 | Speed ramp: slow-motion window (0.7x) at the strongest audio peak (clip >= 8s), audio atempo, captions/SRT re-timed, ramped duration verified (falls back to un-ramped on any mismatch); `edit.speedRamp` default true | DONE; real ffmpeg render via CLI on a fixture: speed_ramp + beat_effects applied, QC pass, treatment coverage 0.938. Speeding up "boring parts" NOT implemented | test/ramp.test.ts + live CLI run |
 
+| Web UI panels: YouTube connect (device code) + upload queue/advance/approve, comments approve/edit/post, analytics + schedule + token + CSV import, transcript word editor | DONE; loaded in real headless Chromium (all panels render, no JS errors); script-parse test. Clicking through each button against a real account NOT done | test/server.test.ts + manual Chromium load |
+
 ### Not done / blocked (do NOT claim these)
 - Instagram/TikTok/Facebook upload adapters: **BLOCKED** (need owner creds/app review). YouTube adapter exists but is untested against real Google (needs owner OAuth client). Unverified-API-project visibility limits may apply on Google's side.
 - IG/FB/TikTok OAuth login + token refresh and their upload adapters: NOT implemented (analytics read with an owner-supplied token only). Real-platform analytics calls never run.
 - Real faster-whisper model run and real yt-dlp download: NOT tested here (not installed / network allowlist). Adapters are covered by fake-binary tests only.
 - Docker build, systemd unit, install-vps.sh, PaaS deploy: NOT verified (sandbox: `docker` CLI exists but no daemon; npm/pip registries unreachable so yt-dlp/faster-whisper cannot be installed here; `npx skills add` also failed for that reason).
 - autocap.in's own templates: not copyable (proprietary, only names/tags visible). We provide original presets instead.
-- caption translation, caption-editor UI screen, per-word recolor, sports tracking, comment posting adapter (needs force-ssl scope), multi-account: NOT implemented.
+- caption translation, per-word recolor, sports tracking, comment posting adapter (needs force-ssl scope), multi-account: NOT implemented.
 - One caption font per clip: a clip mixing Hindi + Latin uses the dominant Indic font for all words (Noto/FreeSans include Latin glyphs, so it renders, but Latin words won't use Poppins).
 - Scoring is heuristic, not a learned model.
 
@@ -81,7 +83,7 @@
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
-- Session 3: 79/79 tests, typecheck clean.
+- Session 3: 80/80 tests, typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.
@@ -92,4 +94,4 @@
 1. Owner: deploy (DEPLOY.md), set `YT_CLIPS_TOKEN`, upload a video you have rights to, check `data/edited_shorts` + manifests + caption preset choice.
 2. First real run of yt-dlp + faster-whisper on the target server; fix whatever breaks (see "NOT tested" above).
 3. Owner: create a Google Cloud OAuth client (type "TVs and Limited Input devices"), set `YT_OAUTH_CLIENT_ID/SECRET`, run `npm run cli youtube-connect`, then test ONE private/unlisted upload with gates still limited (edit `data/config.json` yourself: `publishEnabled` only). Fix whatever real Google disagrees with.
-4. Unbuilt: speed_ramp, caption-editor UI screen, comment-posting adapter, YouTube Analytics API auto-pull, Instagram/TikTok/Facebook adapters, Docker/VPS verification on a real host.
+4. Unbuilt: speed_ramp, comment-posting adapter, YouTube Analytics API auto-pull, Instagram/TikTok/Facebook adapters, Docker/VPS verification on a real host.
