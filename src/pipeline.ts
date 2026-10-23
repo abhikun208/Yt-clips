@@ -25,7 +25,8 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
   if (job.kind === 'analyze') { await analyzeVideo(store, cfg, id); seedJobs(store, cfg); return; }
   if (job.kind === 'render') {
     const meta = store.get<{ category: string; transcript: string; language: string; video_id: number }>('SELECT category, transcript, language, video_id FROM candidates WHERE id=?', id)!;
-    const md = buildMetadata({ transcript: meta.transcript ?? '', category: meta.category, language: meta.language ?? 'unknown' });
+    const hk = store.get<{ hook: string | null }>('SELECT hook FROM candidates WHERE id=?', id)?.hook ?? undefined;
+    const md = buildMetadata({ transcript: meta.transcript ?? '', category: meta.category, language: meta.language ?? 'unknown', hook: hk });
     const r = await renderCandidate(store, cfg, id, { title: md.titles[0]?.replace(/ ?#\w+/g, '') ?? null });
     enqueue(store, 'meta', `meta:${r.clipId}`); return;
   }
