@@ -1,4 +1,5 @@
-export interface MetaInput { transcript: string; category: string; language: string; sourceTitle?: string; channelName?: string; ownerLinks?: { label: string; url: string }[]; hashtagsExtra?: string[] }
+import { localMetadata } from './local.ts';
+export interface MetaInput { transcript: string; category: string; language: string; sourceTitle?: string; channelName?: string; ownerLinks?: { label: string; url: string }[]; hashtagsExtra?: string[]; hook?: string }
 export interface Metadata { titles: string[]; title: string; description: string; tags: string[]; hashtags: string[]; keywords: string[]; language: string; thumbnailText: string; source: 'template' | 'llm'; warnings: string[] }
 
 const STOP = new Set('the a an and or of to in on is are was were be this that it for with as at by from kya hai hain ka ki ke ko se me mein aur ye yeh woh wo nahi toh to bhi hi kar karo raha rahi tha the thi ek par pe hum tum aap mai main mera meri'.split(' '));
@@ -29,6 +30,15 @@ const EMO_TITLE: Record<string, string[]> = {
  */
 export function buildMetadata(i: MetaInput): Metadata {
   const warnings: string[] = [];
+  if (i.transcript.trim().split(/\s+/).length >= 8) { // enough real speech: use the local text engine (keyphrases, hook sentence, summary)
+    const lang = (['hi', 'hinglish', 'en'].includes(i.language) ? i.language : 'unknown') as 'hi' | 'hinglish' | 'en' | 'unknown';
+    const kws0 = extractKeywords(i.transcript, 6); const hashtags = ['#Shorts', ...(i.hashtagsExtra ?? []), ...kws0.slice(0, 3).map((k) => '#' + k.replace(/\s+/g, ''))].filter((h, idx, a) => a.indexOf(h) === idx).slice(0, 5);
+    const lm = localMetadata({ transcript: i.transcript, category: i.category, language: lang, hook: i.hook, channelName: i.channelName, sourceTitle: i.sourceTitle, hashtags });
+    const lines = [lm.description]; if (i.sourceTitle) lines.push('', `Poori video: ${i.sourceTitle}${i.channelName ? ` (${i.channelName})` : ''}`);
+    if (i.ownerLinks?.length) { lines.push(''); for (const l of i.ownerLinks) lines.push(`${l.label}: ${l.url}`); } else warnings.push('no owner links configured: none added (by design, never invented)');
+    const tagKw = lm.keyphrases.map((k) => '#' + k.replace(/\s+/g, '')).slice(0, 3); const ht = [...new Set([...hashtags, ...tagKw])].slice(0, 5);
+    return { titles: lm.titles.map((t) => t.slice(0, 95)), title: `${lm.titles[0]!.slice(0, 90)} #Shorts`.slice(0, 100), description: lines.join('\n').slice(0, 4900), tags: lm.tags, hashtags: ht, keywords: lm.keyphrases, language: i.language, thumbnailText: lm.thumbnailText, source: 'template', warnings };
+  }
   const kws = extractKeywords(i.transcript, 8);
   const base = EMO_TITLE[i.category] ?? ['Ye Moment Miss Mat Karna ✨'];
   const kw0 = kws[0];

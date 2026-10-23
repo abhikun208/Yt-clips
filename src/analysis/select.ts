@@ -3,6 +3,7 @@ import type { Cue } from './transcript.ts';
 import { textInRange, guessLanguage } from './transcript.ts';
 import { scoreText } from './keywords.ts';
 import { shortHash } from '../util/hash.ts';
+import { sentencesFromCues, snapToSentences, hookScore, payoffScore, sentencesIn } from './textsignals.ts';
 
 export interface SelectParams { minSec: number; maxSec: number; targetSec: number; maxClips: number; minScore: number; maxOverlap: number }
 export interface Candidate {
@@ -48,7 +49,7 @@ function snap(t: number, sil: Interval[], tol: number, lo: number, hi: number): 
 export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[] {
   const lo = inp.introEnd; const hi = inp.outroStart;
   if (hi - lo < p.minSec) return [];
-  const hasText = inp.cues.length > 0;
+  const hasText = inp.cues.length > 0; const sents = hasText ? sentencesFromCues(inp.cues) : [];
   const stride = Math.max(2, p.targetSec / 6);
   const lens = [...new Set([p.minSec, (p.minSec + p.targetSec) / 2, p.targetSec, (p.targetSec + p.maxSec) / 2, p.maxSec].map((x) => Math.round(x)))].filter((x) => x >= p.minSec && x <= p.maxSec);
   const all: Candidate[] = [];
@@ -59,6 +60,7 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
       if (b - a < p.minSec) continue;
       a = snap(a, inp.silence, 1.2, lo, b - p.minSec);
       b = snap(b, inp.silence, 1.2, a + p.minSec, hi);
+      if (hasText) [a, b] = snapToSentences(a, b, sents, { lo, hi, minLen: p.minSec });
       const dur = b - a;
       if (dur < p.minSec || dur > p.maxSec + 0.01) continue;
       const en = sliceEnergy(inp.energy, inp.energyStep, a, b);
@@ -71,7 +73,7 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
       const txt = hasText ? textInRange(inp.cues, a, b) : '';
       const words = txt ? txt.split(/\s+/).length : 0;
       const speech = hasText ? clamp01(words / (dur * 2.2)) : clamp01(1 - sil);
-      const ts = scoreText(txt);
+      const ts = scoreText(txt); const inS = hasText ? sentencesIn(sents, a, b) : []; const hk = inS.length ? hookScore(inS[0]!.text) : 0; const pay = inS.length ? payoffScore(inS[inS.length - 1]!.text) : 0;
       // Narrative completeness: starts right after a pause and ends on one (clean cut points).
       const cleanStart = inp.silence.some((i) => Math.abs((i.start + i.end) / 2 - a) < 1.3 || Math.abs(i.end - a) < 0.6) ? 1 : 0;
       const cleanEnd = inp.silence.some((i) => Math.abs((i.start + i.end) / 2 - b) < 1.3 || Math.abs(i.start - b) < 0.6) ? 1 : 0;
@@ -79,20 +81,20 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
       const lenFit = 1 - Math.min(1, Math.abs(dur - p.targetSec) / p.targetSec) * 0.5;
 
       let score = 0.28 * clamp01(peak * 0.6 + energyMean * 0.4) + 0.12 * clamp01(variance * 2.5) + 0.12 * pace + 0.16 * speech
-        + 0.16 * complete + 0.06 * lenFit + (hasText ? 0.1 * Math.max(ts.hook, ts.emotion ? 0.7 : 0) : 0.0);
+        + 0.16 * complete + 0.06 * lenFit + (hasText ? 0.1 * Math.max(ts.hook, ts.emotion ? 0.7 : 0) + 0.08 * hk + 0.04 * pay : 0.0);
       score *= 1 - 0.8 * clamp01(sil - 0.25) - 0.6 * ts.filler;
       score = clamp01(score);
 
       const category = ts.emotion ?? (peak > 0.85 && variance > 0.2 ? 'high_energy' : pace > 0.6 ? 'dynamic_visuals' : speech > 0.6 ? 'dialogue' : 'general');
       const reasons = [
         peak > 0.8 ? 'audio energy peak' : '', variance > 0.2 ? 'dynamic audio' : '', pace > 0.5 ? 'frequent scene changes' : '',
-        complete >= 1 ? 'clean start/end on natural pauses' : '', ts.hook > 0 ? 'hook words in speech' : '', ts.emotion ? `emotion cue: ${ts.emotion}` : '',
+        complete >= 1 ? 'clean start/end on natural pauses' : '', ts.hook > 0 ? 'hook words in speech' : '', hk >= 0.5 ? 'strong opening line' : '', pay >= 0.9 ? 'ends on a finished thought' : '', ts.emotion ? `emotion cue: ${ts.emotion}` : '',
       ].filter(Boolean);
       all.push({
         start: +a.toFixed(2), end: +b.toFixed(2), duration: +dur.toFixed(2), score: +score.toFixed(4), category,
-        reason: reasons.join('; ') || 'steady content', hook: txt.split(/(?<=[.!?।])\s+/)[0]?.slice(0, 140) ?? '',
+        reason: reasons.join('; ') || 'steady content', hook: (inS[0]?.text ?? txt.split(/(?<=[.!?।])\s+/)[0] ?? '').slice(0, 140),
         transcript: txt, language: guessLanguage(txt), confidence: +(hasText ? 0.7 : 0.5).toFixed(2),
-        signals: { peak: +peak.toFixed(3), energy: +energyMean.toFixed(3), variance: +variance.toFixed(3), pace: +pace.toFixed(3), silence: +sil.toFixed(3), speech: +speech.toFixed(3), complete },
+        signals: { peak: +peak.toFixed(3), energy: +energyMean.toFixed(3), variance: +variance.toFixed(3), pace: +pace.toFixed(3), silence: +sil.toFixed(3), speech: +speech.toFixed(3), complete, hookLine: +hk.toFixed(2), payoff: +pay.toFixed(2) },
       });
     }
   }

@@ -31,8 +31,8 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
   }
   if (job.kind === 'meta') {
     const row = store.get<{ id: number; candidate_id: number; edited_path: string; output_id: string }>('SELECT id, candidate_id, edited_path, output_id FROM clips WHERE id=?', id)!;
-    const cand = store.get<{ category: string; transcript: string; language: string; start_sec: number; end_sec: number }>('SELECT category, transcript, language, start_sec, end_sec FROM candidates WHERE id=?', row.candidate_id)!;
-    let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown' });
+    const cand = store.get<{ category: string; transcript: string; language: string; start_sec: number; end_sec: number; hook: string | null }>('SELECT category, transcript, language, start_sec, end_sec, hook FROM candidates WHERE id=?', row.candidate_id)!;
+    let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined });
     const llm = llmCreds(cfg); if (llm && cand.transcript) md = await llmMetadata(md, cand.transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model });
     const errs = validateMetadata(md);
     if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);
