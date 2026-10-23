@@ -15,7 +15,7 @@ const clip = (s: unknown, n: number) => String(s ?? '').replace(/\s+/g, ' ').tri
  */
 export async function llmMetadata(base: Metadata, transcript: string, env: LlmEnv, fetchFn: typeof fetch = fetch): Promise<Metadata> {
   try {
-    const prompt = `You write YouTube Shorts metadata. Language/style: ${base.language === 'hi' ? 'Hindi (Devanagari)' : 'Hinglish or English matching the transcript'}.\nReturn ONLY JSON: {"title": string<=90 chars, no clickbait lies, "description": string, "tags": string[<=12], "thumbnailText": string<=24 chars}.\nDo not invent facts not present in the transcript.\nTranscript:\n"""${transcript.slice(0, 3500)}"""\nCurrent draft title: ${base.title}`;
+    const prompt = `You write YouTube Shorts metadata. Language/style: ${base.language === 'hi' ? 'Hindi (Devanagari)' : 'Hinglish or English matching the transcript'}.\nReturn ONLY JSON: {"title": best title (<=90 chars, hook in the first 40 chars, 1-2 emojis, honest: no claim the transcript does not support), "titles": 3 alternative titles, "description": 2-3 short lines using the real topic keywords + a call to action, "tags": string[<=12] mixing high-search and niche tags taken from the topic, "thumbnailText": string<=24 chars (the punchiest 3-4 words)}.\nUse only facts present in the transcript.\nTranscript:\n"""${transcript.slice(0, 3500)}"""\nCurrent draft title: ${base.title}`;
     const res = await fetchFn(`${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(60_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0.4, messages: [{ role: 'user', content: prompt }] }) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const content = ((await res.json()) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? '';
@@ -24,7 +24,8 @@ export async function llmMetadata(base: Metadata, transcript: string, env: LlmEn
     const title = clip(j.title, 90); if (!title) throw new Error('empty title');
     const tags = Array.isArray(j.tags) ? j.tags.map((t) => clip(t, 40)).filter(Boolean).slice(0, 12) : base.tags;
     const tagline = base.hashtags.join(' ');
-    const out: Metadata = { ...base, title: /#shorts/i.test(title) ? title : `${title} #Shorts`.slice(0, 100), description: (clip(j.description, 4500) || base.description.split('\n\n#')[0]!) + (clip(j.description, 4500).includes(tagline) ? '' : `\n\n${tagline}`), tags: tags.length ? tags : base.tags, thumbnailText: clip(j.thumbnailText, 24) || base.thumbnailText, source: 'llm' };
+    const alts = Array.isArray(j.titles) ? j.titles.map((t) => clip(t, 95)).filter(Boolean).slice(0, 3) : [];
+    const out: Metadata = { ...base, titles: [title, ...alts].filter((t, i, a) => a.indexOf(t) === i), title: /#shorts/i.test(title) ? title : `${title} #Shorts`.slice(0, 100), description: (clip(j.description, 4500) || base.description.split('\n\n#')[0]!) + (clip(j.description, 4500).includes(tagline) ? '' : `\n\n${tagline}`), tags: tags.length ? tags : base.tags, thumbnailText: clip(j.thumbnailText, 24) || base.thumbnailText, source: 'llm' };
     const errs = validateMetadata(out); if (errs.length) throw new Error(errs.join('; '));
     return out;
   } catch (e) { return { ...base, warnings: [...base.warnings, `llm metadata skipped (${(e as Error).message.slice(0, 80)}); template used`] }; }

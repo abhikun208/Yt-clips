@@ -9,6 +9,7 @@ import { addYoutubeSource, pollSources } from './sources/youtube.ts';
 import { transcribeVideo } from './analysis/stt.ts';
 import { PRESETS, getPreset } from './edit/captionPresets.ts';
 import { updateOwnerConfig } from './config.ts';
+import { sttCreds } from './ai/settings.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor } from './publish/service.ts';
 import { setCommentStatus } from './comments/comments.ts';
 import { startLoopbackFlow, clientCreds } from './publish/oauth.ts';
@@ -24,6 +25,14 @@ async function doctor(): Promise<number> {
   const ver = async (c: string, a: string[]) => { try { return (await run(c, a, { timeoutMs: 8000 })).stdout.split('\n')[0] ?? ''; } catch { return ''; } };
   checks.push(['node >= 22.18', Number(process.versions.node.split('.')[0]) > 22 || (process.versions.node.startsWith('22.') && Number(process.versions.node.split('.')[1]) >= 18), process.version]);
   for (const t of ['ffmpeg', 'ffprobe']) checks.push([t, await which(t), await which(t) ? await ver(t, ['-version']) : 'MISSING (required)']);
+  if (await which('ffmpeg')) {
+    const f = (await run('ffmpeg', ['-hide_banner', '-filters'], { timeoutMs: 15000 }).catch(() => null))?.stdout ?? ''; const e = (await run('ffmpeg', ['-hide_banner', '-encoders'], { timeoutMs: 15000 }).catch(() => null))?.stdout ?? '';
+    const need: [string, string, string][] = [['subtitles', f, 'captions burn-in (libass)'], ['zoompan', f, 'zoom/beat effects'], ['loudnorm', f, '-14 LUFS'], ['afftdn', f, 'noise reduction'], ['sidechaincompress', f, 'music ducking'], ['gblur', f, 'glow'], ['libx264', e, 'video encode'], ['aac', e, 'audio encode']];
+    const miss = need.filter(([n, hay]) => !new RegExp(`\\b${n}\\b`).test(hay)).map(([n, , why]) => `${n} (${why})`);
+    checks.push(['ffmpeg has all editing filters/encoders', miss.length === 0, miss.length ? 'MISSING: ' + miss.join(', ') + ' — those editing features will fail/skip' : 'all present']);
+    checks.push(['opus/mp3 encoder (optional: API speech-to-text upload size)', /\blibopus\b|\blibmp3lame\b/.test(e), 'else uses aac']);
+  }
+  checks.push(['speech-to-text (optional, but captions need it)', !!(sttCreds(cfg) || process.env.YT_CLIPS_STT_CMD) || (await which('whisper')) || (await which('whisper-cli')), 'add a free Groq key in the UI (AI keys), or install faster-whisper']);
   checks.push(['yt-dlp (optional: YouTube download)', await which('yt-dlp'), (await which('yt-dlp')) ? 'ok' : 'missing: local files / sidecar only']);
   checks.push(['whisper (optional: transcripts)', (await which('whisper')) || (await which('whisper-cli')), 'else supply .srt/.vtt/.json next to the video']);
   checks.push(['python3+opencv (optional: face tracking)', await which('python3'), 'falls back to centered crop']);

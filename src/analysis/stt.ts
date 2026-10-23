@@ -4,6 +4,8 @@ import type { Config } from '../config.ts';
 import type { Cue } from './transcript.ts';
 import { run, which } from '../util/proc.ts';
 import { warn, info } from '../util/log.ts';
+import { sttCreds } from '../ai/settings.ts';
+import { transcribeViaApi } from './sttApi.ts';
 
 export interface SttResult { status: 'ok' | 'no_speech' | 'unavailable' | 'failed'; cues: Cue[]; language?: string; engine?: string; error?: string }
 
@@ -42,8 +44,19 @@ export function parseSttJson(stdout: string): { cues: Cue[]; language?: string }
 
 /** Extract 16k mono audio, run STT, write the `<video>.json` sidecar the analyzer/captions already read. Never throws: failure => status. */
 export async function transcribeVideo(cfg: Config, videoPath: string): Promise<SttResult> {
+  if (!process.env.YT_CLIPS_STT_CMD) {
+    const api = sttCreds(cfg);
+    if (api) {
+      try {
+        const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: cfg.stt.language, prompt: cfg.stt.prompt });
+        if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'api', language: r.language };
+        writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'api', model: api.model, cues: r.cues.length, language: r.language });
+        return { status: 'ok', cues: r.cues, language: r.language, engine: 'api' };
+      } catch (e) { warn('api stt failed', { err: (e as Error).message.slice(0, 160) }); return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; }
+    }
+  }
   const eng = await sttEngine(cfg.rootDir);
-  if (!eng) return { status: 'unavailable', cues: [], error: 'no STT engine (install faster-whisper or set YT_CLIPS_STT_CMD)' };
+  if (!eng) return { status: 'unavailable', cues: [], error: 'no STT engine (add a free Groq key in the UI, or install faster-whisper, or set YT_CLIPS_STT_CMD)' };
   const wav = join(cfg.dirs.tmp, `stt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
   try {
     const ex = await run('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], { timeoutMs: 30 * 60_000 });

@@ -62,6 +62,11 @@
 | Speed ramp: slow-motion window (0.7x) at the strongest audio peak (clip >= 8s), audio atempo, captions/SRT re-timed, ramped duration verified (falls back to un-ramped on any mismatch); `edit.speedRamp` default true | DONE; real ffmpeg render via CLI on a fixture: speed_ramp + beat_effects applied, QC pass, treatment coverage 0.938. Speeding up "boring parts" NOT implemented | test/ramp.test.ts + live CLI run |
 | Web UI panels: YouTube connect (device code) + upload queue/advance/approve, comments approve/edit/post, analytics + schedule + token + CSV import, transcript word editor | DONE; loaded in real headless Chromium (all panels render, no JS errors); script-parse test. Clicking through each button against a real account NOT done | test/server.test.ts + manual Chromium load |
 
+| Speech-to-text via any OpenAI-compatible API (Groq free whisper-large-v3-turbo by default): audio cut into 10-min chunks (opus/mp3/aac fallback), word timestamps, 429/5xx retry, offsets restored; key saved from the UI (encrypted when `YT_CLIPS_SECRET_KEY` set) or env | DONE; real ffmpeg + FAKE API server (Groq's real API never called). Reason added: owner's phone had no STT engine so captions/analysis were generic | test/ai.test.ts (incl. end-to-end upload -> measured captions) |
+| LLM titles/description/tags/3 title variants from the real transcript (same key), template fallback | DONE; fake-tested | test/ai.test.ts |
+| Social login in UI: Google client, Meta (Facebook+Instagram) and TikTok OAuth code flows, one-time state, long-lived Meta token + Page/IG discovery, TikTok auto-refresh; tokens feed the analytics providers | DONE; fake servers only. TikTok may require an https redirect URI (unverified) | test/ai.test.ts |
+| Clip cards show every editing feature applied/skipped with reason; `doctor` checks ffmpeg has all needed filters/encoders and STT readiness; startup prints the URL (+ tries termux-open-url) | DONE | test/ai.test.ts, doctor |
+
 ### Not done / blocked (do NOT claim these)
 - Instagram/TikTok/Facebook upload adapters: **BLOCKED** (need owner creds/app review). YouTube adapter exists but is untested against real Google (needs owner OAuth client). Unverified-API-project visibility limits may apply on Google's side.
 - IG/FB/TikTok OAuth login + token refresh and their upload adapters: NOT implemented (analytics read with an owner-supplied token only). Real-platform analytics calls never run.
@@ -79,7 +84,7 @@
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
-- Session 3: 80/80 tests, typecheck clean.
+- Session 3: 86/86 tests (+ owner's Termux run: 80/80 before this block), typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.

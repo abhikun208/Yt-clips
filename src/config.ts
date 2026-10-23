@@ -19,7 +19,7 @@ export interface Config {
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
   gates: { publishEnabled: boolean; commentsAutoPost: boolean; publicVisibilityAllowed: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number };
-  stt: { mode: 'auto' | 'off'; model: string; language: string };
+  stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
   comments: { pollMinutes: number; maxRepliesPerDay: number };

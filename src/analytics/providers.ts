@@ -55,10 +55,10 @@ export function facebookProvider(secrets: SecretStore): Provider {
 }
 
 /** TikTok Display API: POST /v2/video/query/ (scope video.list, <=20 ids per call). Token supplied by the owner (no refresh logic here). */
-export function tiktokProvider(secrets: SecretStore): Provider {
+export function tiktokProvider(secrets: SecretStore, getToken?: () => Promise<string | null>): Provider {
   return { platform: 'tiktok', connected: () => { try { return !!token(secrets, 'tiktok'); } catch { return false; } },
     async fetch(ids) {
-      const t = token(secrets, 'tiktok'); if (!t) throw new Error('AUTH_NOT_CONNECTED: no tiktok access token'); const out: Stat[] = [];
+      const t = getToken ? await getToken() : token(secrets, 'tiktok'); if (!t) throw new Error('AUTH_NOT_CONNECTED: no tiktok access token'); const out: Stat[] = [];
       for (let i = 0; i < ids.length; i += 20) {
         const r = await getJson(`${TIKTOK()}/v2/video/query/?fields=id,create_time,view_count,like_count,comment_count,share_count`, { method: 'POST', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: JSON.stringify({ filters: { video_ids: ids.slice(i, i + 20) } }) });
         if (!r.ok) { if (r.j?.error?.code && r.j.error.code !== 'ok') throw new Error(`tiktok query failed: ${String(r.j.error.code).slice(0, 60)}`); continue; }

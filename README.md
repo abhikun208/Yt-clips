@@ -35,8 +35,17 @@ Browser mein "Video add karo" → file upload (rights checkbox) ya YouTube chann
 
 Bina UI ke: `npm run cli -- add video.mp4 --authorized` → `npm run cli -- run` → `npm run cli -- status`. Saari commands: `npm run cli -- help`.
 
+### Captions/titles ke liye free AI key (phone par bhi) — zaroori
+Bina transcript ke system video ki **baat sun nahi sakta**, to captions nahi banenge aur titles generic honge. Sabse aasaan free tareeka:
+1. console.groq.com par free account → **API Keys** → key banao (`gsk_...`).
+2. UI mein "AI keys + social accounts" → key paste → **Save**. Isse speech-to-text (whisper-large-v3-turbo, word-by-word timing) aur title/description/tags (Llama) dono chalu ho jaate hain.
+Free limits Groq ke hain (whisper: ~2 ghante audio/ghanta, ~8 ghante/din per Groq docs 2026-10-23; change ho sakte hain). Alternative: `pip install faster-whisper` (PC/VPS), ya koi bhi OpenAI-compatible endpoint (`STT_API_BASE`, `LLM_API_BASE`).
+
+### Social accounts login (UI mein)
+"AI keys + social accounts" panel: Google client ID/secret, Meta (Facebook+Instagram) app ID/secret, TikTok client key/secret save karo, phir login buttons. Har platform ka apna free developer app banana padta hai (kisi aur ka nahi chalta). Abhi ye logins **analytics** (views, best time) ke liye hain; Instagram/TikTok/Facebook par video upload adapters abhi nahi bane. TikTok/Meta redirect URI mein https maang sakte hain: phone par ho to HTTPS tunnel/domain chahiye.
+
 ### Optional installs (free)
-- Transcript: `pip install faster-whisper` (Hindi/Hinglish ke liye model `small` ya bada). Ya apna `.srt/.vtt/.json` video ke saath rakho.
+- Transcript (alternative to Groq): `pip install faster-whisper` (PC/VPS). Ya apna `.srt/.vtt/.json` video ke saath rakho.
 - YouTube download: `pip install yt-dlp`.
 - Hindi fonts: `sudo apt install fonts-noto-core`.
 

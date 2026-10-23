@@ -10,6 +10,7 @@ import { screenText } from './safety.ts';
 import { probe } from '../media/probe.ts';
 import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE } from './oauth.ts';
+import { tiktokAccessToken } from './socialOauth.ts';
 import { planFromStore } from '../schedule/analytics.ts';
 
 export const secretsFor = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'secrets'));
@@ -66,7 +67,7 @@ export async function youtubeConnectPoll(store: Store, cfg: Config) {
 export const TOKEN_PLATFORMS = ['instagram', 'facebook', 'tiktok'] as const;
 export function analyticsProviders(store: Store, cfg: Config): Provider[] {
   const secrets = secretsFor(cfg); const tp = new TokenProvider(secrets);
-  return [youtubeProvider(new YouTubeAdapter(store, tp), () => tp.connected()), instagramProvider(secrets), facebookProvider(secrets), tiktokProvider(secrets)];
+  return [youtubeProvider(new YouTubeAdapter(store, tp), () => tp.connected()), instagramProvider(secrets), facebookProvider(secrets), tiktokProvider(secrets, () => tiktokAccessToken(cfg))];
 }
 /** Owner supplies a platform access token (stored encrypted if YT_CLIPS_SECRET_KEY is set). Never echoed back. */
 export function saveTokenFor(cfg: Config, platform: string, accessToken: string): void {
