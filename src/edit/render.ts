@@ -10,6 +10,7 @@ import { getPreset } from './captionPresets.ts';
 import { cuesToSubtitles } from '../analysis/transcript.ts';
 import { installedFonts } from '../util/fonts.ts';
 import { pickPeaks } from './beats.ts';
+import { planRamp, rampedDuration, remapCues, rampFilter, type Ramp } from './ramp.ts';
 import { audioEnergy } from '../analysis/signals.ts';
 import { buildVideoGraph, buildAudioGraph, treatmentCoverage, type Treatment } from './filters.ts';
 import { qcClip } from './qc.ts';
@@ -17,7 +18,7 @@ import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean }
+export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -62,31 +63,46 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     if (r.code !== 0) throw new Error(`raw clip extraction failed: ${r.stderr.slice(0, 300)}`);
     renameSync(tmp, rawPath);
   }
-  const m = await probe(rawPath);
+  let m = await probe(rawPath);
+  // 1b) optional slow-motion window at the strongest audio peak (re-timed clip; captions are re-timed to match)
+  let ramp: Ramp | null = null; let editSrc = rawPath; let rampNote = 'disabled';
+  if ((ro.speedRamp ?? cfg.edit.speedRamp) && m.hasAudio) {
+    try {
+      const peaks = pickPeaks(await audioEnergy(rawPath, 0.25), { duration: m.duration, max: 1 }); ramp = planRamp(peaks[0], m.duration); rampNote = ramp ? '' : 'no strong peak / clip too short';
+      if (ramp) {
+        const rp = join(cfg.dirs.tmp, `${outputId}.ramp.mp4`);
+        const rr = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', rampFilter(ramp, true), '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', rp], { timeoutMs: 20 * 60_000 });
+        if (rr.code !== 0) { ramp = null; rampNote = 'ffmpeg ramp failed; rendered without'; } else {
+          const mr = await probe(rp); if (Math.abs(mr.duration - rampedDuration(m.duration, ramp)) > 0.5) { ramp = null; rampNote = 'ramped duration mismatch; rendered without'; rmSync(rp, { force: true }); } else { editSrc = rp; m = mr; }
+        }
+      }
+    } catch { ramp = null; rampNote = 'ramp error; rendered without'; }
+  }
 
   // 2) edit
-  const cues = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, ''));
+  const cues0 = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, ''));
+  const cues = ramp ? remapCues(cues0, c.start_sec, ramp) : cues0; const effEnd = c.start_sec + m.duration;
   let assPath: string | undefined; let cap: CaptionResult | undefined;
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   if (presetId !== 'none' && (cues.length || ro.title)) {
-    cap = buildStyledAss(cues, c.start_sec, c.end_sec, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
+    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
     writeFileSync(assPath, cap.ass, 'utf8');
   }
   if (cues.length && cfg.edit.exportSubtitles) {
     mkdirSync(join(cfg.dataDir, 'captions'), { recursive: true });
-    writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.srt`), cuesToSubtitles(cues, 'srt', c.start_sec, dur));
-    writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.vtt`), cuesToSubtitles(cues, 'vtt', c.start_sec, dur));
+    writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.srt`), cuesToSubtitles(cues, 'srt', c.start_sec, m.duration));
+    writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.vtt`), cuesToSubtitles(cues, 'vtt', c.start_sec, m.duration));
   }
   const reframe = ro.reframe ?? cfg.edit.reframe;
-  const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(rawPath, cfg.rootDir) : undefined;
+  const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
   let punch: number[] = [];
-  if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(rawPath, 0.25), { duration: m.duration }); } catch { punch = []; } }
+  if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); } catch { punch = []; } }
   const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, cropXFrac: cx, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true });
   const music = pickMusic(cfg.dirs.assets);
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
-  const args = ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, ...(music && m.hasAudio ? ['-i', music] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),
+  const args = ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),
     '-r', String(cfg.edit.fps), '-c:v', 'libx264', '-preset', cfg.edit.preset, '-crf', String(cfg.edit.crf), '-pix_fmt', 'yuv420p', ...(ag.graph ? ['-c:a', 'aac', '-b:a', '160k', '-ar', '48000'] : []), '-movflags', '+faststart', '-t', m.duration.toFixed(3), finalPath + '.part.mp4'];
   const r = await run('ffmpeg', args, { timeoutMs: 40 * 60_000 });
   if (r.code !== 0) { rmSync(finalPath + '.part.mp4', { force: true }); throw new Error(`edit render failed: ${r.stderr.slice(0, 500)}`); }
@@ -94,8 +110,9 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
 
   // 3) QC (measured)
   const qc = await qcClip(finalPath, { width: cfg.edit.width, height: cfg.edit.height, duration: m.duration, targetLufs: cfg.edit.targetLufs, requireAudio: m.hasAudio });
-  const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, { dimension: 'speed_ramp', applied: false, detail: 'not implemented in this version' }];
+  const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, ramp ? { dimension: 'speed_ramp', applied: true, detail: `slow-motion ${ramp.rate}x from ${ramp.a.toFixed(1)}s to ${ramp.b.toFixed(1)}s (audio atempo, captions re-timed); clip ${(m.duration).toFixed(1)}s` } : { dimension: 'speed_ramp', applied: false, detail: rampNote }];
   const cov = treatmentCoverage(treatments);
+  if (editSrc !== rawPath) rmSync(editSrc, { force: true });
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
     captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,

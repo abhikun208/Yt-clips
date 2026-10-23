@@ -26,7 +26,7 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Color grade, vignette, glow, zoom, fades, sharpen | CapCut | FFmpeg | DONE | manifest + render |
 | Auto zoom | CapCut | zoompan | DONE (slow push-in) | filters test |
 | Beat effects (punch-zoom at audio peaks) | CapCut | FFmpeg zoompan + energy peaks | DONE (peaks, not BPM) | test/beats.test.ts |
-| Speed ramp | CapCut | FFmpeg setpts/atempo | NOT IMPLEMENTED | listed as not applied in every manifest |
+| Speed ramp (slow-mo at audio peak) | CapCut | FFmpeg trim/setpts/atempo | DONE (slow-mo only; no speed-up of boring parts) | test/ramp.test.ts |
 | Voice enhance, noise reduction, loudness -14 LUFS | Descript Studio Sound-like | afftdn+compressor+loudnorm | DONE | QC measured -14.1 LUFS |
 | BGM with ducking | CapCut | sidechaincompress | DONE only when owner puts licensed music in `assets/music/` (none bundled) | filters test |
 | Hinglish SEO titles/desc/tags/hashtags | Ssemble (LLM) | Template (offline); LLM adapter possible | DONE: template by default; optional OpenAI-compatible LLM via env (fake-tested only) | metadata test |
