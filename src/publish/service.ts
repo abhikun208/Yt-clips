@@ -9,7 +9,7 @@ import { instagramProvider, facebookProvider, tiktokProvider, youtubeProvider, t
 import { screenText } from './safety.ts';
 import { probe } from '../media/probe.ts';
 import { ingestComment, postApprovedReply } from '../comments/comments.ts';
-import { connectedScope, YT_FORCE_SSL_SCOPE } from './oauth.ts';
+import { connectedScope, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { notify } from '../notify.ts';
@@ -77,6 +77,34 @@ export async function youtubeConnectPoll(store: Store, cfg: Config, ch: Channel 
   const r = await pollDeviceFlow(secretsFor(cfg), cc.clientId, cc.clientSecret, row.v, ytSecretName(ch));
   if (r.status === 'ok') store.exec(`DELETE FROM kv WHERE k=?`, ytDeviceKey(ch));
   return { status: r.status };
+}
+
+/** Pull retention for PUBLISHED YouTube uploads of every channel whose token has the analytics scope. Read-only; one row per video per call. */
+export async function collectRetention(store: Store, cfg: Config): Promise<{ videos: number; recorded: number; skipped: string[]; errors: string[] }> {
+  const res = { videos: 0, recorded: 0, skipped: [] as string[], errors: [] as string[] }; const today = new Date().toISOString().slice(0, 10);
+  for (const ch of listChannels(store)) {
+    const sc = connectedScope(secretsFor(cfg), ytSecretName(ch)); if (!sc) continue;
+    if (!sc.split(/\s+/).includes(YT_ANALYTICS_SCOPE)) { res.skipped.push(`${ch.slug}: no analytics scope (run youtube-connect-full)`); continue; }
+    const ups = store.all<{ remote_id: string; updated_at: string }>(`SELECT remote_id, updated_at FROM uploads WHERE platform='youtube_shorts' AND COALESCE(channel_id, ?)=? AND remote_id IS NOT NULL AND state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE')`, mainChannel(store).id, ch.id);
+    const ad = new YouTubeAdapter(store, tokenFor(cfg, ch)); res.videos += ups.length;
+    for (const u of ups) {
+      try {
+        const start = (u.updated_at ?? today).slice(0, 10); const x = await ad.retention(u.remote_id, start > today ? today : start, today); if (!x) continue;
+        store.exec('INSERT INTO retention(platform, remote_id, channel_id, views, avg_view_pct, avg_view_sec, est_minutes, subs_gained) VALUES (?,?,?,?,?,?,?,?)', 'youtube_shorts', u.remote_id, ch.id, x.views, x.avgViewPct, x.avgViewSec, x.estMinutes, x.subsGained); res.recorded++;
+      } catch (e) { res.errors.push(`${ch.slug}/${u.remote_id}: ${(e as Error).message.slice(0, 100)}`); if (/^(AUTH_|QUOTA_)/.test((e as Error).message)) break; }
+    }
+  }
+  return res;
+}
+
+/** What actually held viewers: mean avg-view-% by clip category for one channel (latest retention row per video). Needs >= minSamples videos. */
+export function learnedCategoryPrior(store: Store, channelId: number, minSamples = 5): Record<string, number> {
+  const rows = store.all<{ category: string; pct: number }>(`SELECT cd.category AS category, r.avg_view_pct AS pct FROM retention r JOIN (SELECT remote_id, max(id) mid FROM retention GROUP BY remote_id) m ON m.mid=r.id JOIN uploads u ON u.remote_id=r.remote_id AND u.platform='youtube_shorts' JOIN clips c ON c.id=u.clip_id JOIN candidates cd ON cd.id=c.candidate_id WHERE r.channel_id=? AND r.avg_view_pct IS NOT NULL`, channelId);
+  if (rows.length < minSamples) return {};
+  const all = rows.reduce((a, r) => a + r.pct, 0) / rows.length; if (!(all > 0)) return {};
+  const by = new Map<string, number[]>(); for (const r of rows) by.set(r.category, [...(by.get(r.category) ?? []), r.pct]);
+  const out: Record<string, number> = {}; for (const [k, v] of by) if (v.length >= 2) out[k] = +Math.max(0.9, Math.min(1.15, 1 + 0.3 * (v.reduce((a, b) => a + b, 0) / v.length / all - 1))).toFixed(3);
+  return out;
 }
 
 export const TOKEN_PLATFORMS = ['instagram', 'facebook', 'tiktok'] as const;

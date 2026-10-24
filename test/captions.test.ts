@@ -93,3 +93,13 @@ test('REAL burn-in: one preset per mode renders visible captions via ffmpeg/liba
     const ymax = Number(s.stdout.match(/YMAX=(\d+)/)?.[1] ?? 0); assert.ok(ymax > 120, `${id}: no visible caption pixels (ymax=${ymax})`);
   }
 });
+
+test('per-word font fallback: Latin words inside a Hindi clip get their own font tag; same-script words do not', () => {
+  const cues = [{ start: 0, end: 3, text: 'यह बहुत headshot था', words: [{ text: 'यह', start: 0, end: .5 }, { text: 'बहुत', start: .5, end: 1 }, { text: 'headshot', start: 1, end: 2 }, { text: 'था', start: 2, end: 3 }] }];
+  const resolve = (c: string[]) => c[0];
+  const mixed = buildStyledAss(cues as never, 0, 3, null, { width: 1080, height: 1920, preset: 'classic-sun', resolveFont: resolve });
+  assert.match(mixed.ass, /\{\\fn[^}]+\}headshot\{\\fn[^}]+\}/i, 'English word wrapped in its own \\fn');
+  assert.ok(!/\{\\fn[^}]+\}(यह|बहुत|था)/.test(mixed.ass), 'dominant-script words keep the style font');
+  const latin = buildStyledAss([{ start: 0, end: 2, text: 'one tap kill', words: [{ text: 'one', start: 0, end: .6 }, { text: 'tap', start: .6, end: 1.2 }, { text: 'kill', start: 1.2, end: 2 }] }] as never, 0, 2, null, { width: 1080, height: 1920, resolveFont: resolve });
+  assert.ok(!/\\fn/.test(latin.ass.split('[Events]')[1]!), 'pure Latin clip needs no per-word override');
+});

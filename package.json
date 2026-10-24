@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor",
     "cli": "node --disable-warning=ExperimentalWarning src/cli.ts",
-    "start": "node --disable-warning=ExperimentalWarning src/server/main.ts"
+    "start": "node --disable-warning=ExperimentalWarning src/server/main.ts",
+    "test:real": "node --disable-warning=ExperimentalWarning --test \"test/real/*.test.ts\""
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

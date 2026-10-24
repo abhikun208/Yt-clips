@@ -1,5 +1,7 @@
 import { channelOfVideo } from '../channels.ts';
 import { loadExternalSeries } from './external.ts';
+import { learnedCategoryPrior } from '../publish/service.ts';
+import { scanKillfeed } from './killfeed.ts';
 import { writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Store } from '../db.ts';
@@ -49,8 +51,9 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     }
     const cues = loadTranscript(v.path.replace(/\.[^.]+$/, ''));
     const chan = channelOfVideo(store, videoId); const external = loadExternalSeries(v.path.replace(/\.[^.]+$/, ''), a.duration);
+    if (chan.config.killfeed) { try { const kf = await scanKillfeed(v.path, a.duration, cfg.dirs.tmp, { region: chan.config.killfeed === true ? undefined : chan.config.killfeed }); if (kf) external.push(kf); } catch (e) { warn('killfeed scan failed', { err: (e as Error).message.slice(0, 80) }); } }
     if (external.length) info('external signals used', { videoId, series: external.map((x) => x.name) });
-    let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming' },
+    let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming', categoryPrior: learnedCategoryPrior(store, chan.id) },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
     { const rr = await rerankCandidates(cands, llmChain(cfg)); cands = rr.cands; if (rr.used) info('llm rerank', { used: rr.used }); else if (rr.note) warn(rr.note); }
     let inserted = 0;

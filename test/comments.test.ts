@@ -14,7 +14,7 @@ test('loopback OAuth (PKCE): browser redirect with code stores refresh token + s
   const f = await startFake(); const old = { ...process.env }; Object.assign(process.env, { YT_OAUTH_BASE: f.base, YT_OAUTH_AUTH_BASE: `${f.base}/auth` });
   try {
     const secrets = new SecretStore(tmpDir(), undefined); const flow = await startLoopbackFlow(secrets, { clientId: 'cid', clientSecret: 'cs' });
-    const au = new URL(flow.authUrl); assert.equal(au.searchParams.get('scope'), YT_FORCE_SSL_SCOPE); assert.equal(au.searchParams.get('code_challenge_method'), 'S256'); assert.equal(au.searchParams.get('access_type'), 'offline');
+    const au = new URL(flow.authUrl); assert.ok(au.searchParams.get('scope')!.split(' ').includes(YT_FORCE_SSL_SCOPE)); assert.equal(au.searchParams.get('code_challenge_method'), 'S256'); assert.equal(au.searchParams.get('access_type'), 'offline');
     const redirect = au.searchParams.get('redirect_uri')!; const state = au.searchParams.get('state')!;
     assert.equal((await fetch(`${redirect}?code=AUTHCODE&state=WRONG`)).status, 400); await assert.rejects(flow.done, /state mismatch/);
     const f2 = await startLoopbackFlow(secrets, { clientId: 'cid', clientSecret: 'cs' }); const u2 = new URL(f2.authUrl);

@@ -71,4 +71,9 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Hardware encoding + parallel lanes | DONE (probe + fallback; GPU paths untested) | test/encoder.test.ts |
 | Chat/heatmap highlight signals, gaming profile, gamer-stack layout | DONE; real download untested | test/signals.test.ts |
 | Real-world smoke command | DONE (owner runs) | test/smoke.test.ts |
-| Retention/CTR from YouTube Analytics API, title A/B test, pinned-comment funnel, caption translation, killfeed OCR | NOT implemented | — |
+| Retention from YouTube Analytics API + learned category prior | DONE; stub tested (CTR not exposed by Google) | test/youtube2.test.ts |
+| Title A/B by rotation, funnel comment (pin = manual) | DONE; weak statistics, stub tested | test/youtube2.test.ts |
+| Caption translation en/hi | DONE; stub tested | test/translate.test.ts |
+| Killfeed OCR signal | DONE; real tesseract on synthetic frames | test/killfeed.test.ts |
+| Per-word caption font fallback | DONE | test/captions.test.ts |
+| Real-service tests (owner-run) | WRITTEN, not executed by author | test/real/real.test.ts |

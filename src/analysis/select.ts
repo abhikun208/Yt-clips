@@ -15,6 +15,8 @@ export interface SelectInput {
   energy: number[]; energyStep: number; scenes: number[]; silence: Interval[]; cues: Cue[];
   /** optional: live-chat / replay-heatmap series and the gaming profile (see external.ts) */
   external?: Series[]; gaming?: boolean;
+  /** category -> multiplier learned from this channel's own retention data (0.9..1.15) */
+  categoryPrior?: Record<string, number>;
 }
 
 import { externalBoost, gamingScore, type Series } from './external.ts';
@@ -91,6 +93,7 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
       score = clamp01(score);
 
       const category = gm >= 0.66 ? 'gaming_moment' : ext >= 0.7 ? 'crowd_reaction' : ts.emotion ?? (peak > 0.85 && variance > 0.2 ? 'high_energy' : pace > 0.6 ? 'dynamic_visuals' : speech > 0.6 ? 'dialogue' : 'general');
+      const prior = inp.categoryPrior?.[category]; if (prior) score = clamp01(score * prior);
       const reasons = [
         peak > 0.8 ? 'audio energy peak' : '', variance > 0.2 ? 'dynamic audio' : '', pace > 0.5 ? 'frequent scene changes' : '',
         complete >= 1 ? 'clean start/end on natural pauses' : '', ts.hook > 0 ? 'hook words in speech' : '', hk >= 0.5 ? 'strong opening line' : '', pay >= 0.9 ? 'ends on a finished thought' : '', ext >= 0.5 ? 'chat/replay spike' : '', gm > 0 ? 'gaming callouts in speech' : '', ts.emotion ? `emotion cue: ${ts.emotion}` : '',

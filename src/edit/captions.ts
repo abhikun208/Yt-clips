@@ -103,6 +103,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const emph = new Set([...HOOK_WORDS, ...(o.emphasis ?? [])].map((x) => x.toLowerCase()));
   const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
   const T = (s: string) => (p.caps ? s.toLocaleUpperCase() : s);
+  // Per-word font fallback: a word whose script differs from the clip's dominant script (e.g. English inside Hindi) gets its own installed font via an inline \fn override.
+  const wordFont = (w: string): string | null => { if (!/\p{L}/u.test(w)) return null; const sc = detectScript(w); if (sc === script) return null; const fx = pickFont(sc, o.resolveFont); return fx.warning || fx.font === f.font ? null : fx.font; };
+  const F = (w: string) => { const fn = wordFont(w); const t = T(w); return fn ? `{\\fn${fn}}${t}{\\fn${f.font}}` : t; };
   const glow = p.glow ? '{\\blur5}' : '';
   const colorFor = (w: TWord, state: 'active' | 'spoken' | 'upcoming') => state === 'active' ? pal.active : state === 'upcoming' ? pal.upcoming : emph.has(norm(w.w)) && norm(w.w) ? pal.emphasis : pal.base;
   const popTag = (pct: number) => (pct === 100 ? '' : `\\fscx100\\fscy100\\t(0,90,\\fscx${pct}\\fscy${pct})\\t(90,200,\\fscx100\\fscy100)`);
@@ -110,7 +113,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     const state = i === k ? 'active' : i < k ? 'spoken' : 'upcoming';
     if (state === 'upcoming' && !showUpcoming) return '';
     const tags = state === 'active' ? `{\\c${inl(colorFor(w, state))}${popTag(p.pop)}}` : `{\\c${inl(colorFor(w, state))}}`;
-    return `${tags}${T(w.w)}`;
+    return `${tags}${F(w.w)}`;
   }).filter(Boolean).join(' ');
 
   const chunks = chunkWords(words, p.wordsPerChunk);
@@ -119,7 +122,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     const last = chunk[chunk.length - 1]!;
     const chunkEnd = Math.min(nextStart - 0.02, last.b + 0.25, dur);
     if (p.mode === 'karaoke') {
-      const parts = chunk.map((w, i) => `{\\kf${Math.max(1, Math.round(((chunk[i + 1]?.a ?? chunkEnd) - w.a) * 100))}}${T(w.w)}`).join(' ');
+      const parts = chunk.map((w, i) => `{\\kf${Math.max(1, Math.round(((chunk[i + 1]?.a ?? chunkEnd) - w.a) * 100))}}${F(w.w)}`).join(' ');
       lines.push(`Dialogue: 0,${hms(chunk[0]!.a)},${hms(Math.max(chunkEnd, chunk[0]!.a + 0.05))},Cap,,0,0,0,,${glow}{\\fad(40,0)}${parts}`);
       return;
     }
@@ -127,8 +130,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       const a = w.a; const b = k + 1 < chunk.length ? chunk[k + 1]!.a : Math.max(chunkEnd, w.a + 0.05);
       if (b - a < 0.03) return;
       let text: string;
-      if (p.mode === 'one') text = `{\\fad(25,0)\\c${inl(pal.active)}\\fscx70\\fscy70\\t(0,110,\\fscx${p.pop}\\fscy${p.pop})\\t(110,200,\\fscx100\\fscy100)}${T(w.w)}`;
-      else if (p.mode === 'type') text = chunk.slice(0, k + 1).map((x) => T(x.w)).join(' ');
+      if (p.mode === 'one') text = `{\\fad(25,0)\\c${inl(pal.active)}\\fscx70\\fscy70\\t(0,110,\\fscx${p.pop}\\fscy${p.pop})\\t(110,200,\\fscx100\\fscy100)}${F(w.w)}`;
+      else if (p.mode === 'type') text = chunk.slice(0, k + 1).map((x) => F(x.w)).join(' ');
       else if (p.mode === 'build') text = render(chunk, k, p.showUpcoming ? chunk.length : k + 1, p.showUpcoming);
       else text = render(chunk, k, chunk.length, true);
       lines.push(`Dialogue: 0,${hms(a)},${hms(b)},Cap,,0,0,0,,${glow}${text}`);

@@ -102,6 +102,9 @@ async function main(): Promise<number> {
     }
     if (cmd === 'tick') { console.log(await automationTick(s, cfg)); return 0; }
     if (cmd === 'platforms') { console.table(platformStatus(s, cfg)); return 0; }
+    if (cmd === 'title-test') { const t = await import('./publish/titletest.ts'); console.log(JSON.stringify({ tick: await t.titleTestTick(s, cfg), tests: t.listTitleTests(s) }, null, 2)); return 0; }
+    if (cmd === 'funnel') { const t = await import('./publish/titletest.ts'); console.log(JSON.stringify(await t.funnelTick(s, cfg), null, 2)); return 0; }
+    if (cmd === 'retention-collect') { const { collectRetention } = await import('./publish/service.ts'); console.log(JSON.stringify(await collectRetention(s, cfg), null, 2)); return 0; }
     if (cmd === 'analytics-collect') { console.table(await collectAnalytics(s, analyticsProviders(s, cfg))); return 0; }
     if (cmd === 'set-token') { const t = readFileSync(0, 'utf8').trim(); saveTokenFor(cfg, String(rest[0]), t); console.log('token stored'); return 0; }
     if (cmd === 'uploads') { console.table(listUploads(s)); return 0; }

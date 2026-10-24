@@ -33,6 +33,8 @@ export async function pollDeviceFlow(secrets: SecretStore, clientId: string, cli
 
 /** Needed to post comment replies (comments.insert lists only this scope in Google's docs, fetched 2026-10-22). NOT allowed in the device flow, hence the loopback flow below. */
 export const YT_FORCE_SSL_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+/** Analytics (retention) read scope. NOT allowed in the device flow, so it comes with the loopback flow together with force-ssl. */
+export const YT_ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/yt-analytics.readonly';
 const authBase = () => process.env.YT_OAUTH_AUTH_BASE ?? 'https://accounts.google.com/o/oauth2/v2/auth';
 
 /**
@@ -50,13 +52,13 @@ export async function startLoopbackFlow(secrets: SecretStore, creds: { clientId:
     const port = (srv.address() as { port: number }).port;
     const r = await form(`${base()}/token`, { client_id: creds.clientId, client_secret: creds.clientSecret, code, code_verifier: verifier, redirect_uri: `http://127.0.0.1:${port}/callback`, grant_type: 'authorization_code' });
     if (r.status !== 200 || !r.json.refresh_token) return fail(String(r.json.error ?? r.status));
-    secrets.write(o.name ?? 'youtube', { refresh_token: r.json.refresh_token, scope: r.json.scope ?? o.scope ?? YT_FORCE_SSL_SCOPE, connected_at: new Date().toISOString() });
+    secrets.write(o.name ?? 'youtube', { refresh_token: r.json.refresh_token, scope: r.json.scope ?? o.scope ?? `${YT_FORCE_SSL_SCOPE} ${YT_ANALYTICS_SCOPE}`, connected_at: new Date().toISOString() });
     res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); res.end('Connected. Is tab ko band kar sakte ho.'); resolve(); close();
   });
   const timer = setTimeout(() => { reject(new Error('AUTH_LOOPBACK_TIMEOUT')); close(); }, o.timeoutMs ?? 10 * 60_000); timer.unref();
   const close = () => { clearTimeout(timer); srv.close(); srv.closeAllConnections?.(); };
   await new Promise<void>((ok) => srv.listen(o.port ?? 0, '127.0.0.1', ok)); const port = (srv.address() as { port: number }).port;
-  const q = new URLSearchParams({ client_id: creds.clientId, redirect_uri: `http://127.0.0.1:${port}/callback`, response_type: 'code', scope: o.scope ?? YT_FORCE_SSL_SCOPE, access_type: 'offline', prompt: 'consent', code_challenge: challenge, code_challenge_method: 'S256', state });
+  const q = new URLSearchParams({ client_id: creds.clientId, redirect_uri: `http://127.0.0.1:${port}/callback`, response_type: 'code', scope: o.scope ?? `${YT_FORCE_SSL_SCOPE} ${YT_ANALYTICS_SCOPE}`, access_type: 'offline', prompt: 'consent', code_challenge: challenge, code_challenge_method: 'S256', state });
   return { authUrl: `${authBase()}?${q}`, port, done, cancel: () => { reject(new Error('cancelled')); close(); } };
 }
 

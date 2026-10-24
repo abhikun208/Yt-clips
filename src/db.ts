@@ -73,6 +73,14 @@ const MIGRATIONS: string[] = [
   UPDATE sources SET channel_id=(SELECT id FROM channels WHERE slug='main') WHERE channel_id IS NULL;
   UPDATE uploads SET channel_id=(SELECT id FROM channels WHERE slug='main') WHERE channel_id IS NULL;
   UPDATE analytics SET channel_id=(SELECT id FROM channels WHERE slug='main') WHERE channel_id IS NULL;`,
+  // v7 (additive): retention snapshots from the YouTube Analytics API, and title A/B tests (rotating title variants on a published video).
+  `CREATE TABLE IF NOT EXISTS retention (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT NOT NULL, remote_id TEXT NOT NULL, channel_id INTEGER, views INTEGER, avg_view_pct REAL,
+    avg_view_sec REAL, est_minutes REAL, subs_gained INTEGER, taken_at TEXT NOT NULL DEFAULT (datetime('now')));
+  CREATE INDEX IF NOT EXISTS idx_retention ON retention(platform, remote_id, taken_at);
+  CREATE TABLE IF NOT EXISTS title_tests (
+    upload_id INTEGER PRIMARY KEY, remote_id TEXT NOT NULL, variants_json TEXT NOT NULL, idx INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL,
+    views_start INTEGER, results_json TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL DEFAULT 'running', winner TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')));`,
 ];
 
 export type Row = Record<string, unknown>;

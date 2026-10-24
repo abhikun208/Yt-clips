@@ -124,6 +124,21 @@ export class YouTubeAdapter implements Adapter {
     return { processed: true, visibility, metadataMatches: !expect || (v.snippet?.title === expect.title && visibility === expect.visibility) };
   }
   /** Public statistics for up to 50 of our own videos in ONE call (videos.list, 1 quota unit). Missing ids are simply absent. */
+  /**
+   * Audience retention numbers from the YouTube Analytics API (needs the yt-analytics.readonly scope = loopback connect).
+   * NOTE (verified in Google's metrics docs 2026-10-25): there is NO impressions click-through-rate metric in this API, so CTR cannot be read.
+   */
+  async retention(videoId: string, startDate: string, endDate: string): Promise<{ views: number | null; avgViewPct: number | null; avgViewSec: number | null; estMinutes: number | null; subsGained: number | null } | null> {
+    this.charge('list'); const base = process.env.YT_ANALYTICS_BASE ?? 'https://youtubeanalytics.googleapis.com';
+    const q = new URLSearchParams({ ids: 'channel==MINE', startDate, endDate, metrics: 'views,averageViewPercentage,averageViewDuration,estimatedMinutesWatched,subscribersGained', filters: `video==${videoId}` });
+    const r = await this.req(`${base}/v2/reports?${q}`);
+    if (r.status === 403) { const t = await r.text(); if (/insufficient|scope/i.test(t)) throw new Error('AUTH_SCOPE: retention needs the yt-analytics.readonly scope. Run `npm run cli -- youtube-connect-full` once.'); throw new Error(`analytics.reports failed: HTTP 403`); }
+    if (!r.ok) throw await this.apiError(r, 'analytics.reports');
+    const j = await r.json() as { columnHeaders?: { name: string }[]; rows?: (number | string)[][] };
+    const row = j.rows?.[0]; if (!row || !j.columnHeaders) return null;
+    const get = (n: string) => { const i = j.columnHeaders!.findIndex((c) => c.name === n); const v = i >= 0 ? Number(row[i]) : NaN; return Number.isFinite(v) ? v : null; };
+    return { views: get('views'), avgViewPct: get('averageViewPercentage'), avgViewSec: get('averageViewDuration'), estMinutes: get('estimatedMinutesWatched'), subsGained: get('subscribersGained') };
+  }
   async stats(ids: string[]): Promise<{ id: string; publishedAt: string | null; views: number | null; likes: number | null; comments: number | null }[]> {
     const out: { id: string; publishedAt: string | null; views: number | null; likes: number | null; comments: number | null }[] = [];
     for (let i = 0; i < ids.length; i += 50) {
@@ -149,6 +164,27 @@ export class YouTubeAdapter implements Adapter {
     if (r.status === 403) { const t = await r.text(); if (/insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(t)) throw new Error('AUTH_SCOPE: comment replies need the youtube.force-ssl scope. Run `npm run cli -- youtube-connect-full` once.'); throw await this.apiError(new Response(t, { status: 403 }), 'comments.insert'); }
     if (!r.ok) throw await this.apiError(r, 'comments.insert');
     return { id: ((await r.json()) as { id: string }).id };
+  }
+  /** Top-level comment on our own video (used for the "full live here" funnel). Pinning is NOT possible through the API (verified in the comments docs 2026-10-25): the owner pins it in Studio. */
+  async insertTopComment(videoId: string, text: string): Promise<{ id: string }> {
+    this.charge('comment'); const r = await this.req(`${API()}/youtube/v3/commentThreads?part=snippet`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ snippet: { videoId, topLevelComment: { snippet: { textOriginal: text } } } }), retry: false });
+    if (r.status === 403) { const t = await r.text(); if (/insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(t)) throw new Error('AUTH_SCOPE: comments need the youtube.force-ssl scope. Run `npm run cli -- youtube-connect-full` once.'); throw new Error('commentThreads.insert failed: HTTP 403'); }
+    if (!r.ok) throw await this.apiError(r, 'commentThreads.insert');
+    return { id: ((await r.json()) as { id: string }).id };
+  }
+  /** Current public title + privacy + view count (1 quota unit). */
+  async titleState(id: string): Promise<{ title: string; privacy: string; views: number | null } | null> {
+    this.charge('list'); const r = await this.req(`${API()}/youtube/v3/videos?part=snippet,status,statistics&id=${encodeURIComponent(id)}`); if (!r.ok) throw await this.apiError(r, 'videos.list');
+    const v = ((await r.json()) as { items?: { snippet?: { title?: string }; status?: { privacyStatus?: string }; statistics?: { viewCount?: string } }[] }).items?.[0]; if (!v) return null;
+    const n = Number(v.statistics?.viewCount); return { title: v.snippet?.title ?? '', privacy: v.status?.privacyStatus ?? '', views: Number.isFinite(n) ? n : null };
+  }
+  /** Change ONLY the title: videos.update(part=snippet) resets omitted snippet fields, so the current snippet is read and re-sent. 50 quota units. */
+  async setTitle(id: string, title: string): Promise<void> {
+    this.charge('list'); const g = await this.req(`${API()}/youtube/v3/videos?part=snippet&id=${encodeURIComponent(id)}`); if (!g.ok) throw await this.apiError(g, 'videos.list');
+    const cur = ((await g.json()) as { items?: { snippet?: Record<string, unknown> }[] }).items?.[0]?.snippet; if (!cur) throw new Error(`remote video ${id} not found`);
+    const keep: Record<string, unknown> = { title: title.slice(0, 100), categoryId: cur.categoryId }; for (const k of ['description', 'tags', 'defaultLanguage', 'defaultAudioLanguage']) if (cur[k] !== undefined) keep[k] = cur[k];
+    this.charge('update'); const r = await this.req(`${API()}/youtube/v3/videos?part=snippet`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, snippet: keep }), retry: false });
+    if (!r.ok) throw await this.apiError(r, 'videos.update(title)');
   }
   async thumbnail(id: string, path: string): Promise<boolean> {
     try {

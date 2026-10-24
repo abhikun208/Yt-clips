@@ -26,7 +26,7 @@ export interface Config {
   analytics: { pollMinutes: number };
   comments: { pollMinutes: number; maxRepliesPerDay: number };
   /** Autonomous publish loop. OFF by default; owner-only (data/config.json). autoApprove = owner pre-approves scheduling of QC-passed, verified-unlisted clips. */
-  automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean };
+  automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean; titleTest: boolean; titleTestHours: number; funnelComment: boolean };
 }
 
 const DEFAULTS = (rootDir: string): Config => {
@@ -54,7 +54,7 @@ const DEFAULTS = (rootDir: string): Config => {
     youtube: { pollMinutes: 60, maxPerPoll: 3, maxDurationMin: 180, maxHeight: 1080 },
     analytics: { pollMinutes: 360 },
     comments: { pollMinutes: 60, maxRepliesPerDay: 20 },
-    automation: { autoQueue: false, platforms: ['youtube_shorts'], autoApprove: false, maxAdvancePerCycle: 20, requireReview: false },
+    automation: { autoQueue: false, platforms: ['youtube_shorts'], autoApprove: false, maxAdvancePerCycle: 20, requireReview: false, titleTest: false, titleTestHours: 24, funnelComment: false },
   };
 };
 

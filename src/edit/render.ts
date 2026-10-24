@@ -7,6 +7,8 @@ import { probe } from '../media/probe.ts';
 import { loadTranscript } from '../analysis/transcript.ts';
 import { buildStyledAss, type CaptionResult } from './captions.ts';
 import { getPreset } from './captionPresets.ts';
+import { translateCues } from '../ai/translate.ts';
+import { llmChain } from '../ai/settings.ts';
 import { channelOfVideo } from '../channels.ts';
 import { encodeArgs, withEncoderFallback } from '../media/encoder.ts';
 import { cuesToSubtitles } from '../analysis/transcript.ts';
@@ -25,7 +27,7 @@ import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { translateTo?: 'en' | 'hi'; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -103,7 +105,9 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
 
   // 2) edit
   const cuesRaw = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, '')); const cues0 = cuts ? remapCuesCuts(cuesRaw, c.start_sec, cuts) : cuesRaw;
-  const cues = ramp ? remapCues(cues0, c.start_sec, ramp) : cues0; const effEnd = c.start_sec + m.duration;
+  let cues = ramp ? remapCues(cues0, c.start_sec, ramp) : cues0; const effEnd = c.start_sec + m.duration;
+  const chan0 = channelOfVideo(store, c.video_id); const toLang = ro.translateTo ?? chan0.config.translateTo; let translation: string | null = null;
+  if (toLang && cues.length) { const tr = await translateCues(cues.filter((q) => q.end > c.start_sec && q.start < effEnd), toLang, llmChain(cfg)); if (tr.used) { cues = tr.cues; translation = `${toLang} via ${tr.used}`; } else if (tr.note) translation = `not translated: ${tr.note}`; }
   let assPath: string | undefined; let cap: CaptionResult | undefined;
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   if (presetId !== 'none' && (cues.length || ro.title)) {
@@ -152,7 +156,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
     captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,
     render: { width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? 'owner-supplied file' : null },
-    treatments, treatmentCoverage: cov, treatmentTarget: { target: cfg.edit.treatmentTarget, met: targetMet }, visualChange, qc, createdAt: new Date().toISOString(),
+    treatments, treatmentCoverage: cov, treatmentTarget: { target: cfg.edit.treatmentTarget, met: targetMet }, visualChange, translation, qc, createdAt: new Date().toISOString(),
   };
   const manifestPath = join(cfg.dirs.manifests, `${outputId}.json`);
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));

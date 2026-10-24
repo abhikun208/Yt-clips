@@ -26,6 +26,8 @@ Safety: publish, public visibility aur comment-posting teeno **default OFF** hai
 - Har channel ka alag Google login (Schedule -> Connect). Source add/upload karte waqt channel chuno; us source ke saare clips usi channel ke jaate hain.
 - **Login system (sach):** ID/password se Instagram/TikTok/X mein bot-login **nahi** banaya (unki terms ke khilaf, ban + 2FA/captcha, aur aapka password store karna padta). Iski jagah: Telegram/Discord/Mastodon token/webhook se seedha post; baaki sab ke liye "Manual post tasks" (file + caption + time ready, aap post karke Posted dabao). Saare logins encrypted vault mein (key auto-generate hoti hai).
 - Gaming: live-chat spike + "most replayed" + booyah/clutch jaise words clip selection mein; gamer-stack layout (upar gameplay, neeche facecam) channel config se.
+- **Real test:** `npm run test:real` (apni keys export karke) — fake server nahi, asli Groq/YouTube/yt-dlp/Telegram. Author ke sandbox mein ye services block hain, isliye ye sirf aap chala sakte ho.
+- Naya: retention (avg view %) se clip selection seekhta hai, title A/B (rotation), "full live" comment (pin Studio mein manual), caption translation (en/hi), killfeed OCR, English words ke liye alag font.
 - **Pehle ye chalao:** `npm run cli -- smoke --url <video> [--upload short.mp4]` — real Groq/yt-dlp/YouTube check. Ab tak sab fake servers par tested hai. YouTube audit/quota: docs/YOUTUBE_AUDIT.md. Install helper: `./install.sh`.
 
 ## Setup (naya user)

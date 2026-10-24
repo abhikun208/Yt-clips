@@ -1,7 +1,7 @@
 # PROGRESS.md — persistent ledger (kisi bhi AI/session ko yahin se resume karna hai)
 
 > Rule: sirf wahi "DONE" jo code + test/verify ho chuka hai. Baaki sab PARTIAL / TODO / BLOCKED.
-> Last updated: 2026-10-24 (session 5, 122/122 tests). Audit: fresh `git clone` of main -> `npm test` 80/80.
+> Last updated: 2026-10-24 (session 5, 129/129 tests). Audit: fresh `git clone` of main -> `npm test` 80/80.
 
 ## Resume kaise karein
 1. `Prompt` file = original owner requirements (Hinglish). `BRAIN.md` = architecture + decisions.
@@ -67,6 +67,19 @@
 | Social login in UI: Google client, Meta (Facebook+Instagram) and TikTok OAuth code flows, one-time state, long-lived Meta token + Page/IG discovery, TikTok auto-refresh; tokens feed the analytics providers | DONE; fake servers only. TikTok may require an https redirect URI (unverified) | test/ai.test.ts |
 | Clip cards show every editing feature applied/skipped with reason; `doctor` checks ffmpeg has all needed filters/encoders and STT readiness; startup prints the URL (+ tries termux-open-url) | DONE | test/ai.test.ts, doctor |
 
+### Added in session 5b (2026-10-25): the "not built yet" list
+| Area | Status | Evidence |
+|---|---|---|
+| **Real-service tests** (`npm run test:real`): real Groq/LLM, STT, yt-dlp (+chat/heatmap sidecars), YouTube login/retention/PRIVATE upload, Telegram notify, public test post to saved Telegram/Discord/Mastodon logins. No fake servers; each test skips with a reason when its credential is absent | WRITTEN; **not executed by the author**: this sandbox's network policy blocks googleapis, groq, youtube, telegram, discord, mastodon, pypi; only ffmpeg/encoder probe ran for real. The OWNER must run it | test/real/real.test.ts |
+| Retention (avg view %, avg view sec, minutes, subs gained) from the YouTube Analytics API; scope `yt-analytics.readonly` comes with `youtube-connect-full`; learned per-channel category prior (0.9-1.15x) feeds clip selection once >= 5 videos have data | DONE; request/response shape from Google's docs (fetched 2026-10-25); stub-endpoint tested only | test/youtube2.test.ts |
+| CTR | **IMPOSSIBLE via API**: Google's Analytics metrics list has no impressions click-through rate (verified in docs 2026-10-25). Only owner CSV import (existing) can carry it | — |
+| Title A/B test by rotation (views/hour per 24h window, first title kept unless a later one wins by 20%); gated by `automation.titleTest` + public gate; description/tags preserved on update | DONE; stub-endpoint tested; statistically WEAK (no CTR, views decay) | test/youtube2.test.ts |
+| Funnel: "full live" top-level comment per published video (`automation.funnelComment` + `gates.commentsAutoPost` + channel `liveUrl`) | DONE; stub tested. **Pinning is impossible via API** (comments docs, verified 2026-10-25): owner gets a Telegram reminder to pin in Studio | test/youtube2.test.ts |
+| Caption translation en/hi through the LLM chain (`translateTo` per channel); timing copied from source cues, wrong line count rejected, original kept on any failure | DONE; stub tested; translation quality unverified | test/translate.test.ts |
+| Killfeed OCR highlight signal (opt-in channel `killfeed`, tesseract): new lines in a screen region = events | DONE; verified with REAL tesseract + ffmpeg on synthetic text frames; NEVER seen real Free Fire footage | test/killfeed.test.ts |
+| Per-word font fallback (English words inside Hindi captions get their own installed font via ASS `\fn`) | DONE | test/captions.test.ts |
+| Bluesky video posting | NOT built: Bluesky's video docs moved/redirect and I could not read the exact flow; stays a manual task | — |
+
 ### Added in session 5 (2026-10-24)
 | Area | Status | Evidence |
 |---|---|---|
@@ -124,7 +137,7 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
-- Session 5: 122/122 tests, typecheck clean; Schedule + Publish tabs checked in headless Chromium (390px + 1280px, no JS errors).
+- Session 5: 129/129 tests, typecheck clean; Schedule + Publish tabs checked in headless Chromium (390px + 1280px, no JS errors).
 - Session 4: 108/108 tests, typecheck clean; live CLI render of 2 clips (coverage 0.81/0.95, visual change 0.17/0.23); dashboard screenshots checked in headless Chromium.
 - Session 3: 86/86 tests (+ owner's Termux run: 80/80 before this block), typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
@@ -133,6 +146,7 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - No upload/comment code path was ever exercised against a real platform.
 
 ## NEXT STEP (priority order)
+000. Owner: `npm run test:real` with your keys exported (see header of test/real/real.test.ts) = the first real-world verification of everything marked fake-tested.
 00. Owner FIRST: `npm run cli -- smoke --url <any video> --upload short.mp4` (real Groq / yt-dlp / YouTube check; the tool never ran against the real services). Then connect each channel in Schedule tab, set per-channel policy.
 0. Owner (autopilot): `npm run cli -- autopilot on --review --publish --yes` (clips wait for your Approve, upload unlisted only). Later `--approve --public --yes` for hands-off public posting. `autopilot off` closes everything.
 1. Owner: deploy (DEPLOY.md), set `YT_CLIPS_TOKEN`, add a free Groq key (Setup tab) or run Ollama, upload a video you have rights to, open Clips tab and review.
