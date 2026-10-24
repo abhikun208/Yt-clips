@@ -13,8 +13,11 @@ export interface Candidate {
 export interface SelectInput {
   videoKey: string; duration: number; introEnd: number; outroStart: number;
   energy: number[]; energyStep: number; scenes: number[]; silence: Interval[]; cues: Cue[];
+  /** optional: live-chat / replay-heatmap series and the gaming profile (see external.ts) */
+  external?: Series[]; gaming?: boolean;
 }
 
+import { externalBoost, gamingScore, type Series } from './external.ts';
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
 
@@ -82,19 +85,21 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
 
       let score = 0.28 * clamp01(peak * 0.6 + energyMean * 0.4) + 0.12 * clamp01(variance * 2.5) + 0.12 * pace + 0.16 * speech
         + 0.16 * complete + 0.06 * lenFit + (hasText ? 0.1 * Math.max(ts.hook, ts.emotion ? 0.7 : 0) + 0.08 * hk + 0.04 * pay : 0.0);
+      const ext = inp.external?.length ? externalBoost(inp.external, a, b) : 0; const gm = inp.gaming && hasText ? gamingScore(txt) : 0;
+      score += 0.22 * ext + 0.12 * gm; // audience reaction (chat/replays) is the strongest free signal; gaming callouts add on top
       score *= 1 - 0.8 * clamp01(sil - 0.25) - 0.6 * ts.filler;
       score = clamp01(score);
 
-      const category = ts.emotion ?? (peak > 0.85 && variance > 0.2 ? 'high_energy' : pace > 0.6 ? 'dynamic_visuals' : speech > 0.6 ? 'dialogue' : 'general');
+      const category = gm >= 0.66 ? 'gaming_moment' : ext >= 0.7 ? 'crowd_reaction' : ts.emotion ?? (peak > 0.85 && variance > 0.2 ? 'high_energy' : pace > 0.6 ? 'dynamic_visuals' : speech > 0.6 ? 'dialogue' : 'general');
       const reasons = [
         peak > 0.8 ? 'audio energy peak' : '', variance > 0.2 ? 'dynamic audio' : '', pace > 0.5 ? 'frequent scene changes' : '',
-        complete >= 1 ? 'clean start/end on natural pauses' : '', ts.hook > 0 ? 'hook words in speech' : '', hk >= 0.5 ? 'strong opening line' : '', pay >= 0.9 ? 'ends on a finished thought' : '', ts.emotion ? `emotion cue: ${ts.emotion}` : '',
+        complete >= 1 ? 'clean start/end on natural pauses' : '', ts.hook > 0 ? 'hook words in speech' : '', hk >= 0.5 ? 'strong opening line' : '', pay >= 0.9 ? 'ends on a finished thought' : '', ext >= 0.5 ? 'chat/replay spike' : '', gm > 0 ? 'gaming callouts in speech' : '', ts.emotion ? `emotion cue: ${ts.emotion}` : '',
       ].filter(Boolean);
       all.push({
         start: +a.toFixed(2), end: +b.toFixed(2), duration: +dur.toFixed(2), score: +score.toFixed(4), category,
         reason: reasons.join('; ') || 'steady content', hook: (inS[0]?.text ?? txt.split(/(?<=[.!?।])\s+/)[0] ?? '').slice(0, 140),
         transcript: txt, language: guessLanguage(txt), confidence: +(hasText ? 0.7 : 0.5).toFixed(2),
-        signals: { peak: +peak.toFixed(3), energy: +energyMean.toFixed(3), variance: +variance.toFixed(3), pace: +pace.toFixed(3), silence: +sil.toFixed(3), speech: +speech.toFixed(3), complete, hookLine: +hk.toFixed(2), payoff: +pay.toFixed(2) },
+        signals: { peak: +peak.toFixed(3), energy: +energyMean.toFixed(3), variance: +variance.toFixed(3), pace: +pace.toFixed(3), silence: +sil.toFixed(3), external: +ext.toFixed(3), gaming: +gm.toFixed(3), speech: +speech.toFixed(3), complete, hookLine: +hk.toFixed(2), payoff: +pay.toFixed(2) },
       });
     }
   }

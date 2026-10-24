@@ -12,6 +12,7 @@ import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
+import { notify } from '../notify.ts';
 import { planFromStore } from '../schedule/analytics.ts';
 import { getChannel, listChannels, scheduleFor, ytSecretName, mainChannel, type Channel } from '../channels.ts';
 
@@ -90,7 +91,7 @@ export function saveTokenFor(cfg: Config, platform: string, accessToken: string)
   if (accessToken.length < 10 || accessToken.length > 4096) throw new Error('invalid: access token length');
   secretsFor(cfg).write(platform, { access_token: accessToken });
 }
-export function platformStatus(store: Store, cfg: Config) { return analyticsProviders(store, cfg).map((p) => ({ platform: p.platform, analyticsConnected: p.connected() })); }
+export function platformStatus(store: Store, cfg: Config) { const m = new Map<string, boolean>(); for (const p of analyticsProviders(store, cfg)) m.set(p.platform, (m.get(p.platform) ?? false) || p.connected()); return [...m].map(([platform, analyticsConnected]) => ({ platform, analyticsConnected })); }
 
 export interface TickResult { queued: number; advanced: number; published: number; blocked: Record<string, number>; errors: string[] }
 /**
@@ -114,8 +115,8 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
         if (cur === 'UNLISTED_VERIFIED' && !cfg.automation.autoApprove) { r.blocked.NEEDS_APPROVAL = (r.blocked.NEEDS_APPROVAL ?? 0) + 1; break; }
         if (cur === 'UNLISTED_VERIFIED') { const ch = channelByUpload(store, u.id); at = planFromStore(store, { n: 1, tz: cfg.timezone, cfg: scheduleFor(cfg, ch), from: now, platform: u.platform, channelId: ch.id }).slots[0]?.at ?? null; if (!at) { r.blocked.NO_SLOT = (r.blocked.NO_SLOT ?? 0) + 1; break; } }
         const res = await advance(store, cfg, u.id, at ? { scheduledAt: at } : {});
-        if ('blocked' in res) { const k = /^[A-Z_]+/.exec(res.blocked)?.[0] ?? 'BLOCKED'; r.blocked[k] = (r.blocked[k] ?? 0) + 1; break; }
-        r.advanced++; if (res.state === 'PUBLISHED') { r.published++; break; } if (res.state === 'QC_FAILED' || res.state === 'FAILED') break;
+        if ('blocked' in res) { const k = /^[A-Z_]+/.exec(res.blocked)?.[0] ?? 'BLOCKED'; if (k === 'MANUAL_POST_REQUIRED') void notify(store, cfg, `manual:${u.id}`, `Post this clip now on ${u.platform} (task #${u.id}). Dashboard → Publish → Manual post tasks.`); r.blocked[k] = (r.blocked[k] ?? 0) + 1; break; }
+        r.advanced++; if (res.state === 'PUBLISHED') { r.published++; void notify(store, cfg, `pub:${u.id}`, `Published on ${u.platform} (upload #${u.id}).`); break; } if (res.state === 'QC_FAILED' || res.state === 'FAILED') break;
       } catch (e) { r.errors.push(`upload ${u.id}: ${(e as Error).message.slice(0, 160)}`); break; }
     }
   }

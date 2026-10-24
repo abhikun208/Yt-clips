@@ -42,10 +42,10 @@ const safeHttp = (u: string, what: string, hosts?: RegExp) => {
 };
 /** Validates + stores platform credentials (write-only; never echoed). */
 export function saveCredentials(secrets: SecretStore, platform: string, v: Record<string, unknown>, name?: string): void {
-  const info = platformInfo(platform); if (!info || info.kind !== 'direct' || !info.secret) throw new Error('invalid: this platform takes no stored credentials');
+  const info = platform === 'notify' ? { kind: 'direct', secret: 'notify' } : platformInfo(platform); if (!info || info.kind !== 'direct' || !info.secret) throw new Error('invalid: this platform takes no stored credentials');
   const s = (k: string, max = 600) => { const x = v[k]; if (typeof x !== 'string' || x.trim().length < 3 || x.length > max) throw new Error(`invalid: ${k}`); return x.trim(); };
   let out: Record<string, unknown>;
-  if (platform === 'telegram') { const botToken = s('botToken', 200), chatId = s('chatId', 100); if (!/^\d{5,}:[\w-]{20,}$/.test(botToken)) throw new Error('invalid: botToken format'); if (!/^(-?\d{5,20}|@[\w]{4,64})$/.test(chatId)) throw new Error('invalid: chatId format'); out = { botToken, chatId }; }
+  if (platform === 'telegram' || platform === 'notify') { const botToken = s('botToken', 200), chatId = s('chatId', 100); if (!/^\d{5,}:[\w-]{20,}$/.test(botToken)) throw new Error('invalid: botToken format'); if (!/^(-?\d{5,20}|@[\w]{4,64})$/.test(chatId)) throw new Error('invalid: chatId format'); out = { botToken, chatId }; }
   else if (platform === 'discord') { const u = safeHttp(s('webhookUrl'), 'webhookUrl', /(^|\.)(discord|discordapp)\.com$/i); if (!/^\/api\/webhooks\/\d+\/[\w-]+/.test(u.pathname)) throw new Error('invalid: webhookUrl path'); out = { webhookUrl: u.toString() }; }
   else { const u = safeHttp(s('instance'), 'instance'); out = { instance: u.origin, accessToken: s('accessToken', 400) }; }
   secrets.write(name ?? info.secret, out);

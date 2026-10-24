@@ -16,6 +16,7 @@ async function fake() {
   const srv = createServer(async (req, res) => {
     const b = await body(req); log.push({ url: req.url ?? '', auth: req.headers.authorization, idem: req.headers['idempotency-key'] as string | undefined, body: b });
     const send = (code: number, j: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };
+    if (req.url?.includes('/sendMessage')) return send(200, { ok: true, result: { message_id: 1 } });
     if (req.url?.includes('/sendVideo')) return send(200, { ok: true, result: { message_id: 77, chat: { id: -100123 } } });
     if (req.url?.startsWith('/api/webhooks/')) return send(200, { id: '555' });
     if (req.url === '/api/v2/media') return send(202, { id: '9' });
@@ -90,4 +91,16 @@ test('secrets: auto-generated key (0600) encrypts new secrets, legacy plaintext 
     s.write('telegram', { botToken: 'SECRET-BOT' }); assert.ok(!readdirSync(join(dir, 'secrets')).some((f) => readFileSync(join(dir, 'secrets', f), 'utf8').includes('SECRET-BOT')));
     assert.equal(secretsFor(cfg).read<{ botToken: string }>('telegram')!.botToken, 'SECRET-BOT', 'same key reused on next start');
   } finally { if (old !== undefined) process.env.YT_CLIPS_SECRET_KEY = old; }
+});
+
+import { notify } from '../src/notify.ts';
+test('notify: owner Telegram message once per key; silent when not configured; failures never throw', async () => {
+  const f = await fake(); const old = { ...process.env }; Object.assign(process.env, { TELEGRAM_API_BASE: f.base });
+  try {
+    const dir = tmpDir(); const cfg = loadConfig(process.cwd(), { dataDir: dir }); const store = new Store(':memory:');
+    assert.equal(await notify(store, cfg, 'k', 'hi'), false); assert.equal(f.log.length, 0, 'not configured => no traffic');
+    saveCredentials(secretsFor(cfg), 'notify', { botToken: '123456:ABCDEFGHIJKLMNOPQRSTUVWX', chatId: '99887766' });
+    assert.equal(await notify(store, cfg, 'k', 'clip ready'), true); assert.equal(await notify(store, cfg, 'k', 'clip ready'), false, 'deduped'); assert.equal(f.log.length, 1);
+    process.env.TELEGRAM_API_BASE = 'http://127.0.0.1:1'; assert.equal(await notify(store, cfg, 'k2', 'x'), false);
+  } finally { f.close(); process.env = old; }
 });

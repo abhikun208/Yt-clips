@@ -8,7 +8,7 @@ export interface VisualChange { ssim: number; change: number; method: string }
  * both downscaled to 135x240 @5fps. change = 1 - SSIM (0 = identical, higher = more different). Time-aligned (the ramped source is the baseline).
  * This is a structural-difference measurement, not a copyright-evasion metric.
  */
-export async function measureVisualChange(baseSrc: string, finalPath: string, g: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac'>): Promise<VisualChange | null> {
+export async function measureVisualChange(baseSrc: string, finalPath: string, g: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'facecam'>): Promise<VisualChange | null> {
   const rf = reframeParts(g, '0:v');
   const graph = `${rf.parts.join(';')};[base]scale=135:240:flags=area,fps=5[a];[1:v]scale=135:240:flags=area,fps=5[b];[a][b]ssim`;
   const r = await run('ffmpeg', ['-hide_banner', '-loglevel', 'info', '-i', baseSrc, '-i', finalPath, '-filter_complex', graph, '-f', 'null', '-'], { timeoutMs: 5 * 60_000 });

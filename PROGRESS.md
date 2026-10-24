@@ -1,7 +1,7 @@
 # PROGRESS.md — persistent ledger (kisi bhi AI/session ko yahin se resume karna hai)
 
 > Rule: sirf wahi "DONE" jo code + test/verify ho chuka hai. Baaki sab PARTIAL / TODO / BLOCKED.
-> Last updated: 2026-10-24 (session 4, 108/108 tests). Audit: fresh `git clone` of main -> `npm test` 80/80.
+> Last updated: 2026-10-24 (session 5, 122/122 tests). Audit: fresh `git clone` of main -> `npm test` 80/80.
 
 ## Resume kaise karein
 1. `Prompt` file = original owner requirements (Hinglish). `BRAIN.md` = architecture + decisions.
@@ -67,6 +67,22 @@
 | Social login in UI: Google client, Meta (Facebook+Instagram) and TikTok OAuth code flows, one-time state, long-lived Meta token + Page/IG discovery, TikTok auto-refresh; tokens feed the analytics providers | DONE; fake servers only. TikTok may require an https redirect URI (unverified) | test/ai.test.ts |
 | Clip cards show every editing feature applied/skipped with reason; `doctor` checks ffmpeg has all needed filters/encoders and STT readiness; startup prints the URL (+ tries termux-open-url) | DONE | test/ai.test.ts, doctor |
 
+### Added in session 5 (2026-10-24)
+| Area | Status | Evidence |
+|---|---|---|
+| Multi-channel: `channels` table (additive migration v6, default `main`), per-channel caption preset, links, hashtags, language, platform list, facecam layout; sources/uploads/analytics carry `channel_id`; clips inherit the channel of their source (YouTube channel sources pass it to every discovered video) | DONE | test/channels.test.ts |
+| Per-channel SCHEDULE: own perDayCap / minGap / quiet hours / baseline hours; best hours measured from THAT channel's analytics (>=8 rows, else all-channel evidence, else baseline); cross-channel stagger (`staggerMinutes`, default 20) so two channels never post in the same window; automation plans per channel | DONE (planner deterministic-tested; no real posting) | test/channels.test.ts |
+| Schedule tab: channel cards (policy editor, platforms, next slots, YouTube connect per channel), calendar, new channel form; channel picker when adding a source/upload | DONE (HTML parses; API tested; not re-screenshotted this session) | test/dashboard.test.ts, test/channels.test.ts |
+| One Google login per channel (secret `youtube-<slug>`; `main` keeps `youtube`); analytics + comments + upload use the upload's own channel token | DONE; fake-Google tested | test/automation.test.ts, comments.test.ts |
+| Platform registry: YouTube (api-upload), Telegram/Discord/Mastodon (direct: staged first, ONE request at publish, crash-safe idempotent, local schedule wait, gates apply), 10 more platforms as MANUAL post tasks (file+caption+time, owner presses Posted) | DONE; direct posters FAKE-SERVER tested only | test/direct.test.ts |
+| Credential vault (write-only API, validated shapes, https/host allow-list, per channel), Telegram owner notifications (clip ready / manual due / published) | DONE; fake-tested | test/direct.test.ts |
+| Secrets always encrypted: key auto-generated in `data/.keys/secret.key` (0600) when `YT_CLIPS_SECRET_KEY` is unset; legacy plaintext files migrated | DONE | test/direct.test.ts |
+| Hardware encoder probe (NVENC/VideoToolbox/MediaCodec, real 8-frame test encode) + automatic libx264 fallback; `resources.renderConcurrency` lanes | DONE; NO GPU in the sandbox so hardware paths were only probed (they correctly report unavailable) | test/encoder.test.ts |
+| Gaming: live-chat replay + "most replayed" heatmap signals in clip scoring, gaming vocabulary (booyah, clutch, 1v4...), gaming profile, gamer-stack 9:16 layout (gameplay top / facecam bottom), Whisper language hint + Hinglish gaming prompt, Twitch/Kick VOD URLs | DONE; parsers + scoring + layout pixel-tested; real yt-dlp chat/heatmap download NEVER run | test/signals.test.ts |
+| `smoke` CLI: real Groq LLM/STT call, yt-dlp metadata, YouTube login per channel, optional PRIVATE test upload | DONE (the check code is fake-endpoint tested; the OWNER must run it for the real result) | test/smoke.test.ts |
+| install.sh, GitHub Actions CI, docs/YOUTUBE_AUDIT.md | DONE; install.sh syntax-checked only, CI never ran on GitHub | — |
+| ID/password "login bots" for Instagram/TikTok/etc. | **DELIBERATELY NOT BUILT**: against those platforms' terms, triggers bans/2FA/captcha, cannot be tested honestly, and stores your passwords. Replaced by tokens/webhooks (Telegram/Discord/Mastodon) + manual post tasks | — |
+
 ### Added in session 4 (2026-10-23)
 | Area | Status | Evidence |
 |---|---|---|
@@ -86,10 +102,10 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 | Level | Items |
 |---|---|
 | **Verified for real** (real ffmpeg / real process / real browser) | ingest, analysis, clip selection, all editing effects (LUT, grain, particles, light leak, flash, jump cuts, slow-mo, zoom, progress bar, captions), QC, manifests + measured visual change, review/export/re-render, UI in headless Chromium, SQLite migrations, zip export |
-| **Fake-server tested only** (code written from official docs, never run on the real service) | YouTube upload/verify/schedule/comments, YouTube/Instagram/Facebook/TikTok analytics, Meta/TikTok/Google OAuth, Groq speech-to-text, any LLM provider (Groq/Gemini/OpenRouter/Mistral/Ollama), yt-dlp, faster-whisper |
+| **Fake-server tested only** (code written from official docs, never run on the real service) | Telegram/Discord/Mastodon posting + owner notifications, live-chat/heatmap download, hardware encoders (probe only), YouTube upload/verify/schedule/comments, YouTube/Instagram/Facebook/TikTok analytics, Meta/TikTok/Google OAuth, Groq speech-to-text, any LLM provider (Groq/Gemini/OpenRouter/Mistral/Ollama), yt-dlp, faster-whisper |
 | **Unverified here** | Docker build, systemd/install script, PaaS deploy, Termux render speed, Web Share on a real phone, TikTok/Meta https redirect requirements |
 | **Heuristic, not intelligence** | clip scoring, hook/title/keyphrase engine, safety screen (keywords only), emotion labels from text cues, "40%" = measured structural change + effect coverage (not a copyright claim) |
-| **NOT built** | Instagram/TikTok/Facebook upload adapters (need app review + credentials; use Share/Export), caption translation, dubbing/TTS/voice cloning, speed-up of boring parts, sports/ball tracking, YouTube Analytics API (retention/CTR), id/password social login (deliberately: against platform terms) |
+| **NOT built** | password-login bots (refused on purpose), Instagram/TikTok/Facebook upload adapters (need app review + credentials; use Share/Export), caption translation, dubbing/TTS/voice cloning, speed-up of boring parts, sports/ball tracking, YouTube Analytics API (retention/CTR), id/password social login (deliberately: against platform terms) |
 
 ### Not done / blocked (do NOT claim these)
 - Instagram/TikTok/Facebook upload adapters: **BLOCKED** (need owner creds/app review). YouTube adapter exists but is untested against real Google (needs owner OAuth client). Unverified-API-project visibility limits may apply on Google's side.
@@ -108,6 +124,7 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Scoring is heuristic (audio/scene/speech/keyword); not a learned model. Emotion labels come from text cues only, never guessed from pixels.
 
 ## Verification log
+- Session 5: 122/122 tests, typecheck clean; Schedule + Publish tabs checked in headless Chromium (390px + 1280px, no JS errors).
 - Session 4: 108/108 tests, typecheck clean; live CLI render of 2 clips (coverage 0.81/0.95, visual change 0.17/0.23); dashboard screenshots checked in headless Chromium.
 - Session 3: 86/86 tests (+ owner's Termux run: 80/80 before this block), typecheck clean.
 - Session 1: 30/30 tests. Session 2: `npm test` 54/54 pass; typecheck 0 errors (global tsc + sandbox @types/node via typeRoots, since `npm install` is blocked in the sandbox).
@@ -116,6 +133,7 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - No upload/comment code path was ever exercised against a real platform.
 
 ## NEXT STEP (priority order)
+00. Owner FIRST: `npm run cli -- smoke --url <any video> --upload short.mp4` (real Groq / yt-dlp / YouTube check; the tool never ran against the real services). Then connect each channel in Schedule tab, set per-channel policy.
 0. Owner (autopilot): `npm run cli -- autopilot on --review --publish --yes` (clips wait for your Approve, upload unlisted only). Later `--approve --public --yes` for hands-off public posting. `autopilot off` closes everything.
 1. Owner: deploy (DEPLOY.md), set `YT_CLIPS_TOKEN`, add a free Groq key (Setup tab) or run Ollama, upload a video you have rights to, open Clips tab and review.
 2. First real run of yt-dlp + faster-whisper/Groq on the target server; fix whatever breaks.

@@ -80,7 +80,7 @@ test('social login: Facebook (code -> long-lived -> page token + linked Instagra
   await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok)); const b = `http://127.0.0.1:${(s.address() as { port: number }).port}`; const old = { ...process.env };
   Object.assign(process.env, { GRAPH_API_BASE: `${b}/g`, TIKTOK_API_BASE: b });
   try {
-    const dataDir = tmpDir(); const cfg = loadConfig(process.cwd(), { dataDir }); const store = new Store(':memory:'); const sec = new SecretStore(join(dataDir, 'secrets'), undefined);
+    const dataDir = tmpDir(); const cfg = loadConfig(process.cwd(), { dataDir }); const store = new Store(':memory:'); const sec = SecretStore.forData(dataDir);
     saveAppCreds(cfg, 'facebook', 'APPID1234', 'secretsecret1'); saveAppCreds(cfg, 'tiktok', 'TTKEY1234', 'ttsecret1234');
     const base = 'http://127.0.0.1:8090'; const st = new URL(startAuth(store, cfg, 'facebook', base)).searchParams.get('state')!;
     await assert.rejects(handleCallback(store, cfg, 'facebook', { code: 'GOODCODE', state: 'wrong' }, base), /state/);

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
@@ -39,6 +39,19 @@ export async function listChannelVideos(url: string, limit = 30): Promise<Entry[
   const r = await run('yt-dlp', [...extra(), '--flat-playlist', '--dump-single-json', '--playlist-end', String(limit), '--no-warnings', url], { timeoutMs: 5 * 60_000 });
   if (r.code !== 0) throw new Error(`yt-dlp list failed: ${r.stderr.trim().slice(-200)}`);
   return parseEntries(r.stdout);
+}
+/**
+ * Best-effort sidecars for clip selection: live-chat replay (`<base>.live_chat.json`) and the "most replayed" heatmap (`<base>.heatmap.json`).
+ * Every failure is swallowed (not all videos have them). Never run against the real YouTube from this project's sandbox.
+ */
+export async function fetchSignals(url: string, base: string): Promise<{ chat: boolean; heatmap: boolean }> {
+  const res = { chat: false, heatmap: false };
+  try { await run('yt-dlp', [...extra(), '--skip-download', '--no-playlist', '--no-warnings', '--write-subs', '--sub-langs', 'live_chat', '-o', `${base}.%(ext)s`, url], { timeoutMs: 10 * 60_000 }); res.chat = existsSync(`${base}.live_chat.json`); } catch { /* optional */ }
+  try {
+    const r = await run('yt-dlp', [...extra(), '--skip-download', '--no-playlist', '--no-warnings', '--dump-single-json', url], { timeoutMs: 3 * 60_000 });
+    if (r.code === 0) { const j = JSON.parse(r.stdout) as { heatmap?: unknown }; if (Array.isArray(j.heatmap) && j.heatmap.length >= 4) { writeFileSync(`${base}.heatmap.json`, JSON.stringify(j.heatmap)); res.heatmap = true; } }
+  } catch { /* optional */ }
+  return res;
 }
 export async function downloadVideo(url: string, dir: string, maxHeight: number): Promise<string> {
   mkdirSync(dir, { recursive: true });
@@ -83,6 +96,7 @@ export async function pollSources(store: Store, cfg: Config): Promise<PollResult
     let file: string | undefined;
     try {
       file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight);
+      try { await fetchSignals(v.uri, file.replace(/\.[^.]+$/, '')); } catch { /* optional */ }
       await ingestLocal(store, cfg, file, { authorized: true, title: v.title, sourceId: v.id });
       store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
     } catch (e) {

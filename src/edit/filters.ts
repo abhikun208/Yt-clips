@@ -20,7 +20,7 @@ export function gradeFor(mood: Mood): { eq: string; balance: string; detail: str
 
 export interface VideoGraphOpts {
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
-  reframe: 'crop' | 'fit_blur'; cropXFrac?: number; // 0..1 center of subject horizontally (from face tracking), default .5
+  reframe: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; cropXFrac?: number; // 0..1 center of subject horizontally (from face tracking), default .5
   assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[];
   vfx?: Omit<VfxOpts, 'w' | 'h' | 'fps' | 'duration' | 'mood'>;
 }
@@ -29,7 +29,7 @@ export interface VideoGraphOpts {
 export const escFilterPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 
 /** Reframe to 9:16 producing label [base]. Exported so the change-measurement baseline uses the identical crop. */
-export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
+export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'facecam'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
   const parts: string[] = []; const t: Treatment[] = [];
   const aspectIn = o.inW / o.inH; const aspectOut = o.outW / o.outH;
   const alreadyVertical = Math.abs(aspectIn - aspectOut) < 0.02;
@@ -37,6 +37,13 @@ export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'o
   if (alreadyVertical) {
     parts.push(`[${inLabel}]scale=${o.outW}:${o.outH}:flags=lanczos,setsar=1[base]`);
     t.push({ dimension: 'reframe_9x16', applied: false, detail: 'source already 9:16' });
+  } else if (o.reframe === 'gamer_stack' && o.facecam) {
+    // gameplay on top (centre-cropped to fill 60% of the height), streamer's facecam rectangle on the bottom 40%
+    const topH = Math.round(o.outH * 0.6 / 2) * 2, botH = o.outH - topH, f = o.facecam;
+    parts.push(`[${inLabel}]split=2[gp][fc];[gp]scale=${o.outW}:${topH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${o.outW}:${topH}[gtop];`
+      + `[fc]crop=w='trunc(iw*${f.w.toFixed(4)}/2)*2':h='trunc(ih*${f.h.toFixed(4)}/2)*2':x='trunc(iw*${f.x.toFixed(4)}/2)*2':y='trunc(ih*${f.y.toFixed(4)}/2)*2',scale=${o.outW}:${botH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${o.outW}:${botH}[fbot];`
+      + `[gtop][fbot]vstack=inputs=2,setsar=1[base]`);
+    t.push({ dimension: 'reframe_9x16', applied: true, detail: `gamer stack: gameplay top ${topH}px + facecam bottom ${botH}px` });
   } else if (o.reframe === 'fit_blur') {
     parts.push(`[${inLabel}]split=2[bg][fg];[bg]scale=${o.outW}:${o.outH}:force_original_aspect_ratio=increase,crop=${o.outW}:${o.outH},boxblur=24:3,eq=brightness=-0.08[bgb];[fg]scale=${o.outW}:-2:flags=lanczos[fgs];[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[base]`);
     t.push({ dimension: 'reframe_9x16', applied: true, detail: 'fit with blurred background (no subject cropped)' });

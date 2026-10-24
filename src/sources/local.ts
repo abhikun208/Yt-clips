@@ -22,6 +22,7 @@ export async function ingestLocal(store: Store, cfg: Config, file: string, opts:
   let dest = join(cfg.dirs.sources, basename(abs));
   if (existsSync(dest)) dest = join(cfg.dirs.sources, `${fp.slice(0, 8)}_${basename(abs)}`);
   copyFileSync(abs, dest);
+  for (const ext of ['.live_chat.json', '.chat.json', '.heatmap.json']) { const sc = abs.replace(/\.[^.]+$/, '') + ext; if (existsSync(sc)) copyFileSync(sc, dest.replace(/\.[^.]+$/, '') + ext); } // optional highlight signals travel with the video
   let srcRow: { id: number };
   if (opts.sourceId) srcRow = { id: opts.sourceId }; // already-registered source (e.g. a YouTube video): link the video to it so channel routing works
   else {

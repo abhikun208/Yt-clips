@@ -239,8 +239,8 @@ export function createApp(o: AppOptions = {}): App {
       const cred = /^\/api\/credentials\/(\w+)$/.exec(p);
       if (cred && m === 'POST') { // write-only vault: values are validated, stored (encrypted when a key exists) and never returned or logged
         const b = JSON.parse((await readBody(req, 8 * 1024)).toString('utf8') || '{}') as { fields?: Record<string, unknown>; channel?: string };
-        const ch = b.channel ? getChannel(store, b.channel) : null; if (!platformInfo(cred[1]!)) return json(res, 400, { error: 'invalid: unknown platform' });
-        saveCredentials(secretsFor(cfg), cred[1]!, b.fields ?? {}, ch && ch.slug !== 'main' ? `${platformInfo(cred[1]!)!.secret}-${ch.slug}` : undefined); store.logState('credentials', 0, null, 'saved', `${cred[1]}${ch ? ':' + ch.slug : ''}`);
+        const ch = b.channel ? getChannel(store, b.channel) : null; if (!platformInfo(cred[1]!) && cred[1] !== 'notify') return json(res, 400, { error: 'invalid: unknown platform' });
+        saveCredentials(secretsFor(cfg), cred[1]!, b.fields ?? {}, ch && ch.slug !== 'main' ? `${platformInfo(cred[1]!)?.secret ?? 'notify'}-${ch.slug}` : undefined); store.logState('credentials', 0, null, 'saved', `${cred[1]}${ch ? ':' + ch.slug : ''}`);
         return json(res, 200, { ok: true, encrypted: secretsFor(cfg).encrypted });
       }
       if (p === '/api/manual' && m === 'GET') {

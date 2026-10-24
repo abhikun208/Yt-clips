@@ -10,6 +10,7 @@ import { llmChain } from './ai/settings.ts';
 import { makeThumbnail } from './seo/thumbnail.ts';
 import { info, error } from './util/log.ts';
 import { rerenderClip } from './review/review.ts';
+import { notify } from './notify.ts';
 import { channelOfVideo, channelOfClip, type Channel } from './channels.ts';
 /** Owner-configured per-channel branding for the SEO step (links come ONLY from config; never invented). */
 const chMeta = (ch: Channel) => ({ channelName: ch.name, ownerLinks: ch.config.links, hashtagsExtra: ch.config.hashtags });
@@ -44,6 +45,7 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);
     const thumb = await makeThumbnail(row.edited_path, join(cfg.dirs.thumbnails, `${row.output_id}.jpg`), md.thumbnailText);
     store.exec('UPDATE clips SET metadata_json=?, thumbnail_path=? WHERE id=?', JSON.stringify({ ...md, thumbnailOk: !!thumb }), thumb?.path ?? null, row.id);
+    void notify(store, cfg, `clip:${row.id}`, `Clip ready for review: ${md.titles[0] ?? row.output_id} (${channelOfClip(store, row.id).name}). Dashboard → Clips.`);
     return;
   }
   if (job.kind === 'rerender') { await rerenderClip(store, cfg, id, job.payload_json ? JSON.parse(job.payload_json) : {}); return; }
@@ -52,18 +54,24 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
 
 /** Process jobs until the queue is empty (or `maxJobs`). Crash-safe: leases expire and jobs are re-claimed. */
 export async function work(store: Store, cfg: Config, o: { maxJobs?: number; shouldStop?: () => boolean } = {}): Promise<{ done: number; failed: number; dead: number }> {
-  let done = 0, failed = 0, dead = 0;
-  for (let i = 0; i < (o.maxJobs ?? 1e9); i++) {
-    if (o.shouldStop?.()) break; // graceful shutdown between jobs; in-flight leases expire and are re-claimed after restart
-    const job = claim(store);
-    if (!job) break;
-    try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); }
-    catch (e) {
-      const st = failJob(store, job, (e as Error).message, cfg.resources.jobMaxAttempts);
-      failed++; if (st === 'DEAD') dead++;
-      error('job failed', { key: job.key, attempt: job.attempts, state: st, err: (e as Error).message.slice(0, 200) });
-      if (/LOW_DISK/.test((e as Error).message)) break; // stop hard on disk pressure
+  let done = 0, failed = 0, dead = 0, started = 0, halt = false;
+  const max = o.maxJobs ?? 1e9; const lanes = Math.max(1, Math.min(4, Math.floor(cfg.resources.renderConcurrency || 1)));
+  // N lanes pull from the same lease-based queue (claim() is a single synchronous SQLite write, so two lanes never get the same job)
+  const lane = async () => {
+    while (!halt && started < max) {
+      if (o.shouldStop?.()) break; // graceful shutdown between jobs; in-flight leases expire and are re-claimed after restart
+      const job = claim(store);
+      if (!job) break;
+      started++;
+      try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); }
+      catch (e) {
+        const st = failJob(store, job, (e as Error).message, cfg.resources.jobMaxAttempts);
+        failed++; if (st === 'DEAD') dead++;
+        error('job failed', { key: job.key, attempt: job.attempts, state: st, err: (e as Error).message.slice(0, 200) });
+        if (/LOW_DISK/.test((e as Error).message)) halt = true; // stop hard on disk pressure
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: lanes }, lane));
   return { done, failed, dead };
 }

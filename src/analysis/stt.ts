@@ -43,12 +43,12 @@ export function parseSttJson(stdout: string): { cues: Cue[]; language?: string }
 }
 
 /** Extract 16k mono audio, run STT, write the `<video>.json` sidecar the analyzer/captions already read. Never throws: failure => status. */
-export async function transcribeVideo(cfg: Config, videoPath: string): Promise<SttResult> {
+export async function transcribeVideo(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
   if (!process.env.YT_CLIPS_STT_CMD) {
     const api = sttCreds(cfg);
     if (api) {
       try {
-        const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: cfg.stt.language, prompt: cfg.stt.prompt });
+        const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: hint.language ?? cfg.stt.language, prompt: hint.prompt ?? cfg.stt.prompt });
         if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'api', language: r.language };
         writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'api', model: api.model, cues: r.cues.length, language: r.language });
         return { status: 'ok', cues: r.cues, language: r.language, engine: 'api' };
@@ -61,7 +61,7 @@ export async function transcribeVideo(cfg: Config, videoPath: string): Promise<S
   try {
     const ex = await run('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], { timeoutMs: 30 * 60_000 });
     if (ex.code !== 0) return { status: 'failed', cues: [], engine: eng.name, error: `audio extraction failed: ${ex.stderr.slice(0, 150)}` };
-    const r = await run(eng.cmd, [...eng.args, wav, cfg.stt.model, cfg.stt.language], { timeoutMs: 4 * 60 * 60_000 });
+    const r = await run(eng.cmd, [...eng.args, wav, cfg.stt.model, hint.language ?? cfg.stt.language], { timeoutMs: 4 * 60 * 60_000 });
     let parsed; try { parsed = parseSttJson(r.stdout); } catch (e) { return { status: 'failed', cues: [], engine: eng.name, error: (e as Error).message.slice(0, 200) }; }
     if (r.code !== 0) return { status: 'failed', cues: [], engine: eng.name, error: `engine exit ${r.code}` };
     if (!parsed.cues.length) return { status: 'no_speech', cues: [], engine: eng.name, language: parsed.language };

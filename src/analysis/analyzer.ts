@@ -1,3 +1,5 @@
+import { channelOfVideo } from '../channels.ts';
+import { loadExternalSeries } from './external.ts';
 import { writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Store } from '../db.ts';
@@ -33,7 +35,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       const m = await probe(v.path);
       // Speech-to-text only when no transcript sidecar exists and an engine is available. Failure is non-fatal (clips just lack captions).
       if (cfg.stt.mode === 'auto' && m.hasAudio && loadTranscript(v.path.replace(/\.[^.]+$/, '')).length === 0) {
-        const t = await transcribeVideo(cfg, v.path);
+        const sc = channelOfVideo(store, videoId); const t = await transcribeVideo(cfg, v.path, { language: sc.config.language, prompt: cfg.stt.prompt ?? (sc.profile === 'gaming' ? 'Free Fire gameplay commentary in Hinglish: booyah, headshot, clutch, squad, zone, knocked, rush, 1v4.' : undefined) });
         if (t.status === 'failed') warn('transcription failed; continuing without captions', { videoId, error: t.error });
       }
       const [silence, scenes, black, en] = await Promise.all([
@@ -46,7 +48,9 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       writeFileSync(analysisPath, JSON.stringify(a));
     }
     const cues = loadTranscript(v.path.replace(/\.[^.]+$/, ''));
-    let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues },
+    const chan = channelOfVideo(store, videoId); const external = loadExternalSeries(v.path.replace(/\.[^.]+$/, ''), a.duration);
+    if (external.length) info('external signals used', { videoId, series: external.map((x) => x.name) });
+    let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming' },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
     { const rr = await rerankCandidates(cands, llmChain(cfg)); cands = rr.cands; if (rr.used) info('llm rerank', { used: rr.used }); else if (rr.note) warn(rr.note); }
     let inserted = 0;

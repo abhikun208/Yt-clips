@@ -1,12 +1,14 @@
 export interface SchedConfig { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number; staggerMinutes?: number }
 export interface HourStat { hour: number; views: number; samples: number }
 
-/** Hour-of-day in a timezone (IANA), using Intl (no deps). */
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+const fmt = (key: string, tz: string, o: Intl.DateTimeFormatOptions, loc: string) => { const k = `${key}|${tz}`; let f = fmtCache.get(k); if (!f) { f = new Intl.DateTimeFormat(loc, { timeZone: tz, ...o }); fmtCache.set(k, f); } return f; };
+/** Hour-of-day in a timezone (IANA), using Intl (no deps). Formatters are cached: planning scans thousands of instants. */
 export function hourIn(tz: string, d: Date): number {
-  return Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hour12: false }).format(d)) % 24;
+  return Number(fmt('h', tz, { hour: '2-digit', hour12: false }, 'en-GB').format(d)) % 24;
 }
 export function dayKey(tz: string, d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  return fmt('d', tz, { year: 'numeric', month: '2-digit', day: '2-digit' }, 'en-CA').format(d);
 }
 const inQuiet = (h: number, q: [number, number]) => (q[0] <= q[1] ? h >= q[0] && h < q[1] : h >= q[0] || h < q[1]);
 

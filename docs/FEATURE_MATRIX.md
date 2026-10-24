@@ -58,3 +58,17 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Tabbed dashboard, setup checklist, live activity, Autopilot panel | DONE; loaded in real headless Chromium (desktop + 390px phone), no JS errors | test/dashboard.test.ts + screenshots |
 | Dubbing / TTS / voice cloning | NOT implemented | — |
 | Caption translation | NOT implemented | — |
+
+## Session 5 (multi-channel, schedule, platforms, security)
+| Feature | Status | Evidence |
+|---|---|---|
+| Multiple channels with separate schedule, tokens, branding, platform list | DONE | test/channels.test.ts |
+| Cross-channel stagger + per-channel daily caps | DONE | test/channels.test.ts |
+| Telegram / Discord / Mastodon direct posting | DONE; fake-tested only | test/direct.test.ts |
+| Manual post tasks for Instagram, Facebook, TikTok, X, LinkedIn, Pinterest, Snapchat, Threads, Bluesky, Reddit | DONE | test/direct.test.ts |
+| Password/ID login automation | NOT built on purpose (ToS, bans, 2FA, plaintext passwords) | — |
+| Encrypted credential vault, auto key | DONE | test/direct.test.ts |
+| Hardware encoding + parallel lanes | DONE (probe + fallback; GPU paths untested) | test/encoder.test.ts |
+| Chat/heatmap highlight signals, gaming profile, gamer-stack layout | DONE; real download untested | test/signals.test.ts |
+| Real-world smoke command | DONE (owner runs) | test/smoke.test.ts |
+| Retention/CTR from YouTube Analytics API, title A/B test, pinned-comment funnel, caption translation, killfeed OCR | NOT implemented | — |

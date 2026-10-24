@@ -48,7 +48,7 @@ async function doctor(): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | analytics-collect | tick | platforms | set-token <instagram|facebook|tiktok> (token from stdin) | youtube-connect-full | comments | comments-collect | comment-approve <id> | comment-post <id> | comment <platform> <id> <text...> | autopilot status|on|off [--publish] [--approve] [--public] [--review] [--yes]  (server: npm start)'); return 0; }
+  if (!cmd || cmd === 'help') { console.log('commands: doctor | smoke [--url <video>] [--upload <file> [--channel <slug>]] | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | analytics-collect | tick | platforms | set-token <instagram|facebook|tiktok> (token from stdin) | youtube-connect-full | comments | comments-collect | comment-approve <id> | comment-post <id> | comment <platform> <id> <text...> | autopilot status|on|off [--publish] [--approve] [--public] [--review] [--yes]  (server: npm start)'); return 0; }
   if (cmd === 'doctor') return doctor();
   const s = new Store(cfg.dbPath);
   try {
@@ -65,6 +65,12 @@ async function main(): Promise<number> {
     if (cmd === 'status') {
       console.log({ videos: s.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: s.all('SELECT state, count(*) n FROM jobs GROUP BY state'), clips: s.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: s.all('SELECT state, count(*) n FROM uploads GROUP BY state') });
       return 0;
+    }
+    if (cmd === 'smoke') {
+      const { runSmoke } = await import('./smoke.ts'); const flag = (n: string) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
+      const res = await runSmoke(s, cfg, { url: flag('--url'), upload: flag('--upload'), channel: flag('--channel') });
+      for (const r of res) console.log(`${r.status.padEnd(4)} ${r.name}: ${r.detail}`);
+      return res.some((r) => r.status === 'FAIL') ? 1 : 0;
     }
     if (cmd === 'youtube-status') { console.log(JSON.stringify(youtubeStatus(s, cfg), null, 2)); return 0; }
     if (cmd === 'youtube-connect') {

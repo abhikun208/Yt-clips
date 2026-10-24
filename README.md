@@ -21,6 +21,13 @@ Ek lambi video (ya YouTube channel) do → ye khud best moments dhoondta hai, un
 
 Safety: publish, public visibility aur comment-posting teeno **default OFF** hain. Inhe sirf aap server par `data/config.json` edit karke on kar sakte ho, API/env se nahi.
 
+## Multiple channels + schedule + platforms (session 5)
+- **Schedule tab**: har channel (Team Unknown, Decider Gaming...) ki alag policy: din ka cap, gap, quiet hours, best hours. Do channels ek hi time par post nahi hote (stagger, default 20 min). Best hours channel ke apne analytics se aate hain (>=8 rows), warna baseline.
+- Har channel ka alag Google login (Schedule -> Connect). Source add/upload karte waqt channel chuno; us source ke saare clips usi channel ke jaate hain.
+- **Login system (sach):** ID/password se Instagram/TikTok/X mein bot-login **nahi** banaya (unki terms ke khilaf, ban + 2FA/captcha, aur aapka password store karna padta). Iski jagah: Telegram/Discord/Mastodon token/webhook se seedha post; baaki sab ke liye "Manual post tasks" (file + caption + time ready, aap post karke Posted dabao). Saare logins encrypted vault mein (key auto-generate hoti hai).
+- Gaming: live-chat spike + "most replayed" + booyah/clutch jaise words clip selection mein; gamer-stack layout (upar gameplay, neeche facecam) channel config se.
+- **Pehle ye chalao:** `npm run cli -- smoke --url <video> [--upload short.mp4]` — real Groq/yt-dlp/YouTube check. Ab tak sab fake servers par tested hai. YouTube audit/quota: docs/YOUTUBE_AUDIT.md. Install helper: `./install.sh`.
+
 ## Setup (naya user)
 
 Chahiye: **Node ≥ 22.18** aur **ffmpeg** (libass wala, normal build mein hota hai). Optional: `yt-dlp` (YouTube se download), `faster-whisper` (transcript), python3+opencv (face tracking), Noto fonts (Hindi captions).
