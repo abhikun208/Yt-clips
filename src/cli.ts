@@ -48,7 +48,7 @@ async function doctor(): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | analytics-collect | tick | platforms | set-token <instagram|facebook|tiktok> (token from stdin) | youtube-connect-full | comments | comments-collect | comment-approve <id> | comment-post <id> | comment <platform> <id> <text...>  (server: npm start)'); return 0; }
+  if (!cmd || cmd === 'help') { console.log('commands: doctor | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | analytics-collect | tick | platforms | set-token <instagram|facebook|tiktok> (token from stdin) | youtube-connect-full | comments | comments-collect | comment-approve <id> | comment-post <id> | comment <platform> <id> <text...> | autopilot status|on|off [--publish] [--approve] [--public] [--review] [--yes]  (server: npm start)'); return 0; }
   if (cmd === 'doctor') return doctor();
   const s = new Store(cfg.dbPath);
   try {
@@ -81,6 +81,19 @@ async function main(): Promise<number> {
     if (cmd === 'comments-collect') { console.log(await collectYoutubeComments(s, cfg)); return 0; }
     if (cmd === 'comment-approve') { setCommentStatus(s, Number(rest[0]), 'approve'); console.log('approved'); return 0; }
     if (cmd === 'comment-post') { await postComment(s, cfg, Number(rest[0])); console.log('posted'); return 0; }
+    if (cmd === 'autopilot') {
+      const sub = rest[0] ?? 'status'; const yes = rest.includes('--yes');
+      if (sub === 'on') {
+        const patch: Record<string, unknown> = { automation: { autoQueue: true, ...(rest.includes('--review') ? { requireReview: true } : {}) } };
+        const risky = ['--publish', '--approve', '--public'].filter((f) => rest.includes(f));
+        if (risky.length && !yes) throw new Error(`refusing: ${risky.join(' ')} lets the system upload/publish on its own. Re-run with --yes only if you own the content and the connected account.`);
+        if (rest.includes('--publish')) (patch.gates as Record<string, boolean> | undefined) ? ((patch.gates as Record<string, boolean>).publishEnabled = true) : (patch.gates = { publishEnabled: true });
+        if (rest.includes('--public')) (patch.gates as Record<string, boolean> | undefined) ? ((patch.gates as Record<string, boolean>).publicVisibilityAllowed = true) : (patch.gates = { publicVisibilityAllowed: true });
+        if (rest.includes('--approve')) (patch.automation as Record<string, unknown>).autoApprove = true;
+        updateOwnerConfig(cfg, patch); console.log('autopilot ON', JSON.stringify(patch));
+      } else if (sub === 'off') { updateOwnerConfig(cfg, { automation: { autoQueue: false, autoApprove: false }, gates: { publishEnabled: false, publicVisibilityAllowed: false, commentsAutoPost: false } }); console.log('autopilot OFF (all gates closed)'); }
+      const c2 = loadConfig(); console.log(JSON.stringify({ automation: c2.automation, gates: c2.gates }, null, 2)); return 0;
+    }
     if (cmd === 'tick') { console.log(await automationTick(s, cfg)); return 0; }
     if (cmd === 'platforms') { console.table(platformStatus(s, cfg)); return 0; }
     if (cmd === 'analytics-collect') { console.table(await collectAnalytics(s, analyticsProviders(s, cfg))); return 0; }

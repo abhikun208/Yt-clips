@@ -14,7 +14,8 @@ import { checkDisk, freeMb } from '../util/disk.ts';
 import { info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
-import { aiStatus, saveAi } from '../ai/settings.ts';
+import { aiStatus, saveAi, sttCreds, llmChain } from '../ai/settings.ts';
+import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
 import { enqueue } from '../db.ts';
 import { UI_HTML } from './ui.ts';
@@ -154,6 +155,37 @@ export function createApp(o: AppOptions = {}): App {
         if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return json(res, 400, { error: `Unknown clip ${id}` });
         enqueue(store, 'rerender', `rerender:${id}:${Date.now()}`, o); void runOnce(); return json(res, 202, { ok: true, queued: true });
       }
+      if (p === '/api/setup' && m === 'GET') {
+        const yt = youtubeStatus(store, cfg); const dl = await ytdlpAvailable(); const free = freeMb(cfg.dataDir);
+        const items = [
+          { id: 'ffmpeg', ok: await which('ffmpeg') && await which('ffprobe'), label: 'ffmpeg + ffprobe', fix: 'Install ffmpeg (Termux: pkg install ffmpeg, Ubuntu: apt install ffmpeg)', required: true },
+          { id: 'disk', ok: free >= cfg.resources.minFreeDiskMb, label: `Free disk ${free} MB`, fix: 'Free some space (clips are large)', required: true },
+          { id: 'stt', ok: !!sttCreds(cfg) || !!process.env.YT_CLIPS_STT_CMD || await which('whisper') || await which('whisper-cli'), label: 'Speech-to-text (captions + smart clipping)', fix: 'Settings -> AI: add a free Groq key, or point to a local faster-whisper server', required: false },
+          { id: 'llm', ok: llmChain(cfg).length > 0, label: 'AI titles / clip re-ranking', fix: 'Optional. Settings -> AI: Groq/Gemini key, or Ollama on this machine (no key). Without it the local engine writes titles.', required: false },
+          { id: 'ytdlp', ok: dl, label: 'yt-dlp (channel watching)', fix: 'pip install yt-dlp (only needed to watch YouTube channels; file uploads work without it)', required: false },
+          { id: 'youtube', ok: !!yt.connected, label: 'YouTube account connected', fix: 'Settings -> YouTube client, then Publish -> Connect', required: false },
+          { id: 'token', ok: !!token, label: 'Server token set', fix: 'Set YT_CLIPS_TOKEN before exposing the server publicly', required: false },
+        ];
+        return json(res, 200, { items, ready: items.filter((i) => i.required).every((i) => i.ok) });
+      }
+      if (p === '/api/activity' && m === 'GET') {
+        return json(res, 200, { running, log: store.all(`SELECT entity, entity_id, from_state, to_state, note, at FROM state_log ORDER BY id DESC LIMIT 25`),
+          jobs: store.all(`SELECT kind, key, state, attempts, last_error FROM jobs WHERE state IN ('RUNNING','PENDING','RETRY') ORDER BY id LIMIT 12`),
+          failed: store.all(`SELECT kind, key, last_error FROM jobs WHERE state='DEAD' ORDER BY id DESC LIMIT 5`) });
+      }
+      if (p === '/api/autopilot') {
+        if (m === 'POST') {
+          const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
+          for (const k of Object.keys(b)) if (!['autoQueue', 'requireReview', 'platforms'].includes(k)) return json(res, 400, { error: `invalid: ${k} cannot be changed here (publish gates and autoApprove are owner-only: use the CLI "autopilot" command on the server)` });
+          if ('autoQueue' in b) { if (typeof b.autoQueue !== 'boolean') return json(res, 400, { error: 'invalid: autoQueue boolean' }); patch.autoQueue = b.autoQueue; }
+          if ('requireReview' in b) { if (typeof b.requireReview !== 'boolean') return json(res, 400, { error: 'invalid: requireReview boolean' }); patch.requireReview = b.requireReview; }
+          if ('platforms' in b) { const ok = ['youtube_shorts', 'instagram_reels', 'facebook_reels', 'tiktok']; if (!Array.isArray(b.platforms) || !b.platforms.length || b.platforms.some((x) => !ok.includes(String(x)))) return json(res, 400, { error: 'invalid: platforms' }); patch.platforms = b.platforms; }
+          updateOwnerConfig(cfg, { automation: patch }); Object.assign(cfg.automation, patch); store.logState('autopilot', 0, null, JSON.stringify(patch), 'changed from the web UI');
+        }
+        return json(res, 200, { automation: cfg.automation, gates: cfg.gates, note: 'Gates + autoApprove can only be changed on the server (CLI: npm run cli -- autopilot ...).' });
+      }
+      const sp = /^\/api\/sources\/(\d+)\/status$/.exec(p);
+      if (sp && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { status?: string }; if (b.status !== 'active' && b.status !== 'paused') return json(res, 400, { error: 'invalid: status active|paused' }); const r = store.exec(`UPDATE sources SET status=? WHERE id=? AND kind<>'local'`, b.status, Number(sp[1])); if (!r.changes) return json(res, 400, { error: 'Unknown source' }); return json(res, 200, { ok: true }); }
       if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, palette: x.palette.id, tags: x.tags, mode: x.mode })) });
       const pv = /^\/api\/presets\/([\w-]+)\/preview\.png$/.exec(p);
       if (pv) { if (!getPreset(pv[1]!)) return json(res, 404, { error: 'unknown preset' }); const lang = url.searchParams.get('lang') === 'hi' ? 'hi' : 'en'; const png = await presetPreview(previewDir, pv[1]!, lang); res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600' }); return void createReadStream(png).pipe(res); }

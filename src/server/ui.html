@@ -1,0 +1,217 @@
+<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d14"><link rel="icon" href="data:,"><title>yt-clips</title><style>
+:root{--bg:#0b0d14;--bg2:#12151f;--card:rgba(255,255,255,.045);--card2:rgba(255,255,255,.08);--fg:#eef1f8;--mut:#98a2b8;--bd:rgba(255,255,255,.1);--acc:#8b5cf6;--acc2:#ec4899;--ok:#34d399;--bad:#fb7185;--warn:#fbbf24;--r:16px}
+@media(prefers-color-scheme:light){:root{--bg:#f5f6fb;--bg2:#fff;--card:rgba(255,255,255,.85);--card2:rgba(20,25,40,.06);--fg:#141826;--mut:#59627a;--bd:rgba(20,25,40,.12);--ok:#059669;--bad:#e11d48;--warn:#b45309}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html{scroll-behavior:smooth}
+body{margin:0;color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Devanagari",sans-serif;background:radial-gradient(900px 500px at 85% -10%,rgba(139,92,246,.28),transparent 60%),radial-gradient(700px 400px at -10% 10%,rgba(236,72,153,.18),transparent 60%),var(--bg);background-attachment:fixed;min-height:100vh}
+h1,h2,h3{margin:0;letter-spacing:-.01em}h2{font-size:17px;margin-bottom:4px}h3{font-size:15px}p{margin:.3em 0}a{color:var(--acc)}code{background:var(--card2);padding:1px 6px;border-radius:6px;font-size:12.5px;word-break:break-all}
+button,input,select,textarea{font:inherit;color:inherit}input,select,textarea{background:var(--card2);border:1px solid var(--bd);border-radius:12px;padding:10px 12px;min-width:0;max-width:100%}textarea{width:100%;resize:vertical}input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:1px}
+button{border:0;border-radius:12px;padding:10px 16px;font-weight:650;cursor:pointer;color:#fff;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 6px 18px -8px var(--acc);transition:transform .12s,opacity .12s}button:active{transform:scale(.97)}button:disabled{opacity:.5;cursor:not-allowed}
+button.sec{background:var(--card2);color:var(--fg);box-shadow:none;border:1px solid var(--bd)}button.b-ok{background:linear-gradient(135deg,#059669,#34d399)}button.b-bad{background:linear-gradient(135deg,#e11d48,#fb7185)}button.sm{padding:6px 11px;font-size:13px}
+.shell{display:flex;min-height:100vh}main{width:100%;max-width:1180px;margin:0 auto}nav{position:fixed;z-index:20;display:flex;gap:2px;background:color-mix(in srgb,var(--bg2) 88%,transparent);backdrop-filter:blur(16px);border:1px solid var(--bd)}
+nav button{background:none;color:var(--mut);box-shadow:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 6px;font-size:11px;flex:1;border-radius:12px}nav button i{font-style:normal;font-size:20px}nav button.on{color:var(--fg);background:var(--card2)}
+@media(max-width:859px){nav{left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));border-radius:20px;padding:4px}main{padding:14px 14px 110px}.brand{display:none}}
+@media(min-width:860px){nav{top:0;bottom:0;left:0;width:92px;flex-direction:column;padding:14px 8px;border-width:0 1px 0 0}nav button{flex:0}main{margin-left:calc(92px + max(0px,(100vw - 92px - 1180px)/2));padding:26px 32px 60px}.brand{display:block;text-align:center;font-size:22px;margin-bottom:10px}}
+/*main-base*/.tab{display:none;animation:in .25s}.tab.on{display:block}@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.hero{padding:22px;border-radius:24px;background:linear-gradient(135deg,rgba(139,92,246,.35),rgba(236,72,153,.25)),var(--card);border:1px solid var(--bd);margin-bottom:16px;position:relative;overflow:hidden}
+.hero h1{font-size:26px;background:linear-gradient(90deg,#fff,#f0abfc);-webkit-background-clip:text;background-clip:text;color:transparent}@media(prefers-color-scheme:light){.hero h1{background:none;color:var(--fg)}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:16px;margin-bottom:14px;backdrop-filter:blur(8px)}
+.grid{display:grid;gap:12px}.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}.g4{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}.gc{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+.tile{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px 14px}.tile b{display:block;font-size:26px;line-height:1.1}.tile span{color:var(--mut);font-size:12.5px}
+.mut{color:var(--mut);font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>.grow{flex:1;min-width:150px}.chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.chip{font-size:12px;padding:3px 9px;border-radius:99px;border:1px solid var(--bd);background:var(--card2);white-space:nowrap}.chip.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}.chip.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent)}.chip.warn{color:var(--warn)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.check{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--bd)}.check:first-child{border-top:0}.check .d{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:13px;flex:none;background:var(--card2)}.check.ok .d{background:var(--ok);color:#052}.check.bad .d{background:var(--bad);color:#fff}.check.warn .d{background:var(--warn);color:#331}
+.feed div{padding:6px 0;border-top:1px solid var(--bd);font-size:13px}.feed div:first-child{border:0}
+.drop{display:block;border:2px dashed var(--bd);border-radius:16px;padding:20px;text-align:center;cursor:pointer;transition:.15s}.drop.over,.drop:hover{border-color:var(--acc);background:var(--card2)}
+progress{width:100%;height:8px;border-radius:99px;overflow:hidden;accent-color:var(--acc)}
+.filters{display:flex;gap:8px;overflow:auto;padding-bottom:6px;margin-bottom:10px}.filters button{white-space:nowrap}
+.clip{padding:0;overflow:hidden;display:flex;flex-direction:column;margin:0}.clip .media{position:relative;background:#000;aspect-ratio:9/12;display:grid}.clip video{width:100%;height:100%;object-fit:contain;background:#000}.clip .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px}.clip h3{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.meter{height:6px;border-radius:99px;background:var(--card2);overflow:hidden}.meter i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:99px}
+.rv{position:absolute;top:10px;left:10px}.actions{display:flex;gap:6px;flex-wrap:wrap}.actions button{flex:1;min-width:70px}
+dialog{width:min(920px,96vw);max-height:92vh;border:1px solid var(--bd);border-radius:22px;background:var(--bg2);color:var(--fg);padding:0;overflow:auto}dialog::backdrop{background:rgba(0,0,0,.65);backdrop-filter:blur(4px)}
+.dhead{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--bd)}.dbody{padding:16px;display:grid;gap:16px;grid-template-columns:minmax(0,300px) minmax(0,1fr)}@media(max-width:700px){.dbody{grid-template-columns:1fr}}
+.lab{display:block;font-size:12.5px;color:var(--mut);margin:10px 0 4px}.tg{display:flex;flex-wrap:wrap;gap:6px}.tg label{display:flex;gap:6px;align-items:center;padding:6px 10px;border:1px solid var(--bd);border-radius:10px;font-size:13px;background:var(--card2)}
+.presets{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(112px,1fr))}.pv{border:2px solid var(--bd);border-radius:12px;padding:4px;cursor:pointer;text-align:center;font-size:12px;background:var(--card)}.pv.sel{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 30%,transparent)}.pv img{width:100%;border-radius:8px;display:block}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 4px;border-top:1px solid var(--bd);text-align:left;vertical-align:top}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:100px;z-index:50;background:var(--bg2);border:1px solid var(--bd);padding:10px 16px;border-radius:14px;box-shadow:0 12px 40px -10px #000;max-width:92vw}
+.pulse{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--ok);margin-right:6px;animation:p 1.4s infinite}.pulse.idle{background:var(--mut);animation:none}@keyframes p{50%{opacity:.35;transform:scale(1.5)}}
+.shim{height:4px;border-radius:99px;background:linear-gradient(90deg,transparent,var(--acc),var(--acc2),transparent);background-size:200% 100%;animation:sh 1.3s linear infinite}@keyframes sh{to{background-position:-200% 0}}
+#login{max-width:420px;margin:14vh auto;padding:0 16px}
+</style></head><body>
+<div id="login" hidden><div class="card"><h2>🎬 yt-clips login</h2><p class="mut">Server token daalo (<code>YT_CLIPS_TOKEN</code>).</p><div class="row"><input id="tok" type="password" placeholder="token" class="grow"><button id="go">Login</button></div><p id="lerr" class="bad"></p></div></div>
+<div class="shell" id="app" hidden>
+<nav><div class="brand">🎬</div>
+<button data-tab="home" class="on"><i>🏠</i>Home</button><button data-tab="clips"><i>🎞️</i>Clips<span id="nbadge" class="chip warn" hidden></span></button><button data-tab="publish"><i>🚀</i>Publish</button><button data-tab="insights"><i>📈</i>Insights</button><button data-tab="studio"><i>🎨</i>Studio</button><button data-tab="settings"><i>⚙️</i>Setup</button></nav>
+<main>
+<section class="tab on" id="t-home">
+ <div class="hero"><div class="row" style="justify-content:space-between"><div><h1>yt-clips</h1><p class="mut">Long video / channel → edited Shorts → titles, thumbnails → (gated) upload → learning. Sab free, self-hosted.</p></div><div class="chips"><span class="chip" id="cRun"></span><span class="chip" id="cAuto"></span><span class="chip" id="cGate"></span><button class="sm" id="runnow">▶ Run now</button></div></div></div>
+ <div class="grid g4" id="stats"></div>
+ <div class="grid g2" style="margin-top:14px">
+  <div class="card"><h2>Live pipeline</h2><div id="shim"></div><div class="feed" id="feed"><span class="mut">Abhi koi activity nahi.</span></div><p class="bad" id="failed"></p></div>
+  <div class="card"><h2>Setup checklist</h2><div id="setup"></div></div>
+ </div>
+ <div class="grid g2">
+  <div class="card"><h2>Video add karo</h2><p class="mut">Sirf wahi jiske rights aapke paas hain. Upload ke baad sab khud chalta hai.</p>
+   <label class="drop" id="drop"><input id="file" type="file" accept="video/*,audio/*" hidden><div id="dropt">📂 Video yahan drop karo ya tap karo</div></label>
+   <div class="row" style="margin-top:10px"><label class="row"><input id="auth" type="checkbox"> Mere paas rights/permission hai</label><button id="up">Upload</button></div><progress id="prog" value="0" max="100" hidden></progress><p id="umsg" class="mut"></p></div>
+  <div class="card"><h2>Channels / sources (auto-watch)</h2><p class="mut">Channel add karo — naye uploads aur purani videos loop mein khud process hongi (yt-dlp chahiye).</p>
+   <div class="row"><input id="yurl" class="grow" placeholder="https://www.youtube.com/@channel"><button id="yadd">Add</button></div><label class="row mut" style="margin-top:6px"><input id="yauth" type="checkbox"> Mere paas rights/permission hai</label><p id="ymsg" class="mut"></p><div id="ylist"></div></div>
+ </div>
+</section>
+
+<section class="tab" id="t-clips"><div class="hero"><h2>Review inbox</h2><p class="mut">Har clip dekho → Approve / Reject → title, thumbnail, effects badlo → export ya publish queue. Naya render hamesha alag version banta hai, purana safe rehta hai.</p></div>
+ <div class="filters" id="filters"></div><div class="grid gc" id="clips"></div></section>
+
+<section class="tab" id="t-publish">
+ <div class="card"><h2>YouTube + publishing</h2><p class="mut" id="ytst"></p><div class="row"><button id="ytc" class="sec">YouTube connect (device code)</button><span id="ytcode" class="mut"></span></div>
+  <div class="row" style="margin-top:10px"><select id="qclip" class="grow"></select><select id="qplat"><option>youtube_shorts</option><option>instagram_reels</option><option>facebook_reels</option><option>tiktok</option></select><button id="qgo" class="sec">Queue karo</button></div>
+  <p class="mut">Publish gates server par owner ke paas hain (Setup → Autopilot). Gate band ho to upload queue sirf QC tak jaati hai. Instagram/TikTok/Facebook auto-upload abhi bana nahi — unke liye Clips → Share/Export use karo.</p><div id="ups" style="overflow:auto"></div></div>
+ <div class="card"><h2>Comments (draft → aapka approval → post)</h2><div class="row"><button id="ccol" class="sec">Naye comments lao</button></div><div id="cms" class="mut">Koi comment nahi.</div></div></section>
+
+<section class="tab" id="t-insights"><div class="card"><h2>Analytics + best posting time</h2><div class="row"><button id="acol" class="sec">Analytics collect karo</button><select id="tplat"><option>instagram</option><option>facebook</option><option>tiktok</option></select><input id="ttok" type="password" placeholder="access token (owner ka)" class="grow"><button id="tsave" class="sec">Token save</button></div>
+ <div id="ana" class="mut" style="margin-top:10px"></div><p id="sched" class="mut"></p>
+ <label class="lab">Manual CSV import (published_at,views)</label><div class="row"><textarea id="csv" rows="3" placeholder="published_at,views&#10;2026-10-01T18:30:00+05:30,1200" class="grow"></textarea><button id="csvgo" class="sec">Import</button></div></div></section>
+
+<section class="tab" id="t-studio">
+ <div class="card"><h2>Caption style <span class="mut" id="curp"></span></h2><div class="row" style="margin:8px 0"><select id="base"></select><select id="pal"></select><select id="lang"><option value="en">Latin/Hinglish preview</option><option value="hi">Hindi preview</option></select><button id="save">Default banao</button></div><div class="presets" id="presets"></div></div>
+ <div class="card"><h2>Transcript editor</h2><p class="mut">Galat shabd theek karo (timing same rehti hai). Naye renders mein use hoga.</p><div class="row"><select id="evid" class="grow"></select><button id="eload" class="sec">Load</button><button id="esave">Save edits</button></div><div id="ecues"></div><p id="emsg" class="mut"></p></div></section>
+
+<section class="tab" id="t-settings">
+ <div class="card"><h2>🤖 Autopilot (full automation loop)</h2><p class="mut">Worker har ~30s mein: sources poll → analyze → clips → edit → QC → title/thumbnail → (review) → upload-unlisted → verify → schedule → publish → analytics → comments. Default sab OFF.</p>
+  <div class="row"><label class="row"><input type="checkbox" id="apq"> Auto-queue uploads</label><label class="row"><input type="checkbox" id="apr"> Pehle meri review (sirf Approved clips)</label></div>
+  <div class="tg" id="applat" style="margin:8px 0"></div><button id="apsave" class="sec">Save autopilot</button>
+  <p class="mut" id="apst" style="margin-top:8px"></p>
+  <p class="mut">Publish/public gates aur auto-approve safety ke liye sirf server par badalte hain (yahan se nahi). Server shell/Termux mein: <code>npm run cli -- autopilot on --publish --yes</code> (private/unlisted tak) · <code>... --approve --public --yes</code> (auto public) · <code>npm run cli -- autopilot off</code>.</p></div>
+ <div class="card"><h2>🧠 AI (titles, clip ranking, captions)</h2><p class="mut">Bina key ke bhi chalta hai: local engine title/tags/clip-edges khud banata hai. Behtar results ke liye free key ya <b>local Ollama (key nahi chahiye)</b>.</p>
+  <div class="row"><select id="aiprov" class="grow"></select><select id="aislot"><option value="1">Primary</option><option value="2">Fallback 1</option><option value="3">Fallback 2</option></select></div>
+  <div class="row" style="margin-top:8px"><input id="aibase" class="grow" placeholder="base URL"><input id="aimodel" placeholder="model"><input id="aikey" type="password" class="grow" placeholder="API key (local par khali chhodo)"></div>
+  <div class="row" style="margin-top:8px"><button id="aillm" class="sec">Save → titles + ranking</button><button id="aistt" class="sec">Save → speech-to-text</button></div><p id="aist" class="mut"></p></div>
+ <div class="card"><h2>🔐 Social accounts login</h2><p class="mut"><b>ID/password se login kyun nahi:</b> Instagram/TikTok/YouTube ID-password bot ko dena unki terms ke against hai (ban + 2FA + password leak risk). Sahi rasta: official "Login with" (OAuth) — ek baar free developer app banao, phir sirf "Allow" dabao. Neeche wahi hai.</p>
+  <div class="grid g2"><div><h3>Facebook + Instagram</h3><p class="mut">developers.facebook.com → app → Valid OAuth redirect: <code id="cbfb"></code></p><div class="row"><input id="fbid" placeholder="App ID" class="grow"><input id="fbsec" type="password" placeholder="App Secret" class="grow"></div><div class="row" style="margin-top:6px"><button id="fbsave" class="sec">Save</button><button id="fblogin">Login</button></div></div>
+  <div><h3>TikTok</h3><p class="mut">developers.tiktok.com → Login Kit → redirect: <code id="cbtt"></code> (https chahiye ho sakta hai)</p><div class="row"><input id="ttid" placeholder="Client Key" class="grow"><input id="ttsec" type="password" placeholder="Client Secret" class="grow"></div><div class="row" style="margin-top:6px"><button id="ttsave" class="sec">Save</button><button id="ttlogin">Login</button></div></div>
+  <div><h3>YouTube (Google)</h3><p class="mut">Google Cloud → OAuth client ("TVs and Limited Input") → ID/Secret, phir Publish tab → Connect.</p><div class="row"><input id="gid" placeholder="Client ID" class="grow"><input id="gsec" type="password" placeholder="Client Secret" class="grow"></div><div class="row" style="margin-top:6px"><button id="gsave" class="sec">Save</button></div></div></div>
+  <p class="mut" id="soc" style="margin-top:8px"></p></div>
+</section>
+</main></div>
+<dialog id="dlg"></dialog><div id="toast" class="toast" hidden></div>
+<script>
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>Array.prototype.slice.call(r.querySelectorAll(s));
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+let token=''; try{token=localStorage.getItem('ytc_token')||''}catch(e){}
+let presets=[],cur=null,sel=null,clips=[],filter='all',tab='home',ecues=[],detailId=null,AI=null;
+const H=()=>({'x-ytc':'1',...(token?{authorization:'Bearer '+token}:{})});
+async function api(p,o){o=o||{};const r=await fetch(p,{...o,headers:{...H(),...(o.headers||{})},credentials:'same-origin'});if(r.status===401){show(false);throw new Error('401')}const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j}
+const jpost=(p,b)=>api(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})});
+function toast(m,bad){const t=$('#toast');t.textContent=m;t.style.borderColor=bad?'var(--bad)':'var(--bd)';t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>{t.hidden=true},3800)}
+const guard=f=>async function(){try{await f.apply(this,arguments)}catch(e){toast(String(e.message||e),true)}};
+function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok}
+$('#go').onclick=async()=>{token=$('#tok').value.trim();try{await api('/api/login',{method:'POST'});try{localStorage.setItem('ytc_token',token)}catch(e){}show(true);init()}catch(e){$('#lerr').textContent='Token galat hai'}};
+$$('nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+function go(t){tab=t;$$('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));$$('.tab').forEach(s=>s.classList.toggle('on',s.id==='t-'+t));try{history.replaceState(null,'','#'+t)}catch(e){}load(t);window.scrollTo(0,0)}
+function load(t){({home:homeLoad,clips:clipsLoad,publish:pubLoad,insights:insLoad,studio:studioLoad,settings:setLoad})[t]().catch(()=>{})}
+
+/* ---------- HOME ---------- */
+async function homeLoad(){
+ const [s,a,su,ap]=await Promise.all([api('/api/status'),api('/api/activity'),api('/api/setup'),api('/api/autopilot')]);
+ const n=(arr,k)=>(arr.find(x=>x.state===k)||{n:0}).n,sum=arr=>arr.reduce((x,y)=>x+y.n,0);
+ const t=(k,v)=>'<div class="tile"><span>'+k+'</span><b>'+v+'</b></div>';
+ const pend=s.jobs.filter(x=>['PENDING','RETRY','RUNNING'].includes(x.state)).reduce((x,y)=>x+y.n,0);
+ $('#stats').innerHTML=t('Videos',sum(s.videos))+t('In process',pend)+t('Clips ready',n(s.clips,'QC_PASSED'))+t('QC fail',n(s.clips,'QC_FAILED'))+t('Uploads',sum(s.uploads))+t('Published',n(s.uploads,'PUBLISHED'));
+ $('#cRun').innerHTML='<span class="pulse '+(s.running?'':'idle')+'"></span>'+(s.running?'Chal raha hai':'Idle');
+ const A=ap.automation,g=ap.gates;$('#cAuto').innerHTML=A.autoQueue?'<span class="ok">Autopilot ON</span>':'Autopilot OFF';
+ $('#cGate').innerHTML=(g.publishEnabled||g.publicVisibilityAllowed||g.commentsAutoPost)?'<span class="warn">publish gate '+(g.publicVisibilityAllowed?'PUBLIC':'ON')+'</span>':'<span class="ok">publish OFF (safe)</span>';
+ $('#shim').innerHTML=(s.running||pend)?'<div class="shim"></div>':'';
+ $('#feed').innerHTML=(a.jobs.map(j=>'<div>⏳ <b>'+esc(j.kind)+'</b> '+esc(j.key)+' <span class="chip">'+esc(j.state)+'</span></div>').join('')+a.log.slice(0,10).map(l=>'<div><span class="mut">'+esc(l.at.slice(11,16))+'</span> '+esc(l.entity)+' #'+l.entity_id+' → <b>'+esc(l.to_state)+'</b> <span class="mut">'+esc((l.note||'').slice(0,60))+'</span></div>').join(''))||'<span class="mut">Abhi koi activity nahi. Video add karo ya channel jodo.</span>';
+ $('#failed').innerHTML=a.failed.length?'Failed jobs: '+a.failed.map(f=>esc(f.key)+' ('+esc((f.last_error||'').slice(0,80))+')').join('; '):'';
+ $('#setup').innerHTML=su.items.map(i=>'<div class="check '+(i.ok?'ok':i.required?'bad':'warn')+'"><div class="d">'+(i.ok?'✓':i.required?'!':'•')+'</div><div><b>'+esc(i.label)+'</b>'+(i.ok?'':'<div class="mut">'+esc(i.fix)+'</div>')+'</div></div>').join('');
+ const r=await api('/api/sources');$('#ylist').innerHTML=(r.ytdlp?'':'<div class="bad">yt-dlp installed nahi: sources save honge, download nahi.</div>')+r.sources.filter(x=>x.kind!=='local').slice(0,10).map(x=>'<div class="row" style="border-top:1px solid var(--bd);padding:6px 0"><span class="grow">'+esc(x.title||x.uri)+'</span><span class="chip">'+esc(x.status)+'</span><button class="sec sm" data-src="'+x.id+'" data-to="'+(x.status==='paused'?'active':'paused')+'">'+(x.status==='paused'?'Resume':'Pause')+'</button></div>').join('');
+ $$('[data-src]').forEach(b=>b.onclick=guard(async()=>{await jpost('/api/sources/'+b.dataset.src+'/status',{status:b.dataset.to});homeLoad()}));
+}
+$('#runnow').onclick=guard(async()=>{await jpost('/api/run');toast('Pipeline chal gayi');homeLoad()});
+$('#yadd').onclick=guard(async()=>{if(!$('#yauth').checked)return $('#ymsg').textContent='Rights confirm karna zaroori hai';const r=await jpost('/api/sources',{url:$('#yurl').value,authorized:true});$('#ymsg').textContent=r.duplicate?'Pehle se added hai':'Add ho gaya — loop khud poll karega';$('#yurl').value='';homeLoad()});
+const drop=$('#drop');['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0]){$('#file').files=ev.dataTransfer.files;$('#dropt').textContent='📄 '+ev.dataTransfer.files[0].name}});$('#file').onchange=()=>{const f=$('#file').files[0];if(f)$('#dropt').textContent='📄 '+f.name};
+$('#up').onclick=()=>{const f=$('#file').files[0];if(!f)return $('#umsg').textContent='Pehle file chuno';if(!$('#auth').checked)return $('#umsg').textContent='Rights confirm karna zaroori hai';
+ const x=new XMLHttpRequest();x.open('POST','/api/upload?authorized=1&name='+encodeURIComponent(f.name));const h=H();for(const k in h)x.setRequestHeader(k,h[k]);$('#prog').hidden=false;
+ x.upload.onprogress=e=>{$('#prog').value=e.loaded/e.total*100};x.onload=()=>{$('#prog').hidden=true;let j={};try{j=JSON.parse(x.responseText)}catch(e){}$('#umsg').textContent=x.status<300?(j.duplicate?'Ye video pehle se hai':'Upload ho gaya, processing shuru ✅'):'Error: '+(j.error||x.status);homeLoad()};x.onerror=()=>$('#umsg').textContent='Network error';x.send(f)};
+
+/* ---------- CLIPS (review inbox) ---------- */
+const FILTERS=[['all','Sab'],['needs','Review baaki'],['approved','Approved'],['rejected','Rejected'],['fail','QC fail']];
+function vis(c){return filter==='all'||(filter==='needs'&&c.review==='pending'&&c.qcPass)||(filter==='approved'&&c.review==='approved')||(filter==='rejected'&&c.review==='rejected')||(filter==='fail'&&!c.qcPass)}
+async function clipsLoad(){const r=await api('/api/clips');clips=r.clips;const need=clips.filter(c=>c.review==='pending'&&c.qcPass).length;const nb=$('#nbadge');nb.hidden=!need;nb.textContent=need;
+ $('#filters').innerHTML=FILTERS.map(f=>'<button class="'+(filter===f[0]?'':'sec')+' sm" data-f="'+f[0]+'">'+f[1]+'</button>').join('');$$('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;clipsLoad()});
+ const list=clips.filter(vis);$('#clips').innerHTML=list.length?list.map(card).join(''):'<div class="card mut">Is filter mein koi clip nahi.</div>';bindCards()}
+function card(c){const cov=c.coverage?Math.round(c.coverage.coverage*100):0;const vc=c.visualChange?Math.round(c.visualChange.change*100):null;
+ const rv=c.review==='approved'?'<span class="chip ok rv">✓ Approved</span>':c.review==='rejected'?'<span class="chip bad rv">✕ Rejected</span>':'';
+ return '<article class="card clip" data-id="'+c.id+'"><div class="media">'+rv+'<video controls playsinline preload="metadata" '+(c.thumb?'poster="'+c.thumb+'" ':'')+'src="'+c.video+'"></video></div><div class="body"><h3>'+esc(c.title||c.outputId)+'</h3>'
+ +'<div class="chips"><span class="chip '+(c.qcPass?'ok':'bad')+'">QC '+(c.qcPass?'pass':'FAIL')+'</span><span class="chip">'+Math.round(c.duration)+'s</span>'+(c.category?'<span class="chip">'+esc(c.category)+'</span>':'')+(c.variant?'<span class="chip">v'+c.variant+'</span>':'')+(c.captionInfo?'<span class="chip">'+esc(c.captionInfo.preset||'')+'</span>':'<span class="chip bad">no captions</span>')+'</div>'
+ +'<div class="meter" title="editing dimensions applied"><i style="width:'+cov+'%"></i></div><div class="mut">Effects '+cov+'%'+(vc!==null?' · visual change '+vc+'%':'')+'</div>'
+ +'<div class="actions"><button class="b-ok sm" data-a="approve">✓ Approve</button><button class="b-bad sm" data-a="reject">✕ Reject</button><button class="sec sm" data-a="open">✏️ Edit</button><button class="sec sm" data-a="share">📤 Share</button></div></div></article>'}
+function bindCards(){$$('.clip [data-a]').forEach(b=>b.onclick=guard(async()=>{const id=Number(b.closest('.clip').dataset.id);const a=b.dataset.a;
+ if(a==='approve'||a==='reject'){await jpost('/api/clips/'+id+'/review',{action:a});toast(a==='approve'?'Approved ✓':'Rejected');clipsLoad()}else if(a==='open')openClip(id);else if(a==='share')shareClip(id)}))}
+async function shareClip(id){const c=clips.find(x=>x.id===id);toast('File taiyar ho rahi hai…');const r=await fetch(c.video,{credentials:'same-origin',headers:H()});const blob=await r.blob();const f=new File([blob],c.outputId+'.mp4',{type:'video/mp4'});const text=(c.title||'')+'\n'+(c.description||'');
+ if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:c.title||'',text});return}catch(e){if(e.name==='AbortError')return}}
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=f.name;a.click();try{await navigator.clipboard.writeText(text);toast('Video download + title/description copy ho gaye')}catch(e){toast('Video download hua')}}
+async function openClip(id){detailId=id;const c=clips.find(x=>x.id===id);const dlg=$('#dlg');
+ const fx=(c.treatments||[]).map(t=>'<div class="'+(t.applied?'':'mut')+'">'+(t.applied?'✓ ':'– ')+'<b>'+esc(t.dimension)+'</b> '+esc(t.detail)+'</div>').join('');
+ const opt=['grain','particles','lightLeak','flash','progress','lut'];const lab={grain:'Film grain',particles:'Dust particles',lightLeak:'Light leak',flash:'Flash cuts',progress:'Progress bar',lut:'Cinematic LUT'};
+ dlg.innerHTML='<div class="dhead"><h3>'+esc(c.title||c.outputId)+'</h3><button class="sec sm" id="dclose">Close</button></div><div class="dbody"><div><video id="dvid" controls playsinline style="width:100%;border-radius:14px;background:#000" src="'+c.video+'"></video>'
+ +'<div class="row" style="margin-top:8px"><button class="sec sm" id="dthumb">🖼️ Is frame ko thumbnail banao</button></div><div class="mut" id="dtm">'+(c.thumb?'<img src="'+c.thumb+'" style="width:100%;border-radius:10px;margin-top:8px">':'')+'</div>'
+ +'<div class="row" style="margin-top:8px"><button class="sec sm" id="dexp">📦 Export ZIP</button>'+(c.srt?'<a href="'+c.srt+'" target="_blank"><button class="sec sm">SRT</button></a>':'')+'<a href="/api/manifest/'+c.outputId+'" target="_blank"><button class="sec sm">Manifest</button></a></div><div id="dlink" class="mut"></div></div>'
+ +'<div><label class="lab">Title</label><input id="dt" style="width:100%" value="'+esc(c.title||'')+'"><label class="lab">Description</label><textarea id="dd" rows="5">'+esc(c.description||'')+'</textarea><label class="lab">Tags (comma)</label><input id="dg" style="width:100%" value="'+esc((c.tags||[]).join(', '))+'"><div class="row" style="margin-top:8px"><button id="dsave">Save text</button></div>'
+ +'<label class="lab">Re-render alag version (purana safe rehta hai)</label><select id="dpre"><option value="">Caption style: default</option>'+presets.map(p=>'<option value="'+p.id+'">'+esc(p.label)+'</option>').join('')+'</select><div class="tg" style="margin-top:8px">'+opt.map(k=>'<label><input type="checkbox" data-vfx="'+k+'" checked> '+lab[k]+'</label>').join('')+'<label><input type="checkbox" id="djc" checked> Jump cuts</label><label><input type="checkbox" id="dsr" checked> Slow-mo ramp</label></div><div class="row" style="margin-top:8px"><button id="dre">🎬 Re-render</button></div>'
+ +'<label class="lab">Effects applied</label><div class="mut" style="max-height:200px;overflow:auto">'+fx+'</div></div></div>';
+ dlg.showModal();$('#dclose').onclick=()=>dlg.close();
+ $('#dsave').onclick=guard(async()=>{await jpost('/api/clips/'+id+'/meta',{title:$('#dt').value,description:$('#dd').value,tags:$('#dg').value.split(',').map(x=>x.trim()).filter(Boolean)});toast('Saved ✓');clipsLoad()});
+ $('#dthumb').onclick=guard(async()=>{await jpost('/api/clips/'+id+'/thumbnail',{at:$('#dvid').currentTime});toast('Thumbnail update ho gaya');await clipsLoad();const c2=clips.find(x=>x.id===id);if(c2.thumb)$('#dtm').innerHTML='<img src="'+c2.thumb+'?t='+Date.now()+'" style="width:100%;border-radius:10px;margin-top:8px">'});
+ $('#dexp').onclick=guard(async()=>{const r=await jpost('/api/clips/'+id+'/export');$('#dlink').innerHTML='<a href="'+r.url+'" download>⬇️ ZIP download ('+r.files.length+' files)</a>'});
+ $('#dre').onclick=guard(async()=>{const v={};$$('[data-vfx]').forEach(x=>{v[x.dataset.vfx]=x.checked});const b={vfx:v,jumpCuts:$('#djc').checked,speedRamp:$('#dsr').checked};if($('#dpre').value)b.captionPreset=$('#dpre').value;await jpost('/api/clips/'+id+'/rerender',b);toast('Re-render queue mein — Clips mein naya version aayega');dlg.close()})}
+
+/* ---------- PUBLISH ---------- */
+async function pubLoad(){const y=await api('/api/youtube');$('#ytst').innerHTML='Client: '+(y.clientConfigured?'<span class="ok">set</span>':'<span class="bad">set nahi</span>')+' · Connected: '+(y.connected?'<span class="ok">haan</span>':'nahi')+' · Aaj quota: '+y.quota.insertsUsed+' uploads, '+y.quota.unitsUsed+' units · publish gate: '+(y.gates.publishEnabled?'<span class="warn">ON</span>':'<span class="ok">OFF</span>');
+ const cl=await api('/api/clips');clips=cl.clips;$('#qclip').innerHTML=clips.filter(c=>c.qcPass).map(c=>'<option value="'+c.id+'">#'+c.id+' '+esc((c.title||c.outputId).slice(0,50))+(c.review==='approved'?' ✓':'')+'</option>').join('');
+ const u=await api('/api/uploads');$('#ups').innerHTML=u.uploads.length?'<table>'+u.uploads.map(x=>'<tr><td>#'+x.id+'</td><td>'+esc(x.platform)+'</td><td><b>'+esc(x.state)+'</b></td><td class="mut">'+esc((x.error||'').slice(0,90))+'</td><td><button class="sec sm" data-adv="'+x.id+'">Advance</button> <button class="sec sm" data-appr="'+x.id+'">Approve+Advance</button></td></tr>').join('')+'</table>':'<p class="mut">Koi upload queue mein nahi.</p>';
+ $$('[data-adv],[data-appr]').forEach(b=>b.onclick=guard(async()=>{const r=await jpost('/api/uploads/'+(b.dataset.adv||b.dataset.appr)+'/advance',{approve:!!b.dataset.appr});if(r.blocked)toast(r.blocked,true);pubLoad()}));
+ const c=await api('/api/comments');$('#cms').innerHTML=c.comments.length?c.comments.slice(0,30).map(x=>'<div style="border-top:1px solid var(--bd);padding:8px 0"><div>'+esc(x.text)+' <span class="chip">'+esc(x.class||'')+'</span> <span class="chip">'+esc(x.status)+'</span></div>'+(x.draft!==null&&x.status!=='posted'?'<div class="row" style="margin-top:6px"><input class="grow" data-d="'+x.id+'" value="'+esc(x.draft||'')+'"><button class="sec sm" data-ce="'+x.id+'">Edit</button><button class="b-ok sm" data-ca="'+x.id+'">Approve</button><button class="b-bad sm" data-cr="'+x.id+'">Reject</button><button class="sm" data-cp="'+x.id+'">Post</button></div>':'')+'</div>').join(''):'Koi comment nahi.';
+ const act=(s,k,f)=>$$(s).forEach(b=>b.onclick=guard(async()=>{await f(b.dataset[k]);pubLoad()}));
+ act('[data-ce]','ce',id=>jpost('/api/comments/'+id+'/edit',{text:$('[data-d="'+id+'"]').value}));act('[data-ca]','ca',id=>jpost('/api/comments/'+id+'/approve'));act('[data-cr]','cr',id=>jpost('/api/comments/'+id+'/reject'));act('[data-cp]','cp',id=>jpost('/api/comments/'+id+'/post'))}
+$('#ytc').onclick=guard(async()=>{const d=await jpost('/api/youtube/connect');$('#ytcode').innerHTML='Kholo <a target="_blank" rel="noreferrer" href="'+esc(d.verificationUrl)+'">'+esc(d.verificationUrl)+'</a> aur code daalo: <b>'+esc(d.userCode)+'</b>';const t=setInterval(async()=>{try{const r=await jpost('/api/youtube/connect/poll');if(r.status==='ok'){clearInterval(t);$('#ytcode').textContent='Connected ✓';pubLoad()}else if(r.status==='error'||r.status==='expired'){clearInterval(t);$('#ytcode').textContent='Failed: '+(r.error||r.status)}}catch(e){clearInterval(t)}},Math.max(3,d.interval||5)*1000)});
+$('#qgo').onclick=guard(async()=>{await jpost('/api/uploads',{clipId:Number($('#qclip').value),platform:$('#qplat').value});pubLoad()});
+$('#ccol').onclick=guard(async()=>{const r=await jpost('/api/comments/collect');if(r.error)toast(r.error,true);pubLoad()});
+
+/* ---------- INSIGHTS ---------- */
+async function insLoad(){const a=await api('/api/analytics');$('#ana').innerHTML=a.platforms.length?a.platforms.map(p=>'<div><b>'+esc(p.platform)+'</b>: '+p.videos+' videos, '+p.totalViews+' views'+(p.bestHour?', best ghanta '+p.bestHour.hour+':00 (avg '+p.bestHour.meanViews+')':'')+'</div>').join(''):'Abhi analytics data nahi (publish ke baad ya CSV import se aayega).';
+ const s=await api('/api/schedule?n=3');$('#sched').textContent='Agle slots ('+(s.samples<8?'baseline, data kam':'measured')+'): '+s.slots.map(x=>new Date(x.at).toLocaleString()).join(' | ')}
+$('#acol').onclick=guard(async()=>{const r=await jpost('/api/analytics/collect');toast(r.results.map(x=>x.platform+': '+(x.error||x.recorded+'/'+x.requested)).join(' · ')||'Koi published video nahi');insLoad()});
+$('#tsave').onclick=guard(async()=>{await jpost('/api/platforms/'+$('#tplat').value+'/token',{accessToken:$('#ttok').value});$('#ttok').value='';toast('Token save ho gaya')});
+$('#csvgo').onclick=guard(async()=>{const r=await api('/api/analytics/import',{method:'POST',body:$('#csv').value});toast(r.imported+' rows import, '+r.skipped.length+' skip');insLoad()});
+
+/* ---------- STUDIO ---------- */
+function drawPresets(){const b=$('#base').value,p=$('#pal').value,l=$('#lang').value;const list=presets.filter(x=>(!b||x.base===b)&&(!p||x.palette===p));$('#presets').innerHTML=list.map(x=>'<div class="pv '+(x.id===sel?'sel':'')+'" data-id="'+x.id+'"><img loading="lazy" src="/api/presets/'+x.id+'/preview.png?lang='+l+'"><div>'+esc(x.label)+'</div></div>').join('');$$('.pv').forEach(e=>e.onclick=()=>{sel=e.dataset.id;drawPresets()})}
+async function studioLoad(){const r=await api('/api/presets');presets=r.presets;cur=r.current;if(!sel)sel=cur;$('#curp').textContent='(abhi: '+cur+')';
+ if(!$('#base').options.length){const bs=[...new Set(presets.map(x=>x.base))],ps=[...new Set(presets.map(x=>x.palette))];$('#base').innerHTML='<option value="">Sab styles</option>'+bs.map(x=>'<option>'+x+'</option>').join('');$('#pal').innerHTML='<option value="">Sab colors</option>'+ps.map(x=>'<option>'+x+'</option>').join('');['#base','#pal','#lang'].forEach(s=>$(s).onchange=drawPresets)}
+ drawPresets();const v=await api('/api/videos');$('#evid').innerHTML=v.videos.map(x=>'<option value="'+x.id+'">#'+x.id+' '+esc((x.title||x.path||'').slice(-40))+'</option>').join('')}
+$('#save').onclick=guard(async()=>{await jpost('/api/config',{captionPreset:sel});cur=sel;$('#curp').textContent='(abhi: '+cur+')';toast('Default caption style set ✓')});
+$('#eload').onclick=guard(async()=>{const r=await api('/api/transcript?video='+$('#evid').value);ecues=r.cues;$('#ecues').innerHTML=ecues.length?ecues.map((c,i)=>'<div style="margin:6px 0"><span class="mut">'+c.start.toFixed(1)+'s</span> '+(c.words?c.words.map((w,j)=>'<input data-c="'+i+'" data-w="'+j+'" value="'+esc(w.text)+'" size="'+Math.max(3,w.text.length)+'">').join(' '):'<input data-c="'+i+'" value="'+esc(c.text)+'" style="width:80%">')+'</div>').join(''):'<p class="mut">Transcript nahi mila (Setup mein free Groq key daalo, phir video dobara add karo).</p>'});
+$('#esave').onclick=guard(async()=>{const by={};$$('#ecues input').forEach(inp=>{const i=Number(inp.dataset.c),c=ecues[i];if(inp.dataset.w!==undefined){const j=Number(inp.dataset.w);if(inp.value!==c.words[j].text)(by[i]=by[i]||{cue:i,words:[]}).words.push({i:j,text:inp.value})}else if(inp.value!==c.text)by[i]={cue:i,text:inp.value}});const edits=Object.values(by);if(!edits.length)return toast('Koi badlav nahi');const r=await jpost('/api/transcript/edit?video='+$('#evid').value,{edits});$('#emsg').textContent=r.note;toast('Saved ✓')});
+
+/* ---------- SETTINGS ---------- */
+async function setLoad(){const [r,ap]=await Promise.all([api('/api/settings'),api('/api/autopilot')]);AI=r.ai;
+ const prov=$('#aiprov');if(!prov.options.length){prov.innerHTML='<option value="">Provider preset chuno…</option>'+AI.presets.map(p=>'<option value="'+p.id+'">'+esc(p.label)+'</option>').join('');prov.onchange=()=>{const p=AI.presets.find(x=>x.id===prov.value);if(p){$('#aibase').value=p.base;$('#aimodel').value=p.llm}}}
+ $('#aist').innerHTML='Speech-to-text: '+(r.ai.stt.ready?'<span class="ok">ready ('+esc(r.ai.stt.model)+')</span>':'<span class="bad">nahi (captions generic honge)</span>')+' · Titles/ranking AI: '+(r.ai.llm.ready?'<span class="ok">ready ('+r.ai.chain.length+' provider'+(r.ai.llm.keyless?', keyless local':'')+')</span>':'local engine (no key)');
+ $('#cbfb').textContent=r.callbackBase+'/api/oauth/facebook/callback';$('#cbtt').textContent=r.callbackBase+'/api/oauth/tiktok/callback';
+ $('#soc').innerHTML=r.platforms.map(p=>esc(p.platform)+': '+(p.analyticsConnected?'<span class="ok">connected</span>':'not connected')).join(' · ');
+ const A=ap.automation;$('#apq').checked=A.autoQueue;$('#apr').checked=A.requireReview;const PL=['youtube_shorts','instagram_reels','facebook_reels','tiktok'];$('#applat').innerHTML=PL.map(p=>'<label><input type="checkbox" data-pl="'+p+'" '+(A.platforms.includes(p)?'checked':'')+'> '+p+'</label>').join('');
+ $('#apst').innerHTML='Gates (server-side): publish <b>'+(ap.gates.publishEnabled?'ON':'OFF')+'</b> · public <b>'+(ap.gates.publicVisibilityAllowed?'ON':'OFF')+'</b> · auto-approve <b>'+(A.autoApprove?'ON':'OFF')+'</b> · comments auto-post <b>'+(ap.gates.commentsAutoPost?'ON':'OFF')+'</b>'}
+$('#apsave').onclick=guard(async()=>{const pl=$$('[data-pl]').filter(x=>x.checked).map(x=>x.dataset.pl);await jpost('/api/autopilot',{autoQueue:$('#apq').checked,requireReview:$('#apr').checked,platforms:pl.length?pl:['youtube_shorts']});toast('Autopilot settings saved ✓');setLoad()});
+const saveAi=kind=>guard(async()=>{await jpost('/api/settings/ai',{kind,apiKey:$('#aikey').value.trim()||undefined,baseUrl:$('#aibase').value.trim()||undefined,model:(kind==='llm'?$('#aimodel').value.trim():'')||undefined,slot:kind==='llm'?Number($('#aislot').value):undefined});$('#aikey').value='';toast('Saved ✓');setLoad()});
+$('#aillm').onclick=saveAi('llm');$('#aistt').onclick=saveAi('stt');
+const appSave=(app,i,s)=>guard(async()=>{await jpost('/api/settings/oauth-app',{app,clientId:$(i).value.trim(),clientSecret:$(s).value.trim()});$(s).value='';toast('Saved ✓')});
+$('#fbsave').onclick=appSave('facebook','#fbid','#fbsec');$('#gsave').onclick=appSave('google','#gid','#gsec');$('#ttsave').onclick=appSave('tiktok','#ttid','#ttsec');
+const login=app=>guard(async()=>{const r=await api('/api/oauth/'+app+'/start');location.href=r.authUrl});$('#fblogin').onclick=login('facebook');$('#ttlogin').onclick=login('tiktok');
+
+async function init(){const h=(location.hash||'').slice(1);try{const r=await api('/api/presets');presets=r.presets}catch(e){}go(['home','clips','publish','insights','studio','settings'].includes(h)?h:'home');
+ setInterval(()=>{if(!document.hidden&&!$('#app').hidden&&!$('#dlg').open)load(tab)},6000)}
+(async()=>{try{await api('/api/login',{method:'POST'});show(true);init()}catch(e){show(false)}})();
+</script></body></html>
