@@ -15,6 +15,8 @@ import { info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
 import { aiStatus, saveAi } from '../ai/settings.ts';
+import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
+import { enqueue } from '../db.ts';
 import { UI_HTML } from './ui.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
@@ -42,7 +44,7 @@ async function readBody(req: IncomingMessage, max: number): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 const safeName = (n: string) => basename(n).replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'upload.mp4';
-const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.png': 'image/png', '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.json': 'application/json' };
+const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.png': 'image/png', '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.json': 'application/json', '.zip': 'application/zip' };
 
 /** Create the app (HTTP API + UI + background worker). No dependencies. Gates are NOT configurable through the API. */
 export function createApp(o: AppOptions = {}): App {
@@ -85,18 +87,18 @@ export function createApp(o: AppOptions = {}): App {
 
   const publicBase = (req: IncomingMessage) => (process.env.PUBLIC_URL ?? `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host ?? '127.0.0.1'}`).replace(/\/+$/, '');
   function clipRows() {
-    return store.all<{ id: number; output_id: string; edited_path: string; thumbnail_path: string | null; metadata_json: string | null; qc_pass: number | null; state: string; candidate_id: number }>(
-      'SELECT id, output_id, edited_path, thumbnail_path, metadata_json, qc_pass, state, candidate_id FROM clips ORDER BY id DESC LIMIT 200').map((c) => {
+    return store.all<{ id: number; output_id: string; edited_path: string; thumbnail_path: string | null; metadata_json: string | null; qc_pass: number | null; state: string; candidate_id: number; review: string; review_note: string | null; variant: number }>(
+      'SELECT id, output_id, edited_path, thumbnail_path, metadata_json, qc_pass, state, candidate_id, review, review_note, variant FROM clips ORDER BY id DESC LIMIT 200').map((c) => {
       let mf: { treatments?: { dimension: string; applied: boolean; detail: string }[]; treatmentCoverage?: { applied: number; total: number }; captions?: { preset?: string; wordTiming?: string } | null } = {};
       try { const f = join(cfg.dirs.manifests, `${c.output_id}.json`); if (existsSync(f)) mf = JSON.parse(readFileSync(f, 'utf8')); } catch { /* manifest unreadable: show nothing rather than guess */ }
       const md = c.metadata_json ? JSON.parse(c.metadata_json) : {}; const cand = store.get<{ start_sec: number; end_sec: number; category: string }>('SELECT start_sec, end_sec, category FROM candidates WHERE id=?', c.candidate_id);
-      return { treatments: mf.treatments ?? [], coverage: mf.treatmentCoverage ?? null, captionInfo: mf.captions ?? null, id: c.id, outputId: c.output_id, title: md.title ?? null, description: md.description ?? null, tags: md.tags ?? [], qcPass: !!c.qc_pass, state: c.state, category: cand?.category ?? null, duration: cand ? cand.end_sec - cand.start_sec : 0,
+      return { review: c.review, reviewNote: c.review_note, variant: c.variant, visualChange: (mf as { visualChange?: unknown }).visualChange ?? null, thumbText: md.thumbnailText ?? null, treatments: mf.treatments ?? [], coverage: mf.treatmentCoverage ?? null, captionInfo: mf.captions ?? null, id: c.id, outputId: c.output_id, title: md.title ?? null, description: md.description ?? null, tags: md.tags ?? [], qcPass: !!c.qc_pass, state: c.state, category: cand?.category ?? null, duration: cand ? cand.end_sec - cand.start_sec : 0,
         video: `/files/edited/${c.output_id}.mp4`, thumb: c.thumbnail_path ? `/files/thumb/${c.output_id}.jpg` : null, srt: existsSync(join(cfg.dataDir, 'captions', `${c.output_id}.srt`)) ? `/files/captions/${c.output_id}.srt` : null };
     });
   }
 
   function serveFile(req: IncomingMessage, res: ServerResponse, kind: string, name: string) {
-    const dirs: Record<string, string> = { edited: cfg.dirs.editedShorts, thumb: cfg.dirs.thumbnails, captions: join(cfg.dataDir, 'captions') };
+    const dirs: Record<string, string> = { edited: cfg.dirs.editedShorts, thumb: cfg.dirs.thumbnails, captions: join(cfg.dataDir, 'captions'), export: join(cfg.dataDir, 'exports') };
     const dir = dirs[kind]; if (!dir || !/^[\w.-]+$/.test(name)) return json(res, 404, { error: 'not found' });
     const full = resolve(dir, name); if (!full.startsWith(resolve(dir) + sep) || !existsSync(full) || !statSync(full).isFile()) return json(res, 404, { error: 'not found' });
     const size = statSync(full).size; const ext = name.slice(name.lastIndexOf('.')); const type = MIME[ext] ?? 'application/octet-stream';
@@ -140,12 +142,24 @@ export function createApp(o: AppOptions = {}): App {
         videos: store.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: store.all('SELECT state, count(*) n FROM jobs GROUP BY state'), clips: store.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: store.all('SELECT state, count(*) n FROM uploads GROUP BY state') });
       if (p === '/api/videos') return json(res, 200, { videos: store.all(`SELECT id, path, state FROM videos ORDER BY id DESC LIMIT 200`).map((v) => ({ ...(v as { id: number; path: string; state: string }), title: basename((v as { path: string }).path) })) });
       if (p === '/api/clips') return json(res, 200, { clips: clipRows() });
+      const rv = /^\/api\/clips\/(\d+)\/(review|meta|thumbnail|rerender|export)$/.exec(p);
+      if (rv && m === 'POST') {
+        const id = Number(rv[1]); const b = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as Record<string, unknown>;
+        if (rv[2] === 'review') return json(res, 200, { ok: true, review: reviewClip(store, id, b.action as 'approve' | 'reject' | 'reset', typeof b.note === 'string' ? b.note : undefined) });
+        if (rv[2] === 'meta') return json(res, 200, { ok: true, metadata: editClipMeta(store, id, { title: b.title as string | undefined, description: b.description as string | undefined, tags: b.tags as string[] | undefined, thumbnailText: b.thumbnailText as string | undefined }) });
+        if (rv[2] === 'thumbnail') { const t = await setThumbnailFrame(store, cfg, id, Number(b.at)); return t ? json(res, 200, { ok: true }) : json(res, 422, { error: 'that frame was rejected (blank/flat); pick another time' }); }
+        if (rv[2] === 'export') { const x = exportPackage(store, cfg, id); return json(res, 200, { ok: true, url: `/files/export/${x.name}`, files: x.files }); }
+        const o: Record<string, unknown> = {}; for (const k of ['captionPreset']) if (typeof b[k] === 'string') o[k] = b[k]; for (const k of ['zoom', 'glow', 'fade', 'jumpCuts', 'speedRamp', 'beats']) if (typeof b[k] === 'boolean') o[k] = b[k];
+        if (b.vfx && typeof b.vfx === 'object') { const v: Record<string, boolean> = {}; for (const k of ['lut', 'grain', 'particles', 'lightLeak', 'flash', 'progress']) if (typeof (b.vfx as Record<string, unknown>)[k] === 'boolean') v[k] = (b.vfx as Record<string, boolean>)[k]!; o.vfx = v; }
+        if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return json(res, 400, { error: `Unknown clip ${id}` });
+        enqueue(store, 'rerender', `rerender:${id}:${Date.now()}`, o); void runOnce(); return json(res, 202, { ok: true, queued: true });
+      }
       if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, palette: x.palette.id, tags: x.tags, mode: x.mode })) });
       const pv = /^\/api\/presets\/([\w-]+)\/preview\.png$/.exec(p);
       if (pv) { if (!getPreset(pv[1]!)) return json(res, 404, { error: 'unknown preset' }); const lang = url.searchParams.get('lang') === 'hi' ? 'hi' : 'en'; const png = await presetPreview(previewDir, pv[1]!, lang); res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600' }); return void createReadStream(png).pipe(res); }
       const mf = /^\/api\/manifest\/([\w.-]+)$/.exec(p);
       if (mf) { const f2 = join(cfg.dirs.manifests, `${mf[1]}.json`); if (!existsSync(f2)) return json(res, 404, { error: 'not found' }); res.writeHead(200, { 'content-type': 'application/json' }); return void res.end(readFileSync(f2)); }
-      const fl = /^\/files\/(edited|thumb|captions)\/([^/]+)$/.exec(p); if (fl && (m === 'GET' || m === 'HEAD')) return serveFile(req, res, fl[1]!, fl[2]!);
+      const fl = /^\/files\/(edited|thumb|captions|export)\/([^/]+)$/.exec(p); if (fl && (m === 'GET' || m === 'HEAD')) return serveFile(req, res, fl[1]!, fl[2]!);
 
       if (p === '/api/config' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};

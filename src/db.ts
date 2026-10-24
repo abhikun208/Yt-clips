@@ -60,6 +60,8 @@ const MIGRATIONS: string[] = [
   `,
   // v4 (additive): when a reply was posted (daily reply cap).
   `ALTER TABLE comments ADD COLUMN posted_at TEXT;`,
+  // v5 (additive): owner review of rendered clips (pending/approved/rejected) and re-render variants.
+  `ALTER TABLE clips ADD COLUMN review TEXT NOT NULL DEFAULT 'pending'; ALTER TABLE clips ADD COLUMN review_note TEXT; ALTER TABLE clips ADD COLUMN variant INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export type Row = Record<string, unknown>;

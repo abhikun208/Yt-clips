@@ -9,6 +9,7 @@ import { llmMetadata } from './seo/llm.ts';
 import { llmChain } from './ai/settings.ts';
 import { makeThumbnail } from './seo/thumbnail.ts';
 import { info, error } from './util/log.ts';
+import { rerenderClip } from './review/review.ts';
 
 /** Seed jobs for anything not yet processed. Keys make it idempotent: re-running never duplicates work. */
 export function seedJobs(store: Store, cfg: Config): number {
@@ -41,6 +42,7 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     store.exec('UPDATE clips SET metadata_json=?, thumbnail_path=? WHERE id=?', JSON.stringify({ ...md, thumbnailOk: !!thumb }), thumb?.path ?? null, row.id);
     return;
   }
+  if (job.kind === 'rerender') { await rerenderClip(store, cfg, id, job.payload_json ? JSON.parse(job.payload_json) : {}); return; }
   throw new Error(`unknown job kind ${job.kind}`);
 }
 

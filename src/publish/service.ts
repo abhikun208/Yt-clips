@@ -87,7 +87,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
   const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
   if (!cfg.automation.autoQueue) return r;
   for (const platform of cfg.automation.platforms) {
-    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c WHERE c.qc_pass=1 AND c.metadata_json IS NOT NULL AND c.edited_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, platform, cfg.automation.maxAdvancePerCycle);
+    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c WHERE c.qc_pass=1 AND c.metadata_json IS NOT NULL AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, cfg.automation.requireReview ? 1 : 0, platform, cfg.automation.maxAdvancePerCycle);
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
   }
   const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"}) ORDER BY id LIMIT ?`, ...cfg.automation.platforms, cfg.automation.maxAdvancePerCycle);

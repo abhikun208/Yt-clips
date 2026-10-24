@@ -23,7 +23,7 @@ import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur'; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -48,15 +48,16 @@ function pickMusic(assetsDir: string): string | undefined {
 export async function renderCandidate(store: Store, cfg: Config, candidateId: number, ro: RenderOptions = {}): Promise<{ clipId: number; outputId: string; editedPath: string; qcPass: boolean; reused: boolean }> {
   const c = store.get<{ id: number; video_id: number; start_sec: number; end_sec: number; category: string; status: string }>('SELECT id, video_id, start_sec, end_sec, category, status FROM candidates WHERE id=?', candidateId);
   if (!c) throw new Error(`Unknown candidate ${candidateId}`);
-  const prior = store.get<{ id: number; output_id: string; edited_path: string; qc_pass: number }>('SELECT id, output_id, edited_path, qc_pass FROM clips WHERE candidate_id=?', candidateId);
+  const prior = ro.variant ? undefined : store.get<{ id: number; output_id: string; edited_path: string; qc_pass: number }>('SELECT id, output_id, edited_path, qc_pass FROM clips WHERE candidate_id=? AND variant=0', candidateId);
   if (prior && prior.edited_path && existsSync(prior.edited_path)) return { clipId: prior.id, outputId: prior.output_id, editedPath: prior.edited_path, qcPass: !!prior.qc_pass, reused: true };
   const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', c.video_id)!;
   checkDisk(cfg.dataDir, cfg.resources.minFreeDiskMb);
 
   const dur = c.end_sec - c.start_sec;
-  const outputId = prior?.output_id ?? `clip_${String(c.video_id).padStart(3, '0')}_${String(c.id).padStart(4, '0')}_${shortHash(`${v.path}:${c.start_sec}:${c.end_sec}`, 6)}`;
+  const baseId = `clip_${String(c.video_id).padStart(3, '0')}_${String(c.id).padStart(4, '0')}_${shortHash(`${v.path}:${c.start_sec}:${c.end_sec}`, 6)}`;
+  const outputId = ro.variant ? `${baseId}_v${ro.variant}` : prior?.output_id ?? baseId;
   mkdirSync(cfg.dirs.rawClips, { recursive: true }); mkdirSync(cfg.dirs.editedShorts, { recursive: true });
-  const rawPath = join(cfg.dirs.rawClips, `${outputId}.mp4`);
+  const rawPath = join(cfg.dirs.rawClips, `${baseId}.mp4`);
   const finalPath = join(cfg.dirs.editedShorts, `${outputId}.mp4`);
   if (existsSync(finalPath)) throw new Error(`Refusing to overwrite existing output ${finalPath}`);
   const th = String(cfg.resources.ffmpegThreads);
@@ -153,7 +154,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const manifestPath = join(cfg.dirs.manifests, `${outputId}.json`);
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   rmSync(assPath ?? '', { force: true });
-  const row = prior ? prior.id : store.exec('INSERT INTO clips(candidate_id, output_id) VALUES (?,?)', candidateId, outputId).lastId;
+  const row = prior ? prior.id : store.exec('INSERT INTO clips(candidate_id, output_id, variant) VALUES (?,?,?)', candidateId, outputId, ro.variant ?? 0).lastId;
   store.exec(`UPDATE clips SET raw_path=?, edited_path=?, manifest_path=?, qc_json=?, qc_pass=?, state=? WHERE id=?`, rawPath, finalPath, manifestPath, JSON.stringify(qc), qc.pass ? 1 : 0, qc.pass ? 'QC_PASSED' : 'QC_FAILED', row);
   store.exec(`UPDATE candidates SET status='rendered' WHERE id=?`, candidateId);
   store.logState('clip', row, null, qc.pass ? 'QC_PASSED' : 'QC_FAILED', `coverage ${cov.applied}/${cov.total}`);
