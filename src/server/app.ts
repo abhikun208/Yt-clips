@@ -19,10 +19,12 @@ import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
 import { enqueue } from '../db.ts';
 import { UI_HTML } from './ui.ts';
-import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment } from '../publish/service.ts';
+import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
 import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
 import { collectAnalytics, analyticsSummary } from '../analytics/collect.ts';
+import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPosted } from '../publish/direct.ts';
+import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ALLOWED_PLATFORMS } from '../channels.ts';
 
 export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown> }
 export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean }
@@ -179,7 +181,7 @@ export function createApp(o: AppOptions = {}): App {
           for (const k of Object.keys(b)) if (!['autoQueue', 'requireReview', 'platforms'].includes(k)) return json(res, 400, { error: `invalid: ${k} cannot be changed here (publish gates and autoApprove are owner-only: use the CLI "autopilot" command on the server)` });
           if ('autoQueue' in b) { if (typeof b.autoQueue !== 'boolean') return json(res, 400, { error: 'invalid: autoQueue boolean' }); patch.autoQueue = b.autoQueue; }
           if ('requireReview' in b) { if (typeof b.requireReview !== 'boolean') return json(res, 400, { error: 'invalid: requireReview boolean' }); patch.requireReview = b.requireReview; }
-          if ('platforms' in b) { const ok = ['youtube_shorts', 'instagram_reels', 'facebook_reels', 'tiktok']; if (!Array.isArray(b.platforms) || !b.platforms.length || b.platforms.some((x) => !ok.includes(String(x)))) return json(res, 400, { error: 'invalid: platforms' }); patch.platforms = b.platforms; }
+          if ('platforms' in b) { const ok = ALLOWED_PLATFORMS as readonly string[]; if (!Array.isArray(b.platforms) || !b.platforms.length || b.platforms.some((x) => !ok.includes(String(x)))) return json(res, 400, { error: 'invalid: platforms' }); patch.platforms = b.platforms; }
           updateOwnerConfig(cfg, { automation: patch }); Object.assign(cfg.automation, patch); store.logState('autopilot', 0, null, JSON.stringify(patch), 'changed from the web UI');
         }
         return json(res, 200, { automation: cfg.automation, gates: cfg.gates, note: 'Gates + autoApprove can only be changed on the server (CLI: npm run cli -- autopilot ...).' });
@@ -201,10 +203,10 @@ export function createApp(o: AppOptions = {}): App {
         if ('reframe' in b) { if (b.reframe !== 'crop' && b.reframe !== 'fit_blur') return json(res, 400, { error: 'reframe must be crop|fit_blur' }); patch.reframe = b.reframe; }
         updateOwnerConfig(cfg, { edit: patch }); Object.assign(cfg.edit, patch); return json(res, 200, { ok: true, edit: { captionPreset: cfg.edit.captionPreset, captionEmphasis: cfg.edit.captionEmphasis, reframe: cfg.edit.reframe } });
       }
-      if (p === '/api/sources' && m === 'GET') return json(res, 200, { ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT id, kind, uri, title, status, authorized FROM sources ORDER BY id DESC LIMIT 200`) });
+      if (p === '/api/sources' && m === 'GET') return json(res, 200, { ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id ORDER BY s.id DESC LIMIT 200`) });
       if (p === '/api/sources' && m === 'POST') {
-        const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean };
-        const r = addYoutubeSource(store, String(b.url ?? ''), b.authorized === true); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, ...r, ytdlp: await ytdlpAvailable() });
+        const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean; channel?: string };
+        const r = addYoutubeSource(store, String(b.url ?? ''), b.authorized === true, b.channel ? getChannel(store, String(b.channel)).id : undefined); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, ...r, ytdlp: await ytdlpAvailable() });
       }
       if (p === '/api/uploads' && m === 'GET') return json(res, 200, { uploads: listUploads(store) });
       if (p === '/api/uploads' && m === 'POST') {
@@ -233,13 +235,59 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); return json(res, 200, { ok: true, ai: aiStatus(cfg) }); }
       if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); return json(res, 200, { ok: true }); }
       const os = /^\/api\/oauth\/(facebook|tiktok)\/start$/.exec(p); if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, os[1] as SocialApp, publicBase(req)), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback` });
-      if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg) });
+      if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg), registry: PLATFORMS.map((x) => ({ id: x.id, label: x.label, kind: x.kind, note: x.note, fields: x.fields?.map((f) => ({ name: f.name, label: f.label, secret: !!f.secret })), configured: x.kind === 'direct' ? credentialsConfigured(secretsFor(cfg), x.id) : x.kind === 'manual' })) });
+      const cred = /^\/api\/credentials\/(\w+)$/.exec(p);
+      if (cred && m === 'POST') { // write-only vault: values are validated, stored (encrypted when a key exists) and never returned or logged
+        const b = JSON.parse((await readBody(req, 8 * 1024)).toString('utf8') || '{}') as { fields?: Record<string, unknown>; channel?: string };
+        const ch = b.channel ? getChannel(store, b.channel) : null; if (!platformInfo(cred[1]!)) return json(res, 400, { error: 'invalid: unknown platform' });
+        saveCredentials(secretsFor(cfg), cred[1]!, b.fields ?? {}, ch && ch.slug !== 'main' ? `${platformInfo(cred[1]!)!.secret}-${ch.slug}` : undefined); store.logState('credentials', 0, null, 'saved', `${cred[1]}${ch ? ':' + ch.slug : ''}`);
+        return json(res, 200, { ok: true, encrypted: secretsFor(cfg).encrypted });
+      }
+      if (p === '/api/manual' && m === 'GET') {
+        const rows = store.all<{ id: number; platform: string; scheduled_at: string | null; output_id: string; metadata_json: string | null; slug: string | null }>(`SELECT u.id, u.platform, u.scheduled_at, c.output_id, c.metadata_json, ch.slug FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.state='SCHEDULED_OR_APPROVED' AND u.platform IN (${PLATFORMS.filter((x) => x.kind === 'manual').map((x) => `'${x.id}'`).join(',')}) ORDER BY u.scheduled_at LIMIT 100`);
+        return json(res, 200, { tasks: rows.map((r) => { const md = r.metadata_json ? JSON.parse(r.metadata_json) as { title?: string; description?: string; tags?: string[] } : {}; const due = !r.scheduled_at || Date.parse(r.scheduled_at.replace(' ', 'T') + (/Z|\+/.test(r.scheduled_at) ? '' : 'Z')) <= Date.now(); return { uploadId: r.id, platform: r.platform, channel: r.slug ?? 'main', due, at: r.scheduled_at, title: md.title ?? '', caption: md.description ?? '', tags: md.tags ?? [], video: `/files/edited/${r.output_id}.mp4` }; }) });
+      }
+      const posted = /^\/api\/uploads\/(\d+)\/posted$/.exec(p);
+      if (posted && m === 'POST') { const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as { url?: string }; markPosted(store, Number(posted[1]), b.url ? String(b.url) : undefined); return json(res, 200, { ok: true }); }
       const tk = /^\/api\/platforms\/(\w+)\/token$/.exec(p);
       if (tk && m === 'POST') { const b = JSON.parse((await readBody(req, 8192)).toString('utf8') || '{}') as { accessToken?: string }; saveTokenFor(cfg, tk[1]!, String(b.accessToken ?? '')); return json(res, 200, { ok: true }); }
       if (p === '/api/analytics/collect' && m === 'POST') return json(res, 200, { results: await collectAnalytics(store, analyticsProviders(store, cfg)) });
       if (p === '/api/analytics' && m === 'GET') return json(res, 200, { platforms: analyticsSummary(store, cfg.timezone, (pl) => hourStats(store, cfg.timezone, pl)) });
       if (p === '/api/analytics/import' && m === 'POST') return json(res, 200, importAnalyticsCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'), url.searchParams.get('platform') ?? undefined));
-      if (p === '/api/schedule' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: cfg.schedule }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
+      if (p === '/api/channels' && m === 'GET') {
+        const from = new Date(); const rows = listChannels(store).map((ch) => {
+          const eff = scheduleFor(cfg, ch); const pl = planFromStore(store, { n: 3, tz: cfg.timezone, cfg: eff, from, channelId: ch.id });
+          const cnt = store.get<{ sources: number }>('SELECT count(*) AS sources FROM sources WHERE channel_id=?', ch.id)!;
+          const up = store.get<{ queued: number; scheduled: number; published: number }>(`SELECT count(*) AS queued, sum(state='SCHEDULED_OR_APPROVED') AS scheduled, sum(state='PUBLISHED') AS published FROM uploads WHERE channel_id=?`, ch.id)!;
+          const yt = youtubeStatus(store, cfg, ch);
+          return { id: ch.id, slug: ch.slug, name: ch.name, profile: ch.profile, config: ch.config, schedule: eff, evidenceRows: pl.samples, nextSlots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })), sources: cnt.sources, uploads: { queued: up.queued, scheduled: up.scheduled ?? 0, published: up.published ?? 0 }, youtube: { connected: yt.connected, clientConfigured: yt.clientConfigured } };
+        });
+        return json(res, 200, { channels: rows, platforms: ALLOWED_PLATFORMS, timezone: cfg.timezone, globalSchedule: cfg.schedule });
+      }
+      if (p === '/api/channels' && m === 'POST') {
+        const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown };
+        return json(res, 200, { ok: true, channel: createChannel(store, { name: String(b.name ?? ''), profile: b.profile, config: b.config }, (id) => !!getPreset(id)) });
+      }
+      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube|plan))?$/.exec(p);
+      if (chm) {
+        const ch = getChannel(store, chm[1]!);
+        if (!chm[2] && m === 'POST') { const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown; archived?: boolean }; return json(res, 200, { ok: true, channel: updateChannel(store, ch.id, b, (id) => !!getPreset(id)) }); }
+        if (chm[2] === 'plan' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 7))), tz: cfg.timezone, cfg: scheduleFor(cfg, ch), channelId: ch.id, platform: url.searchParams.get('platform') ?? undefined }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
+        if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, youtubeStatus(store, cfg, ch));
+        if (chm[2] === 'youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg, ch); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
+        if (chm[2] === 'youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg, ch));
+      }
+      const srcCh = /^\/api\/sources\/(\d+)\/channel$/.exec(p);
+      if (srcCh && m === 'POST') {
+        const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as { channel?: string }; const ch = getChannel(store, String(b.channel ?? ''));
+        const r = store.exec('UPDATE sources SET channel_id=? WHERE id=?', ch.id, Number(srcCh[1])); if (!r.changes) return json(res, 404, { error: 'unknown source' });
+        return json(res, 200, { ok: true, channel: ch.slug }); // already-queued uploads keep the channel they were queued under
+      }
+      if (p === '/api/calendar' && m === 'GET') {
+        const rows = store.all<{ id: number; platform: string; state: string; scheduled_at: string; slug: string | null; name: string | null; output_id: string }>(`SELECT u.id, u.platform, u.state, u.scheduled_at, ch.slug, ch.name, c.output_id FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.scheduled_at IS NOT NULL AND u.state IN ('SCHEDULED_OR_APPROVED','PUBLISHED') AND u.scheduled_at >= datetime('now','-1 day') ORDER BY u.scheduled_at LIMIT 300`);
+        return json(res, 200, { timezone: cfg.timezone, items: rows });
+      }
+      if (p === '/api/schedule' && m === 'GET') { const sch = url.searchParams.get('channel') ? getChannel(store, url.searchParams.get('channel')) : null; const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: sch ? scheduleFor(cfg, sch) : cfg.schedule, channelId: sch?.id }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
       if (p === '/api/run' && m === 'POST') { void runOnce(); return json(res, 202, { started: true }); }
       if (p === '/api/upload' && m === 'POST') {
         if (url.searchParams.get('authorized') !== '1') return json(res, 400, { error: 'rights/authorization must be confirmed (authorized=1)' });
@@ -249,7 +297,7 @@ export function createApp(o: AppOptions = {}): App {
         try {
           req.on('data', (c: Buffer) => { n += c.length; if (n > maxUpload) req.destroy(new Error('too large')); });
           await pipeline(req, createWriteStream(tmp));
-          const r = await ingestLocal(store, cfg, tmp, { authorized: true, title: safeName(url.searchParams.get('name') ?? '') });
+          const r = await ingestLocal(store, cfg, tmp, { authorized: true, title: safeName(url.searchParams.get('name') ?? ''), channelId: url.searchParams.get('channel') ? getChannel(store, url.searchParams.get('channel')).id : undefined });
           void runOnce(); return json(res, 200, { ok: true, videoId: r.videoId, duplicate: r.duplicate });
         } finally { rmSync(tmp, { force: true }); }
       }
@@ -272,7 +320,7 @@ export function createApp(o: AppOptions = {}): App {
       }
       return json(res, 404, { error: 'not found' });
     } catch (e) {
-      const err = e as Error & { status?: number }; const status = err.status ?? (/LOW_DISK/.test(err.message) ? 507 : /Unsupported|not found|ffprobe failed|Unexpected token|JSON|authorization required|only https|invalid|Unknown (clip|upload)|oauth:|unsupported YouTube/i.test(err.message) ? 400 : 500);
+      const err = e as Error & { status?: number }; const status = err.status ?? (/LOW_DISK/.test(err.message) ? 507 : /Unsupported|not found|ffprobe failed|Unexpected token|JSON|authorization required|only https|invalid|Unknown (clip|upload|channel)|only manual|nothing staged|unsupported VOD|oauth:|unsupported YouTube/i.test(err.message) ? 400 : 500);
       if (status >= 500) error('request failed', { path: p, err: err.message }); else warn('bad request', { path: p, err: err.message.slice(0, 120) });
       if (!res.headersSent) json(res, status, { error: status >= 500 ? 'internal error' : err.message.slice(0, 200) }); else res.end();
     }

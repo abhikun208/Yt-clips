@@ -42,7 +42,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 4px;b
 <div id="login" hidden><div class="card"><h2>🎬 yt-clips login</h2><p class="mut">Server token daalo (<code>YT_CLIPS_TOKEN</code>).</p><div class="row"><input id="tok" type="password" placeholder="token" class="grow"><button id="go">Login</button></div><p id="lerr" class="bad"></p></div></div>
 <div class="shell" id="app" hidden>
 <nav><div class="brand">🎬</div>
-<button data-tab="home" class="on"><i>🏠</i>Home</button><button data-tab="clips"><i>🎞️</i>Clips<span id="nbadge" class="chip warn" hidden></span></button><button data-tab="publish"><i>🚀</i>Publish</button><button data-tab="insights"><i>📈</i>Insights</button><button data-tab="studio"><i>🎨</i>Studio</button><button data-tab="settings"><i>⚙️</i>Setup</button></nav>
+<button data-tab="home" class="on"><i>🏠</i>Home</button><button data-tab="clips"><i>🎞️</i>Clips<span id="nbadge" class="chip warn" hidden></span></button><button data-tab="publish"><i>🚀</i>Publish</button><button data-tab="schedule"><i>🗓️</i>Schedule</button><button data-tab="insights"><i>📈</i>Insights</button><button data-tab="studio"><i>🎨</i>Studio</button><button data-tab="settings"><i>⚙️</i>Setup</button></nav>
 <main>
 <section class="tab on" id="t-home">
  <div class="hero"><div class="row" style="justify-content:space-between"><div><h1>yt-clips</h1><p class="mut">Long video / channel → edited Shorts → titles, thumbnails → (gated) upload → learning. Sab free, self-hosted.</p></div><div class="chips"><span class="chip" id="cRun"></span><span class="chip" id="cAuto"></span><span class="chip" id="cGate"></span><button class="sm" id="runnow">▶ Run now</button></div></div></div>
@@ -56,7 +56,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 4px;b
    <label class="drop" id="drop"><input id="file" type="file" accept="video/*,audio/*" hidden><div id="dropt">📂 Video yahan drop karo ya tap karo</div></label>
    <div class="row" style="margin-top:10px"><label class="row"><input id="auth" type="checkbox"> Mere paas rights/permission hai</label><button id="up">Upload</button></div><progress id="prog" value="0" max="100" hidden></progress><p id="umsg" class="mut"></p></div>
   <div class="card"><h2>Channels / sources (auto-watch)</h2><p class="mut">Channel add karo — naye uploads aur purani videos loop mein khud process hongi (yt-dlp chahiye).</p>
-   <div class="row"><input id="yurl" class="grow" placeholder="https://www.youtube.com/@channel"><button id="yadd">Add</button></div><label class="row mut" style="margin-top:6px"><input id="yauth" type="checkbox"> Mere paas rights/permission hai</label><p id="ymsg" class="mut"></p><div id="ylist"></div></div>
+   <div class="row"><select id="ych" title="Kaunse channel ke liye"></select><input id="yurl" class="grow" placeholder="https://www.youtube.com/@channel"><button id="yadd">Add</button></div><label class="row mut" style="margin-top:6px"><input id="yauth" type="checkbox"> Mere paas rights/permission hai</label><p id="ymsg" class="mut"></p><div id="ylist"></div></div>
  </div>
 </section>
 
@@ -65,10 +65,17 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 4px;b
 
 <section class="tab" id="t-publish">
  <div class="card"><h2>YouTube + publishing</h2><p class="mut" id="ytst"></p><div class="row"><button id="ytc" class="sec">YouTube connect (device code)</button><span id="ytcode" class="mut"></span></div>
-  <div class="row" style="margin-top:10px"><select id="qclip" class="grow"></select><select id="qplat"><option>youtube_shorts</option><option>instagram_reels</option><option>facebook_reels</option><option>tiktok</option></select><button id="qgo" class="sec">Queue karo</button></div>
-  <p class="mut">Publish gates server par owner ke paas hain (Setup → Autopilot). Gate band ho to upload queue sirf QC tak jaati hai. Instagram/TikTok/Facebook auto-upload abhi bana nahi — unke liye Clips → Share/Export use karo.</p><div id="ups" style="overflow:auto"></div></div>
+  <div class="row" style="margin-top:10px"><select id="qclip" class="grow"></select><select id="qplat"></select><button id="qgo" class="sec">Queue karo</button></div>
+  <p class="mut">Publish gates server par owner ke paas hain (Setup → Autopilot). Gate band ho to upload queue sirf QC tak jaati hai. Instagram/TikTok/Facebook/X etc. ke liye auto-upload nahi hai: system caption + file + time ready karke neeche \"Manual post tasks\" mein dikhata hai — aap post karke \"Posted\" dabate ho.</p><div id="ups" style="overflow:auto"></div></div>
+ <div class="card"><h2>Manual post tasks</h2><div id="mtasks" class="mut">Koi task nahi.</div></div>
+ <div class="card"><h2>Platforms + logins (token/webhook)</h2><p class="mut">Password-login bot nahi banaya (ToS/ban/2FA). Telegram, Discord, Mastodon token/webhook se seedha post hote hain (fake server par tested). Baaki manual tasks. Values sirf save hoti hain, wapas dikhayi nahi jaati.</p><div id="plats"></div></div>
  <div class="card"><h2>Comments (draft → aapka approval → post)</h2><div class="row"><button id="ccol" class="sec">Naye comments lao</button></div><div id="cms" class="mut">Koi comment nahi.</div></div></section>
 
+<section class="tab" id="t-schedule">
+ <div class="card"><h2>Channels + schedule</h2><p class="mut">Har channel ki apni posting policy: din ka cap, gap, quiet hours, best hours. Do channels kabhi ek hi time par post nahi hote (stagger). Best hours tab measured hote hain jab channel ka analytics ≥8 rows ho, warna baseline.</p><div id="chlist"></div></div>
+ <div class="card"><h2>Naya channel</h2><div class="row"><input id="chn" class="grow" placeholder="Channel name (e.g. Decider Gaming)" maxlength="60"><select id="chp"><option value="general">General</option><option value="gaming">Gaming (Free Fire etc.)</option></select><button id="chadd">Add channel</button></div></div>
+ <div class="card"><h2>Calendar (scheduled + published)</h2><div id="cal" class="mut">—</div></div>
+</section>
 <section class="tab" id="t-insights"><div class="card"><h2>Analytics + best posting time</h2><div class="row"><button id="acol" class="sec">Analytics collect karo</button><select id="tplat"><option>instagram</option><option>facebook</option><option>tiktok</option></select><input id="ttok" type="password" placeholder="access token (owner ka)" class="grow"><button id="tsave" class="sec">Token save</button></div>
  <div id="ana" class="mut" style="margin-top:10px"></div><p id="sched" class="mut"></p>
  <label class="lab">Manual CSV import (published_at,views)</label><div class="row"><textarea id="csv" rows="3" placeholder="published_at,views&#10;2026-10-01T18:30:00+05:30,1200" class="grow"></textarea><button id="csvgo" class="sec">Import</button></div></div></section>
@@ -109,10 +116,43 @@ function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok}
 $('#go').onclick=async()=>{token=$('#tok').value.trim();try{await api('/api/login',{method:'POST'});try{localStorage.setItem('ytc_token',token)}catch(e){}show(true);init()}catch(e){$('#lerr').textContent='Token galat hai'}};
 $$('nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function go(t){tab=t;$$('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));$$('.tab').forEach(s=>s.classList.toggle('on',s.id==='t-'+t));try{history.replaceState(null,'','#'+t)}catch(e){}load(t);window.scrollTo(0,0)}
-function load(t){({home:homeLoad,clips:clipsLoad,publish:pubLoad,insights:insLoad,studio:studioLoad,settings:setLoad})[t]().catch(()=>{})}
+function load(t){({home:homeLoad,clips:clipsLoad,publish:pubLoad,schedule:schLoad,insights:insLoad,studio:studioLoad,settings:setLoad})[t]().catch(()=>{})}
+
+
+
+async function platLoad(){
+ const r=await api('/api/platforms');const q=$('#qplat');if(q&&!q.options.length)q.innerHTML=r.registry.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.label)+'</option>').join('');
+ $('#plats').innerHTML=r.registry.filter(x=>x.kind!=='api-upload').map(x=>'<div class="row" style="border-top:1px solid var(--bd);padding:8px 0"><b class="grow">'+esc(x.label)+'</b><span class="chip '+(x.kind==='manual'?'':(x.configured?'ok':'warn'))+'">'+(x.kind==='manual'?'manual task':(x.configured?'saved':'not set'))+'</span>'+(x.kind==='direct'?'<button class="sec sm" data-cred="'+esc(x.id)+'">Set login</button>':'')+'<div class="mut" style="width:100%">'+esc(x.note)+'</div></div>').join('');
+ $$('[data-cred]').forEach(b=>b.onclick=guard(async()=>{const x=r.registry.find(y=>y.id===b.dataset.cred),f={};for(const fl of x.fields){const v=prompt(fl.label);if(v===null)return;f[fl.name]=v}const ch=(CH.length>1&&prompt('Kis channel ke liye? (slug ya khali = sabhi): '+CH.map(c=>c.slug).join(', ')))||undefined;await jpost('/api/credentials/'+x.id,{fields:f,channel:ch});toast('Saved');platLoad()}));
+ const t=await api('/api/manual');$('#mtasks').innerHTML=t.tasks.length?t.tasks.map(k=>'<div class="card" style="background:var(--card2)"><div class="row"><b class="grow">'+esc(k.platform)+' · '+esc(k.channel)+'</b><span class="chip '+(k.due?'warn':'')+'">'+(k.due?'ABHI POST KARO':'due '+esc(k.at||''))+'</span></div><div><b>'+esc(k.title)+'</b></div><div class="mut" style="white-space:pre-wrap">'+esc(k.caption)+'\n'+esc((k.tags||[]).map(x=>'#'+x.replace(/\s+/g,'')).join(' '))+'</div><div class="row" style="margin-top:6px"><a href="'+esc(k.video)+'" download><button class="sec sm" type="button">Video download</button></a><button class="sm" data-cp="'+k.uploadId+'" data-txt="'+esc(k.title+'\n\n'+k.caption)+'">Caption copy</button><button class="sm" data-posted="'+k.uploadId+'">Posted ✔</button></div></div>').join(''):'Koi task nahi.';
+ $$('[data-cp]').forEach(b=>b.onclick=()=>{try{navigator.clipboard.writeText(b.dataset.txt);toast('Copied')}catch(e){toast('Copy nahi hua',true)}});
+ $$('[data-posted]').forEach(b=>b.onclick=guard(async()=>{const u=prompt('Post ka link (optional)')||undefined;await jpost('/api/uploads/'+b.dataset.posted+'/posted',{url:u});pubLoad()}));
+}
+
+/* ---------- SCHEDULE / CHANNELS ---------- */
+let CH=[],CHP=[];
+const fmtAt=(iso,tz)=>{try{return new Date(iso).toLocaleString('en-IN',{timeZone:tz,weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}catch(e){return iso}};
+async function schLoad(){
+ const r=await api('/api/channels');CH=r.channels;CHP=r.platforms;const tz=r.timezone;
+ $('#chlist').innerHTML=CH.map(c=>{const s=c.schedule,pl=c.config.platforms||[];
+  return '<div class="card" style="background:var(--card2)" data-ch="'+esc(c.slug)+'"><div class="row"><b class="grow">'+esc(c.name)+' <span class="chip">'+esc(c.profile)+'</span></b><span class="chip '+(c.youtube.connected?'ok':'warn')+'">YouTube '+(c.youtube.connected?'connected':'not connected')+'</span><button class="sec sm" data-yc="'+esc(c.slug)+'">'+(c.youtube.connected?'Reconnect':'Connect')+'</button></div>'
+  +'<div class="mut">Sources '+c.sources+' · queued '+c.uploads.queued+' · scheduled '+c.uploads.scheduled+' · published '+c.uploads.published+' · evidence rows '+c.evidenceRows+'</div>'
+  +'<div class="row" style="margin:8px 0"><label class="mut">Per day <input type="number" min="1" max="20" class="sm" style="width:64px" data-f="perDayCap" value="'+s.perDayCap+'"></label><label class="mut">Gap (min) <input type="number" min="5" max="1440" style="width:76px" data-f="minGapMinutes" value="'+s.minGapMinutes+'"></label><label class="mut">Quiet <input style="width:80px" data-f="quiet" value="'+s.quietHours[0]+'-'+s.quietHours[1]+'"></label><label class="mut">Best hours <input style="width:120px" data-f="baselineHours" value="'+s.baselineHours.join(',')+'"></label><label class="mut">Stagger (min) <input type="number" min="0" max="720" style="width:76px" data-f="staggerMinutes" value="'+(s.staggerMinutes==null?20:s.staggerMinutes)+'"></label></div>'
+  +'<div class="chips">'+CHP.map(p=>'<label class="chip"><input type="checkbox" data-p="'+p+'" '+(pl.includes(p)?'checked':'')+'> '+p+'</label>').join('')+'</div><div class="mut">Platforms khali = global autopilot list.</div>'
+  +'<div class="row" style="margin-top:8px"><button class="sm" data-sv="'+esc(c.slug)+'">Save policy</button></div>'
+  +'<div style="margin-top:8px">Agle slots: '+(c.nextSlots.length?c.nextSlots.map(x=>'<span class="chip">'+esc(fmtAt(x.at,tz))+' · '+x.basis+'</span>').join(' '):'<span class="mut">—</span>')+'</div></div>'}).join('');
+ $$('[data-sv]').forEach(b=>b.onclick=guard(async()=>{const box=b.closest('[data-ch]'),g=f=>box.querySelector('[data-f="'+f+'"]').value;const q=g('quiet').split('-').map(Number);
+  const schedule={perDayCap:Number(g('perDayCap')),minGapMinutes:Number(g('minGapMinutes')),quietHours:[q[0],q[1]],baselineHours:g('baselineHours').split(',').map(x=>Number(x.trim())).filter(x=>x>=0&&x<24),staggerMinutes:Number(g('staggerMinutes'))};
+  const platforms=[...box.querySelectorAll('[data-p]')].filter(x=>x.checked).map(x=>x.dataset.p);await jpost('/api/channels/'+b.dataset.sv,{config:{schedule,platforms}});toast('Saved');schLoad()}));
+ $$('[data-yc]').forEach(b=>b.onclick=guard(async()=>{const d=await jpost('/api/channels/'+b.dataset.yc+'/youtube/connect');alert('Open '+d.verificationUrl+' aur code daalo: '+d.userCode+'\n(isi channel ke Google account se). Phir OK dabao.');const p=await jpost('/api/channels/'+b.dataset.yc+'/youtube/connect/poll');toast('Status: '+p.status,p.status!=='ok');schLoad()}));
+ const cal=await api('/api/calendar');$('#cal').innerHTML=cal.items.length?'<table>'+cal.items.map(x=>'<tr><td>'+esc(fmtAt(x.scheduled_at.replace(' ','T').replace(/Z?$/,'Z'),cal.timezone))+'</td><td>'+esc(x.name||'main')+'</td><td>'+esc(x.platform)+'</td><td><b>'+esc(x.state)+'</b></td></tr>').join('')+'</table>':'Abhi kuch scheduled nahi.';
+ const sel=$('#ych');if(sel){const v=sel.value;sel.innerHTML=CH.map(c=>'<option value="'+esc(c.slug)+'">'+esc(c.name)+'</option>').join('');if(v)sel.value=v}
+}
+$('#chadd').onclick=guard(async()=>{await jpost('/api/channels',{name:$('#chn').value,profile:$('#chp').value});$('#chn').value='';schLoad()});
 
 /* ---------- HOME ---------- */
 async function homeLoad(){
+ api('/api/channels').then(r=>{CH=r.channels;const sel=$('#ych'),v=sel.value;sel.innerHTML=CH.map(c=>'<option value="'+esc(c.slug)+'">'+esc(c.name)+'</option>').join('');if(v)sel.value=v}).catch(()=>{});
  const [s,a,su,ap]=await Promise.all([api('/api/status'),api('/api/activity'),api('/api/setup'),api('/api/autopilot')]);
  const n=(arr,k)=>(arr.find(x=>x.state===k)||{n:0}).n,sum=arr=>arr.reduce((x,y)=>x+y.n,0);
  const t=(k,v)=>'<div class="tile"><span>'+k+'</span><b>'+v+'</b></div>';
@@ -129,11 +169,11 @@ async function homeLoad(){
  $$('[data-src]').forEach(b=>b.onclick=guard(async()=>{await jpost('/api/sources/'+b.dataset.src+'/status',{status:b.dataset.to});homeLoad()}));
 }
 $('#runnow').onclick=guard(async()=>{await jpost('/api/run');toast('Pipeline chal gayi');homeLoad()});
-$('#yadd').onclick=guard(async()=>{if(!$('#yauth').checked)return $('#ymsg').textContent='Rights confirm karna zaroori hai';const r=await jpost('/api/sources',{url:$('#yurl').value,authorized:true});$('#ymsg').textContent=r.duplicate?'Pehle se added hai':'Add ho gaya — loop khud poll karega';$('#yurl').value='';homeLoad()});
+$('#yadd').onclick=guard(async()=>{if(!$('#yauth').checked)return $('#ymsg').textContent='Rights confirm karna zaroori hai';const r=await jpost('/api/sources',{url:$('#yurl').value,authorized:true,channel:($('#ych')||{}).value||undefined});$('#ymsg').textContent=r.duplicate?'Pehle se added hai':'Add ho gaya — loop khud poll karega';$('#yurl').value='';homeLoad()});
 const drop=$('#drop');['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('over')}));['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('over')}));
 drop.addEventListener('drop',ev=>{if(ev.dataTransfer.files[0]){$('#file').files=ev.dataTransfer.files;$('#dropt').textContent='📄 '+ev.dataTransfer.files[0].name}});$('#file').onchange=()=>{const f=$('#file').files[0];if(f)$('#dropt').textContent='📄 '+f.name};
 $('#up').onclick=()=>{const f=$('#file').files[0];if(!f)return $('#umsg').textContent='Pehle file chuno';if(!$('#auth').checked)return $('#umsg').textContent='Rights confirm karna zaroori hai';
- const x=new XMLHttpRequest();x.open('POST','/api/upload?authorized=1&name='+encodeURIComponent(f.name));const h=H();for(const k in h)x.setRequestHeader(k,h[k]);$('#prog').hidden=false;
+ const x=new XMLHttpRequest();x.open('POST','/api/upload?authorized=1&name='+encodeURIComponent(f.name)+(($('#ych')||{}).value?'&channel='+encodeURIComponent($('#ych').value):''));const h=H();for(const k in h)x.setRequestHeader(k,h[k]);$('#prog').hidden=false;
  x.upload.onprogress=e=>{$('#prog').value=e.loaded/e.total*100};x.onload=()=>{$('#prog').hidden=true;let j={};try{j=JSON.parse(x.responseText)}catch(e){}$('#umsg').textContent=x.status<300?(j.duplicate?'Ye video pehle se hai':'Upload ho gaya, processing shuru ✅'):'Error: '+(j.error||x.status);homeLoad()};x.onerror=()=>$('#umsg').textContent='Network error';x.send(f)};
 
 /* ---------- CLIPS (review inbox) ---------- */
@@ -169,7 +209,7 @@ async function openClip(id){detailId=id;const c=clips.find(x=>x.id===id);const d
  $('#dre').onclick=guard(async()=>{const v={};$$('[data-vfx]').forEach(x=>{v[x.dataset.vfx]=x.checked});const b={vfx:v,jumpCuts:$('#djc').checked,speedRamp:$('#dsr').checked};if($('#dpre').value)b.captionPreset=$('#dpre').value;await jpost('/api/clips/'+id+'/rerender',b);toast('Re-render queue mein — Clips mein naya version aayega');dlg.close()})}
 
 /* ---------- PUBLISH ---------- */
-async function pubLoad(){const y=await api('/api/youtube');$('#ytst').innerHTML='Client: '+(y.clientConfigured?'<span class="ok">set</span>':'<span class="bad">set nahi</span>')+' · Connected: '+(y.connected?'<span class="ok">haan</span>':'nahi')+' · Aaj quota: '+y.quota.insertsUsed+' uploads, '+y.quota.unitsUsed+' units · publish gate: '+(y.gates.publishEnabled?'<span class="warn">ON</span>':'<span class="ok">OFF</span>');
+async function pubLoad(){platLoad().catch(()=>{});const y=await api('/api/youtube');$('#ytst').innerHTML='Client: '+(y.clientConfigured?'<span class="ok">set</span>':'<span class="bad">set nahi</span>')+' · Connected: '+(y.connected?'<span class="ok">haan</span>':'nahi')+' · Aaj quota: '+y.quota.insertsUsed+' uploads, '+y.quota.unitsUsed+' units · publish gate: '+(y.gates.publishEnabled?'<span class="warn">ON</span>':'<span class="ok">OFF</span>');
  const cl=await api('/api/clips');clips=cl.clips;$('#qclip').innerHTML=clips.filter(c=>c.qcPass).map(c=>'<option value="'+c.id+'">#'+c.id+' '+esc((c.title||c.outputId).slice(0,50))+(c.review==='approved'?' ✓':'')+'</option>').join('');
  const u=await api('/api/uploads');$('#ups').innerHTML=u.uploads.length?'<table>'+u.uploads.map(x=>'<tr><td>#'+x.id+'</td><td>'+esc(x.platform)+'</td><td><b>'+esc(x.state)+'</b></td><td class="mut">'+esc((x.error||'').slice(0,90))+'</td><td><button class="sec sm" data-adv="'+x.id+'">Advance</button> <button class="sec sm" data-appr="'+x.id+'">Approve+Advance</button></td></tr>').join('')+'</table>':'<p class="mut">Koi upload queue mein nahi.</p>';
  $$('[data-adv],[data-appr]').forEach(b=>b.onclick=guard(async()=>{const r=await jpost('/api/uploads/'+(b.dataset.adv||b.dataset.appr)+'/advance',{approve:!!b.dataset.appr});if(r.blocked)toast(r.blocked,true);pubLoad()}));

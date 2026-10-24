@@ -8,10 +8,16 @@ import { info, warn } from '../util/log.ts';
 
 export type YtKind = 'channel' | 'video';
 const HOSTS = /^(www\.|m\.|music\.)?(youtube\.com|youtu\.be)$/i;
+/** Twitch/Kick VODs are accepted as single videos only (yt-dlp has extractors for both; NOT run against the real sites from this project's sandbox). */
+const VOD_HOSTS = /^(www\.|m\.)?(twitch\.tv|kick\.com)$/i;
 
 /** Accept only https YouTube URLs. Returns kind + normalized URL. Throws on anything else (no arbitrary-host fetching). */
-export function parseYoutubeUrl(raw: string): { kind: YtKind; url: string; videoId?: string } {
+export function parseYoutubeUrl(raw: string): { kind: YtKind; url: string; videoId?: string; web?: boolean } {
   let u: URL; try { u = new URL(raw.trim()); } catch { throw new Error('invalid URL'); }
+  if (u.protocol === 'https:' && VOD_HOSTS.test(u.hostname)) {
+    if (!/^\/(videos\/\d{5,14}|video\/[0-9a-f-]{20,40}|[\w.-]{2,40}\/(videos|clips)\/[\w-]{5,60})\/?$/i.test(u.pathname)) throw new Error('unsupported VOD URL (use a twitch.tv/videos/ID or kick.com/video/ID link)');
+    return { kind: 'video', web: true, videoId: u.pathname.replace(/\/$/, '').split('/').pop(), url: `https://${u.hostname.replace(/^(www\.|m\.)/, '')}${u.pathname.replace(/\/$/, '')}` };
+  }
   if (u.protocol !== 'https:' || !HOSTS.test(u.hostname)) throw new Error('only https://youtube.com or youtu.be URLs are allowed');
   const id = u.hostname.toLowerCase().endsWith('youtu.be') ? u.pathname.slice(1) : u.pathname === '/watch' ? (u.searchParams.get('v') ?? '') : u.pathname.startsWith('/shorts/') ? u.pathname.split('/')[2] ?? '' : '';
   if (id) { if (!/^[\w-]{6,20}$/.test(id)) throw new Error('invalid video id'); return { kind: 'video', videoId: id, url: `https://www.youtube.com/watch?v=${id}` }; }
@@ -43,13 +49,14 @@ export async function downloadVideo(url: string, dir: string, maxHeight: number)
 }
 
 /** Register a source. Owner must confirm authorization; nothing is fetched from an unauthorized source. Idempotent per URL. */
-export function addYoutubeSource(store: Store, rawUrl: string, authorized: boolean): { id: number; kind: YtKind; duplicate: boolean } {
+export function addYoutubeSource(store: Store, rawUrl: string, authorized: boolean, channelId?: number): { id: number; kind: YtKind; duplicate: boolean } {
   if (!authorized) throw new Error('authorization required: confirm you own or have permission to reuse this content');
   const p = parseYoutubeUrl(rawUrl);
   const kind = p.kind === 'channel' ? 'youtube_channel' : 'youtube_video';
   const ex = store.get<{ id: number }>('SELECT id FROM sources WHERE uri=?', p.url);
   if (ex) return { id: ex.id, kind: p.kind, duplicate: true };
-  const r = store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json) VALUES (?,?,?,?,?,?)', kind, p.url, p.url, 1, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0 } : {}));
+  const chId = channelId ?? store.get<{ id: number }>(`SELECT id FROM channels WHERE slug='main'`)!.id;
+  const r = store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', kind, p.url, p.url, 1, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0 } : {}), chId);
   return { id: r.lastId, kind: p.kind, duplicate: false };
 }
 
@@ -59,13 +66,13 @@ export interface PollResult { discovered: number; downloaded: number; failed: nu
 export async function pollSources(store: Store, cfg: Config): Promise<PollResult> {
   const res: PollResult = { discovered: 0, downloaded: 0, failed: 0, skipped: 0 };
   if (!(await ytdlpAvailable())) return { ...res, error: 'yt-dlp not installed' };
-  for (const ch of store.all<{ id: number; uri: string }>(`SELECT id, uri FROM sources WHERE kind='youtube_channel' AND status='active' AND authorized=1`)) {
+  for (const ch of store.all<{ id: number; uri: string; channel_id: number | null }>(`SELECT id, uri, channel_id FROM sources WHERE kind='youtube_channel' AND status='active' AND authorized=1`)) {
     try {
       for (const e of await listChannelVideos(ch.uri, 30)) {
         const url = `https://www.youtube.com/watch?v=${e.id}`;
         if (store.get('SELECT 1 FROM sources WHERE uri=?', url)) continue;
         const tooLong = e.duration !== null && e.duration > cfg.youtube.maxDurationMin * 60;
-        store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json) VALUES (?,?,?,?,?,?)', 'youtube_video', url, e.title, 1, tooLong ? 'skipped' : 'pending', JSON.stringify({ videoId: e.id, channelSource: ch.id, duration: e.duration, tries: 0, ...(tooLong ? { reason: 'longer than maxDurationMin' } : {}) }));
+        store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', 'youtube_video', url, e.title, 1, tooLong ? 'skipped' : 'pending', JSON.stringify({ videoId: e.id, channelSource: ch.id, duration: e.duration, tries: 0, ...(tooLong ? { reason: 'longer than maxDurationMin' } : {}) }), ch.channel_id);
         if (tooLong) res.skipped++; else res.discovered++;
       }
     } catch (e) { warn('channel listing failed', { channel: ch.uri, err: (e as Error).message }); res.error = (e as Error).message; }
@@ -76,7 +83,7 @@ export async function pollSources(store: Store, cfg: Config): Promise<PollResult
     let file: string | undefined;
     try {
       file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight);
-      await ingestLocal(store, cfg, file, { authorized: true, title: v.title });
+      await ingestLocal(store, cfg, file, { authorized: true, title: v.title, sourceId: v.id });
       store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
     } catch (e) {
       const tries = (meta.tries ?? 0) + 1; const dead = tries >= cfg.resources.jobMaxAttempts;

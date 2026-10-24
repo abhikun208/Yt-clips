@@ -10,7 +10,7 @@ async function boot() { const app = createApp({ host: '127.0.0.1', port: 0, toke
 
 test('dashboard HTML: script parses, every tab + panel present, no external resources', () => {
   const js = /<script>([\s\S]*)<\/script>/.exec(UI_HTML)![1]!; assert.doesNotThrow(() => new Function(js));
-  for (const id of ['t-home', 't-clips', 't-publish', 't-insights', 't-studio', 't-settings', 'apq', 'aiprov', 'dlg', 'setup', 'feed']) assert.ok(UI_HTML.includes(`id="${id}"`), id);
+  for (const id of ['t-home', 't-clips', 't-publish', 't-insights', 't-schedule', 'chlist', 'ych', 't-studio', 't-settings', 'apq', 'aiprov', 'dlg', 'setup', 'feed']) assert.ok(UI_HTML.includes(`id="${id}"`), id);
   assert.ok(!/(src|href)=["']https?:\/\//.test(UI_HTML), 'no CDN/external assets');
 });
 

@@ -62,6 +62,17 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE comments ADD COLUMN posted_at TEXT;`,
   // v5 (additive): owner review of rendered clips (pending/approved/rejected) and re-render variants.
   `ALTER TABLE clips ADD COLUMN review TEXT NOT NULL DEFAULT 'pending'; ALTER TABLE clips ADD COLUMN review_note TEXT; ALTER TABLE clips ADD COLUMN variant INTEGER NOT NULL DEFAULT 0;`,
+  // v6 (additive): channels (one per YouTube channel/brand/account), with per-channel schedule + profile; sources/uploads/analytics point to a channel.
+  `CREATE TABLE IF NOT EXISTS channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, profile TEXT NOT NULL DEFAULT 'general',
+    config_json TEXT NOT NULL DEFAULT '{}', archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+  INSERT OR IGNORE INTO channels(slug, name) VALUES ('main', 'Main');
+  ALTER TABLE sources ADD COLUMN channel_id INTEGER;
+  ALTER TABLE uploads ADD COLUMN channel_id INTEGER;
+  ALTER TABLE analytics ADD COLUMN channel_id INTEGER;
+  UPDATE sources SET channel_id=(SELECT id FROM channels WHERE slug='main') WHERE channel_id IS NULL;
+  UPDATE uploads SET channel_id=(SELECT id FROM channels WHERE slug='main') WHERE channel_id IS NULL;
+  UPDATE analytics SET channel_id=(SELECT id FROM channels WHERE slug='main') WHERE channel_id IS NULL;`,
 ];
 
 export type Row = Record<string, unknown>;

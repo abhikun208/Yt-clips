@@ -2,7 +2,7 @@ import type { SecretStore } from '../publish/secrets.ts';
 import type { YouTubeAdapter } from '../publish/youtube.ts';
 
 export interface Stat { remoteId: string; publishedAt: string | null; views: number | null; likes?: number | null; comments?: number | null; shares?: number | null; saves?: number | null; reach?: number | null; avgWatchSec?: number | null }
-export interface Provider { readonly platform: string; connected(): boolean; fetch(remoteIds: string[]): Promise<Stat[]> }
+export interface Provider { readonly platform: string; /** when set, only this channel's uploads are fetched (per-channel tokens) */ readonly channelId?: number; connected(): boolean; fetch(remoteIds: string[]): Promise<Stat[]> }
 
 const GRAPH = () => process.env.GRAPH_API_BASE ?? 'https://graph.facebook.com/v26.0';
 const TIKTOK = () => process.env.TIKTOK_API_BASE ?? 'https://open.tiktokapis.com';

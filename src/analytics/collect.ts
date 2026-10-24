@@ -12,13 +12,14 @@ export interface CollectResult { platform: string; requested: number; recorded: 
 export async function collectAnalytics(store: Store, providers: Provider[]): Promise<CollectResult[]> {
   const res: CollectResult[] = [];
   for (const p of providers) {
-    const ups = store.all<{ remote_id: string; updated_at: string }>(`SELECT remote_id, updated_at FROM uploads WHERE state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND remote_id IS NOT NULL AND platform=?`, p.platform);
+    const ups = store.all<{ remote_id: string; updated_at: string; channel_id: number | null }>(`SELECT remote_id, updated_at, channel_id FROM uploads WHERE state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND remote_id IS NOT NULL AND platform=?${p.channelId !== undefined ? ` AND COALESCE(channel_id, (SELECT id FROM channels WHERE slug='main'))=?` : ''}`, p.platform, ...(p.channelId !== undefined ? [p.channelId] : []));
+    const chOf = new Map(ups.map((u) => [u.remote_id, u.channel_id]));
     if (!ups.length || !p.connected()) { res.push({ platform: p.platform, requested: 0, recorded: 0 }); continue; }
     try {
       const stats = await p.fetch(ups.map((u) => u.remote_id)); let n = 0;
       for (const s of stats) {
         store.exec(`INSERT INTO analytics_snapshots(platform, remote_id, published_at, views, likes, comments, shares, saves, reach, avg_watch_sec) VALUES (?,?,?,?,?,?,?,?,?,?)`, p.platform, s.remoteId, s.publishedAt, s.views, s.likes ?? null, s.comments ?? null, s.shares ?? null, s.saves ?? null, s.reach ?? null, s.avgWatchSec ?? null);
-        if (s.publishedAt && s.views != null) store.exec(`INSERT INTO analytics(platform, published_at, views, note) VALUES (?,?,?, 'api') ON CONFLICT(platform, published_at) DO UPDATE SET views=excluded.views`, p.platform, s.publishedAt, s.views);
+        if (s.publishedAt && s.views != null) store.exec(`INSERT INTO analytics(platform, published_at, views, note, channel_id) VALUES (?,?,?, 'api', ?) ON CONFLICT(platform, published_at) DO UPDATE SET views=excluded.views, channel_id=COALESCE(excluded.channel_id, analytics.channel_id)`, p.platform, s.publishedAt, s.views, chOf.get(s.remoteId) ?? null);
         n++;
       }
       res.push({ platform: p.platform, requested: ups.length, recorded: n });

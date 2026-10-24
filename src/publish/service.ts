@@ -11,9 +11,11 @@ import { probe } from '../media/probe.ts';
 import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
+import { TelegramAdapter, DiscordAdapter, MastodonAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { planFromStore } from '../schedule/analytics.ts';
+import { getChannel, listChannels, scheduleFor, ytSecretName, mainChannel, type Channel } from '../channels.ts';
 
-export const secretsFor = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'secrets'));
+export const secretsFor = (cfg: Config) => SecretStore.forData(cfg.dataDir);
 
 /** Real facts about a rendered clip: dimensions/duration are PROBED from the edited file, metadata from the stored SEO step. Never invents values. */
 export async function factsForClip(store: Store, clipId: number): Promise<ClipFacts> {
@@ -28,9 +30,20 @@ export async function factsForClip(store: Store, clipId: number): Promise<ClipFa
   return { width: m.width, height: m.height, duration: m.duration, title: md.title, description: md.description, tags: md.tags ?? [], language: md.language, risks: screenText(`${md.title} ${md.description} ${tx}`), qcPass: !!c.qc_pass, authorized: src?.authorized == null ? true : src.authorized === 1, thumbnailPath: c.thumbnail_path };
 }
 
-export function adapterFor(store: Store, cfg: Config, platform: string): Adapter {
+/** Token provider for one channel's YouTube account (main keeps the legacy secret name `youtube`). */
+export function tokenFor(cfg: Config, ch: Channel): TokenProvider { return new TokenProvider(secretsFor(cfg), ytSecretName(ch)); }
+const channelByUpload = (store: Store, uploadId: number): Channel => { const r = store.get<{ channel_id: number | null }>('SELECT channel_id FROM uploads WHERE id=?', uploadId); return (r?.channel_id ? getChannel(store, r.channel_id) : null) ?? mainChannel(store); };
+
+export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Channel): Adapter {
   if (platform === 'dryrun') return new DryRunAdapter();
-  if (platform === 'youtube_shorts' || platform === 'youtube') return new YouTubeAdapter(store, new TokenProvider(secretsFor(cfg)));
+  if (platform === 'youtube_shorts' || platform === 'youtube') return new YouTubeAdapter(store, ch ? tokenFor(cfg, ch) : new TokenProvider(secretsFor(cfg)));
+  if (isManual(platform)) return new ManualAdapter(platform);
+  const info = platformInfo(platform);
+  if (info?.kind === 'direct' && info.secret) {
+    const sec = secretsFor(cfg); const cred = (ch && sec.read<Record<string, string>>(`${info.secret}-${ch.slug}`)) || sec.read<Record<string, string>>(info.secret);
+    if (!cred) throw new Error(`AUTH_NOT_CONNECTED: save the ${info.label} credentials first (Setup -> Platforms)`);
+    return platform === 'telegram' ? new TelegramAdapter(store, cred) : platform === 'discord' ? new DiscordAdapter(store, cred) : new MastodonAdapter(store, cred);
+  }
   throw new Error(`AUTH_NOT_CONNECTED: no adapter for platform "${platform}" (only youtube_shorts has a real adapter; others need owner credentials)`);
 }
 
@@ -42,32 +55,34 @@ export async function advance(store: Store, cfg: Config, uploadId: number, o: { 
   const u = store.get<{ clip_id: number; platform: string; state: string }>('SELECT clip_id, platform, state FROM uploads WHERE id=?', uploadId);
   if (!u) throw new Error(`Unknown upload ${uploadId}`);
   const facts = await factsForClip(store, u.clip_id);
-  try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform), uploadId, { facts, ...o }) }; }
-  catch (e) { const m = (e as Error).message; if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
+  try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId)), uploadId, { facts, ...o }) }; }
+  catch (e) { const m = (e as Error).message; if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
 }
 
 export { queueUpload };
 
-export function youtubeStatus(store: Store, cfg: Config) {
-  const secrets = secretsFor(cfg); const tp = new TokenProvider(secrets); const ad = new YouTubeAdapter(store, tp);
+export function youtubeStatus(store: Store, cfg: Config, ch: Channel = mainChannel(store)) {
+  const secrets = secretsFor(cfg); const tp = tokenFor(cfg, ch); const ad = new YouTubeAdapter(store, tp);
   return { clientConfigured: !!clientCreds(secrets), connected: tp.connected(), secretsEncrypted: secrets.encrypted, quota: { insertsUsed: ad.quotaUsed('insert'), unitsUsed: ad.quotaUsed('units') }, gates: { publishEnabled: cfg.gates.publishEnabled, publicVisibilityAllowed: cfg.gates.publicVisibilityAllowed } };
 }
-export async function youtubeConnectStart(store: Store, cfg: Config): Promise<DeviceStart> {
+export async function youtubeConnectStart(store: Store, cfg: Config, ch: Channel = mainChannel(store)): Promise<DeviceStart> {
   const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('invalid: set YT_OAUTH_CLIENT_ID and YT_OAUTH_CLIENT_SECRET (Google Cloud "TVs and Limited Input devices" OAuth client) first');
-  const d = await startDeviceFlow(cc.clientId); store.exec(`INSERT INTO kv(k,v) VALUES('yt_device_code',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, d.device_code); return d;
+  const d = await startDeviceFlow(cc.clientId); store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, ytDeviceKey(ch), d.device_code); return d;
 }
-export async function youtubeConnectPoll(store: Store, cfg: Config) {
+const ytDeviceKey = (ch: Channel) => (ch.slug === 'main' ? 'yt_device_code' : `yt_device_code:${ch.slug}`);
+export async function youtubeConnectPoll(store: Store, cfg: Config, ch: Channel = mainChannel(store)) {
   const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('invalid: OAuth client not configured');
-  const row = store.get<{ v: string }>(`SELECT v FROM kv WHERE k='yt_device_code'`); if (!row) throw new Error('invalid: start the connect flow first');
-  const r = await pollDeviceFlow(secretsFor(cfg), cc.clientId, cc.clientSecret, row.v);
-  if (r.status === 'ok') store.exec(`DELETE FROM kv WHERE k='yt_device_code'`);
+  const row = store.get<{ v: string }>(`SELECT v FROM kv WHERE k=?`, ytDeviceKey(ch)); if (!row) throw new Error('invalid: start the connect flow first');
+  const r = await pollDeviceFlow(secretsFor(cfg), cc.clientId, cc.clientSecret, row.v, ytSecretName(ch));
+  if (r.status === 'ok') store.exec(`DELETE FROM kv WHERE k=?`, ytDeviceKey(ch));
   return { status: r.status };
 }
 
 export const TOKEN_PLATFORMS = ['instagram', 'facebook', 'tiktok'] as const;
 export function analyticsProviders(store: Store, cfg: Config): Provider[] {
-  const secrets = secretsFor(cfg); const tp = new TokenProvider(secrets);
-  return [youtubeProvider(new YouTubeAdapter(store, tp), () => tp.connected()), instagramProvider(secrets), facebookProvider(secrets), tiktokProvider(secrets, () => tiktokAccessToken(cfg))];
+  const secrets = secretsFor(cfg);
+  const yt = listChannels(store).map((ch) => { const tp = tokenFor(cfg, ch); const p = youtubeProvider(new YouTubeAdapter(store, tp), () => tp.connected()); return { ...p, platform: p.platform, channelId: ch.id, connected: () => tp.connected(), fetch: (ids: string[]) => p.fetch(ids) } as Provider; });
+  return [...yt, instagramProvider(secrets), facebookProvider(secrets), tiktokProvider(secrets, () => tiktokAccessToken(cfg))];
 }
 /** Owner supplies a platform access token (stored encrypted if YT_CLIPS_SECRET_KEY is set). Never echoed back. */
 export function saveTokenFor(cfg: Config, platform: string, accessToken: string): void {
@@ -86,8 +101,9 @@ export interface TickResult { queued: number; advanced: number; published: numbe
 export async function automationTick(store: Store, cfg: Config, now = new Date()): Promise<TickResult> {
   const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
   if (!cfg.automation.autoQueue) return r;
-  for (const platform of cfg.automation.platforms) {
-    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c WHERE c.qc_pass=1 AND c.metadata_json IS NOT NULL AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, cfg.automation.requireReview ? 1 : 0, platform, cfg.automation.maxAdvancePerCycle);
+  for (const ch of listChannels(store)) for (const platform of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
+    if (!cfg.automation.platforms.includes(platform)) continue; // the global list is the owner's master switch
+    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, platform, cfg.automation.maxAdvancePerCycle);
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
   }
   const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"}) ORDER BY id LIMIT ?`, ...cfg.automation.platforms, cfg.automation.maxAdvancePerCycle);
@@ -96,7 +112,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
       try {
         const cur = store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', u.id)!.state; let at: Date | null = null;
         if (cur === 'UNLISTED_VERIFIED' && !cfg.automation.autoApprove) { r.blocked.NEEDS_APPROVAL = (r.blocked.NEEDS_APPROVAL ?? 0) + 1; break; }
-        if (cur === 'UNLISTED_VERIFIED') { at = planFromStore(store, { n: 1, tz: cfg.timezone, cfg: cfg.schedule, from: now, platform: u.platform }).slots[0]?.at ?? null; if (!at) { r.blocked.NO_SLOT = (r.blocked.NO_SLOT ?? 0) + 1; break; } }
+        if (cur === 'UNLISTED_VERIFIED') { const ch = channelByUpload(store, u.id); at = planFromStore(store, { n: 1, tz: cfg.timezone, cfg: scheduleFor(cfg, ch), from: now, platform: u.platform, channelId: ch.id }).slots[0]?.at ?? null; if (!at) { r.blocked.NO_SLOT = (r.blocked.NO_SLOT ?? 0) + 1; break; } }
         const res = await advance(store, cfg, u.id, at ? { scheduledAt: at } : {});
         if ('blocked' in res) { const k = /^[A-Z_]+/.exec(res.blocked)?.[0] ?? 'BLOCKED'; r.blocked[k] = (r.blocked[k] ?? 0) + 1; break; }
         r.advanced++; if (res.state === 'PUBLISHED') { r.published++; break; } if (res.state === 'QC_FAILED' || res.state === 'FAILED') break;
@@ -108,24 +124,30 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
 
 /** Read new top-level comments on our PUBLISHED YouTube videos into the comments table (classified, draft replies; nothing is posted). */
 export async function collectYoutubeComments(store: Store, cfg: Config): Promise<{ videos: number; newComments: number; error?: string }> {
-  const secrets = secretsFor(cfg); const tp = new TokenProvider(secrets); if (!tp.connected()) return { videos: 0, newComments: 0 };
-  const ups = store.all<{ remote_id: string }>(`SELECT remote_id FROM uploads WHERE platform='youtube_shorts' AND remote_id IS NOT NULL AND state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE')`);
-  if (!ups.length) return { videos: 0, newComments: 0 };
-  const ad = new YouTubeAdapter(store, tp); let n = 0;
-  try {
-    let own = store.get<{ v: string }>(`SELECT v FROM kv WHERE k='yt_channel_id'`)?.v ?? null;
-    if (!own) { own = (await ad.whoami())?.id ?? null; if (own) store.exec(`INSERT INTO kv(k,v) VALUES('yt_channel_id',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, own); }
-    for (const u of ups) for (const c of await ad.listComments(u.remote_id, own)) { if (!ingestComment(store, 'youtube_shorts', c.id, c.text).duplicate) n++; }
-    return { videos: ups.length, newComments: n };
-  } catch (e) { return { videos: ups.length, newComments: n, error: (e as Error).message.slice(0, 200) }; }
+  let videos = 0, n = 0; let error: string | undefined;
+  for (const ch of listChannels(store)) {
+    const tp = tokenFor(cfg, ch); if (!tp.connected()) continue;
+    const ups = store.all<{ remote_id: string }>(`SELECT remote_id FROM uploads WHERE platform='youtube_shorts' AND COALESCE(channel_id, ?)=? AND remote_id IS NOT NULL AND state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE')`, mainChannel(store).id, ch.id);
+    if (!ups.length) continue;
+    const ad = new YouTubeAdapter(store, tp); videos += ups.length;
+    try {
+      const key = ch.slug === 'main' ? 'yt_channel_id' : `yt_channel_id:${ch.slug}`;
+      let own = store.get<{ v: string }>(`SELECT v FROM kv WHERE k=?`, key)?.v ?? null;
+      if (!own) { own = (await ad.whoami())?.id ?? null; if (own) store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, key, own); }
+      for (const u of ups) for (const c of await ad.listComments(u.remote_id, own)) { if (!ingestComment(store, 'youtube_shorts', c.id, c.text).duplicate) n++; }
+    } catch (e) { error = `${ch.slug}: ${(e as Error).message.slice(0, 160)}`; }
+  }
+  return error ? { videos, newComments: n, error } : { videos, newComments: n };
 }
 
 /** Post ONE approved reply. Needs: gates.commentsAutoPost (owner), per-comment approval, the force-ssl scope, daily cap. */
 export async function postComment(store: Store, cfg: Config, commentId: number): Promise<void> {
   await postApprovedReply(store, cfg, commentId, async (platform, remoteId, text) => {
     if (platform !== 'youtube_shorts') throw new Error(`AUTH_NOT_CONNECTED: no comment poster for ${platform}`);
-    const sc = connectedScope(secretsFor(cfg)); if (!sc) throw new Error('AUTH_NOT_CONNECTED: connect YouTube first');
+    const up = store.get<{ channel_id: number | null }>('SELECT channel_id FROM uploads WHERE remote_id=? AND platform=?', remoteId, platform);
+    const ch = (up?.channel_id ? getChannel(store, up.channel_id) : null) ?? mainChannel(store);
+    const sc = connectedScope(secretsFor(cfg), ytSecretName(ch)); if (!sc) throw new Error('AUTH_NOT_CONNECTED: connect YouTube first');
     if (!sc.split(/\s+/).includes(YT_FORCE_SSL_SCOPE)) throw new Error('AUTH_SCOPE: comment replies need the youtube.force-ssl scope. Run `npm run cli -- youtube-connect-full` once.');
-    await new YouTubeAdapter(store, new TokenProvider(secretsFor(cfg))).replyToComment(remoteId, text);
+    await new YouTubeAdapter(store, tokenFor(cfg, ch)).replyToComment(remoteId, text);
   });
 }

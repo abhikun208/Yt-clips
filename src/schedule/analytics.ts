@@ -52,16 +52,28 @@ export function importAnalyticsCsv(store: Store, csv: string, defaultPlatform = 
 }
 
 /** Hour-of-day evidence from stored analytics rows, bucketed in the owner's timezone. */
-export function hourStats(store: Store, tz: string, platform?: string): HourStat[] {
-  const rows = store.all<{ published_at: string; views: number }>(platform ? 'SELECT published_at, views FROM analytics WHERE views IS NOT NULL AND platform=?' : 'SELECT published_at, views FROM analytics WHERE views IS NOT NULL', ...(platform ? [platform] : []));
+export function hourStats(store: Store, tz: string, platform?: string, channelId?: number): HourStat[] {
+  const where = ['views IS NOT NULL']; const args: (string | number)[] = [];
+  if (platform) { where.push('platform=?'); args.push(platform); }
+  if (channelId !== undefined) { where.push('channel_id=?'); args.push(channelId); }
+  const rows = store.all<{ published_at: string; views: number }>(`SELECT published_at, views FROM analytics WHERE ${where.join(' AND ')}`, ...args);
   const m = new Map<number, HourStat>();
   for (const r of rows) { const h = hourIn(tz, new Date(r.published_at)); const s = m.get(h) ?? { hour: h, views: 0, samples: 0 }; s.views += r.views; s.samples++; m.set(h, s); }
   return [...m.values()].sort((a, b) => a.hour - b.hour);
 }
 
-/** Plan slots using stored evidence; `basis` says whether it was measured or the baseline. Already-scheduled uploads count toward caps. */
-export function planFromStore(store: Store, o: { n: number; tz: string; cfg: SchedConfig; from?: Date; platform?: string }) {
-  const existing = store.all<{ scheduled_at: string }>(`SELECT scheduled_at FROM uploads WHERE scheduled_at IS NOT NULL AND state IN ('SCHEDULED_OR_APPROVED','PUBLISHED')`).map((r) => new Date(r.scheduled_at)).filter((d) => !Number.isNaN(d.getTime()));
-  const stats = hourStats(store, o.tz, o.platform);
-  return { samples: stats.reduce((a, s) => a + s.samples, 0), slots: planSlots(o.n, { from: o.from ?? new Date(), tz: o.tz, cfg: o.cfg, stats, existing }) };
+/**
+ * Plan slots using stored evidence; `basis` says whether it was measured or the baseline.
+ * With `channelId`: caps/min-gap count only THAT channel's uploads, hours come from THAT channel's analytics (falls back to all
+ * channels' evidence while the channel has too few samples), and other channels' slots are kept `staggerMinutes` apart.
+ */
+export function planFromStore(store: Store, o: { n: number; tz: string; cfg: SchedConfig; from?: Date; platform?: string; channelId?: number }) {
+  const rows = store.all<{ scheduled_at: string; channel_id: number | null }>(`SELECT scheduled_at, channel_id FROM uploads WHERE scheduled_at IS NOT NULL AND state IN ('SCHEDULED_OR_APPROVED','PUBLISHED')`);
+  const toD = (r: { scheduled_at: string }) => new Date(r.scheduled_at);
+  const ok = (d: Date) => !Number.isNaN(d.getTime());
+  const mine = o.channelId === undefined ? rows : rows.filter((r) => r.channel_id === o.channelId);
+  const others = o.channelId === undefined ? [] : rows.filter((r) => r.channel_id !== o.channelId).map(toD).filter(ok);
+  let stats = hourStats(store, o.tz, o.platform, o.channelId);
+  if (o.channelId !== undefined && stats.reduce((a, s) => a + s.samples, 0) < 8) stats = hourStats(store, o.tz, o.platform);
+  return { samples: stats.reduce((a, s) => a + s.samples, 0), slots: planSlots(o.n, { from: o.from ?? new Date(), tz: o.tz, cfg: o.cfg, stats, existing: mine.map(toD).filter(ok), others }) };
 }

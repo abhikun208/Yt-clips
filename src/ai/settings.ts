@@ -20,7 +20,7 @@ export function isLocalBase(base: string): boolean {
   try { const h = new URL(base).hostname; return h === 'localhost' || h === '::1' || h === '[::1]' || /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h); } catch { return false; }
 }
 export interface AiCreds { baseUrl: string; apiKey: string; model: string }
-const store = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'secrets'));
+const store = (cfg: Config) => SecretStore.forData(cfg.dataDir);
 type Raw = { api_key?: string; base_url?: string; model?: string };
 
 function pick(cfg: Config, kind: 'stt' | 'llm', slot = 1): AiCreds | null {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 
@@ -12,6 +12,28 @@ export class SecretStore {
   constructor(dir: string, key: string | undefined = process.env.YT_CLIPS_SECRET_KEY) { this.dir = dir; this.key = key || undefined; }
   private path(name: string) { return join(this.dir, `${name.replace(/[^\w-]/g, '')}.json`); }
   get encrypted(): boolean { return !!this.key; }
+  /**
+   * Store with encryption ALWAYS on: key = YT_CLIPS_SECRET_KEY if set, else a random 32-byte key auto-generated once into
+   * <dataDir>/.keys/secret.key (0600). Plaintext files from older versions are re-encrypted in place on first use.
+   * Honest limit: a key file next to the data protects against leaked logs/backups of secrets/*.json alone, not against someone who
+   * owns the whole data dir; set YT_CLIPS_SECRET_KEY (kept outside data/) for that.
+   */
+  static forData(dataDir: string): SecretStore {
+    const env = process.env.YT_CLIPS_SECRET_KEY; let key = env;
+    if (!key) {
+      const kd = join(dataDir, '.keys'), kf = join(kd, 'secret.key');
+      if (existsSync(kf)) key = readFileSync(kf, 'utf8').trim();
+      if (!key) { mkdirSync(kd, { recursive: true, mode: 0o700 }); try { chmodSync(kd, 0o700); } catch { /* best effort */ } key = randomBytes(32).toString('base64'); writeFileSync(kf, key, { mode: 0o600, flag: 'wx' }); chmodSync(kf, 0o600); }
+    }
+    const st = new SecretStore(join(dataDir, 'secrets'), key); st.migratePlaintext(); return st;
+  }
+  /** Re-encrypts legacy plaintext secret files (enc:false with real content). Idempotent. */
+  migratePlaintext(): number {
+    if (!this.key || !existsSync(this.dir)) return 0; let n = 0;
+    for (const f of readdirSync(this.dir)) { if (!f.endsWith('.json')) continue; const name = f.slice(0, -5);
+      try { const j = JSON.parse(readFileSync(join(this.dir, f), 'utf8')) as { enc?: boolean; data?: Record<string, unknown> }; if (j.enc === false && j.data && Object.keys(j.data).length) { this.write(name, j.data); n++; } } catch { /* unreadable file: leave untouched */ } }
+    return n;
+  }
   read<T extends Record<string, unknown>>(name: string): T | null {
     const f = this.path(name); if (!existsSync(f)) return null;
     const j = JSON.parse(readFileSync(f, 'utf8')) as { v: number; enc: boolean; salt?: string; iv?: string; tag?: string; data: string | T };

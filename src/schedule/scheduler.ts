@@ -1,4 +1,4 @@
-export interface SchedConfig { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number }
+export interface SchedConfig { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number; staggerMinutes?: number }
 export interface HourStat { hour: number; views: number; samples: number }
 
 /** Hour-of-day in a timezone (IANA), using Intl (no deps). */
@@ -25,11 +25,12 @@ export function preferredHours(stats: HourStat[], cfg: SchedConfig, minSamples =
  * Plan publish slots: at most perDayCap/day, minimum gap between any two, never in quiet hours, jittered (not on the dot),
  * and never before `from`. `existing` = already scheduled/published times (counted toward caps). Deterministic given rnd.
  */
-export function planSlots(n: number, o: { from: Date; tz: string; cfg: SchedConfig; stats?: HourStat[]; existing?: Date[]; rnd?: () => number; maxDays?: number }): { at: Date; hour: number; basis: 'measured' | 'baseline' }[] {
+export function planSlots(n: number, o: { from: Date; tz: string; cfg: SchedConfig; stats?: HourStat[]; existing?: Date[]; others?: Date[]; rnd?: () => number; maxDays?: number }): { at: Date; hour: number; basis: 'measured' | 'baseline' }[] {
   const rnd = o.rnd ?? Math.random; const { hours, basis } = preferredHours(o.stats ?? [], o.cfg);
   const taken = [...(o.existing ?? [])].sort((a, b) => a.getTime() - b.getTime());
   const out: { at: Date; hour: number; basis: 'measured' | 'baseline' }[] = [];
   const gap = o.cfg.minGapMinutes * 60_000;
+  const stagger = (o.cfg.staggerMinutes ?? 20) * 60_000;
   const perDay = new Map<string, number>();
   for (const d of taken) perDay.set(dayKey(o.tz, d), (perDay.get(dayKey(o.tz, d)) ?? 0) + 1);
   const start = new Date(Math.ceil(o.from.getTime() / 60_000) * 60_000);
@@ -51,6 +52,8 @@ export function planSlots(n: number, o: { from: Date; tz: string; cfg: SchedConf
     if ((perDay.get(dk) ?? 0) >= o.cfg.perDayCap) continue;
     const all = [...taken, ...out.map((x) => x.at)];
     if (all.some((x) => Math.abs(x.getTime() - t.getTime()) < gap)) continue;
+    // cross-channel stagger: two channels never post inside the same window (looks less bot-like, spreads the owner's attention/quota)
+    if ((o.others ?? []).some((x) => Math.abs(x.getTime() - t.getTime()) < stagger)) continue;
     perDay.set(dk, (perDay.get(dk) ?? 0) + 1);
     out.push({ at: t, hour: h, basis });
   }

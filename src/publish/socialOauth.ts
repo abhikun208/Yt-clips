@@ -19,7 +19,7 @@ export const FB_SCOPES = 'pages_show_list,pages_read_engagement,read_insights,in
 export const TT_SCOPES = 'user.info.basic,video.list';
 export type SocialApp = 'facebook' | 'tiktok';
 
-const secretsOf = (cfg: Config) => new SecretStore(join(cfg.dataDir, 'secrets'));
+const secretsOf = (cfg: Config) => SecretStore.forData(cfg.dataDir);
 export function appCreds(cfg: Config, app: SocialApp): { id: string; secret: string } | null {
   const E = process.env; const id = app === 'facebook' ? E.FB_APP_ID : E.TIKTOK_CLIENT_KEY; const sec = app === 'facebook' ? E.FB_APP_SECRET : E.TIKTOK_CLIENT_SECRET;
   if (id && sec) return { id, secret: sec };

@@ -10,6 +10,9 @@ import { llmChain } from './ai/settings.ts';
 import { makeThumbnail } from './seo/thumbnail.ts';
 import { info, error } from './util/log.ts';
 import { rerenderClip } from './review/review.ts';
+import { channelOfVideo, channelOfClip, type Channel } from './channels.ts';
+/** Owner-configured per-channel branding for the SEO step (links come ONLY from config; never invented). */
+const chMeta = (ch: Channel) => ({ channelName: ch.name, ownerLinks: ch.config.links, hashtagsExtra: ch.config.hashtags });
 
 /** Seed jobs for anything not yet processed. Keys make it idempotent: re-running never duplicates work. */
 export function seedJobs(store: Store, cfg: Config): number {
@@ -27,14 +30,15 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
   if (job.kind === 'render') {
     const meta = store.get<{ category: string; transcript: string; language: string; video_id: number }>('SELECT category, transcript, language, video_id FROM candidates WHERE id=?', id)!;
     const hk = store.get<{ hook: string | null }>('SELECT hook FROM candidates WHERE id=?', id)?.hook ?? undefined;
-    const md = buildMetadata({ transcript: meta.transcript ?? '', category: meta.category, language: meta.language ?? 'unknown', hook: hk });
-    const r = await renderCandidate(store, cfg, id, { title: md.titles[0]?.replace(/ ?#\w+/g, '') ?? null });
+    const ch = channelOfVideo(store, meta.video_id);
+    const md = buildMetadata({ transcript: meta.transcript ?? '', category: meta.category, language: meta.language ?? ch.config.language ?? 'unknown', hook: hk, ...chMeta(ch) });
+    const r = await renderCandidate(store, cfg, id, { title: md.titles[0]?.replace(/ ?#\w+/g, '') ?? null, ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}) });
     enqueue(store, 'meta', `meta:${r.clipId}`); return;
   }
   if (job.kind === 'meta') {
     const row = store.get<{ id: number; candidate_id: number; edited_path: string; output_id: string }>('SELECT id, candidate_id, edited_path, output_id FROM clips WHERE id=?', id)!;
     const cand = store.get<{ category: string; transcript: string; language: string; start_sec: number; end_sec: number; hook: string | null }>('SELECT category, transcript, language, start_sec, end_sec, hook FROM candidates WHERE id=?', row.candidate_id)!;
-    let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined });
+    let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined, ...chMeta(channelOfClip(store, row.id)) });
     if (cand.transcript) for (const llm of llmChain(cfg)) { const r = await llmMetadata(md, cand.transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }); if (r.source === 'llm') { md = r; break; } md = r; }
     const errs = validateMetadata(md);
     if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);

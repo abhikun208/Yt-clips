@@ -18,6 +18,16 @@ export const PLATFORM_CONSTRAINTS: Record<string, Constraints> = {
   instagram_reels: { maxDurationSec: 90, minDurationSec: 3, aspect: 'vertical', maxTitle: 150, maxDescription: 2200, note: 'conservative 90s; verify current Reels limit' },
   facebook_reels: { maxDurationSec: 90, minDurationSec: 3, aspect: 'vertical', maxTitle: 150, maxDescription: 2200, note: 'conservative; verify' },
   tiktok: { maxDurationSec: 60, minDurationSec: 3, aspect: 'vertical', maxTitle: 150, maxDescription: 2200, note: 'conservative; verify' },
+  telegram: { maxDurationSec: 600, minDurationSec: 1, aspect: 'any', maxTitle: 200, maxDescription: 800, note: 'caption limit 1024 incl. title; bot upload ~50MB (verify)' },
+  discord: { maxDurationSec: 600, minDurationSec: 1, aspect: 'any', maxTitle: 200, maxDescription: 1700, note: 'message limit 2000; file limit depends on server boost (25MB default, verify)' },
+  mastodon: { maxDurationSec: 120, minDurationSec: 1, aspect: 'any', maxTitle: 150, maxDescription: 300, note: 'status 500 chars default; instance limits differ (verify)' },
+  x: { maxDurationSec: 140, minDurationSec: 1, aspect: 'any', maxTitle: 120, maxDescription: 150, note: 'manual; verify limits' },
+  linkedin: { maxDurationSec: 600, minDurationSec: 3, aspect: 'any', maxTitle: 150, maxDescription: 2900, note: 'manual; verify limits' },
+  pinterest: { maxDurationSec: 300, minDurationSec: 4, aspect: 'any', maxTitle: 100, maxDescription: 500, note: 'manual; verify limits' },
+  snapchat: { maxDurationSec: 60, minDurationSec: 5, aspect: 'vertical', maxTitle: 100, maxDescription: 250, note: 'manual; verify limits' },
+  threads: { maxDurationSec: 300, minDurationSec: 1, aspect: 'any', maxTitle: 150, maxDescription: 500, note: 'manual; verify limits' },
+  bluesky: { maxDurationSec: 60, minDurationSec: 1, aspect: 'any', maxTitle: 150, maxDescription: 300, note: 'manual; verify limits' },
+  reddit: { maxDurationSec: 900, minDurationSec: 1, aspect: 'any', maxTitle: 300, maxDescription: 3000, note: 'manual; subreddit rules apply' },
 };
 
 export interface ClipFacts { width: number; height: number; duration: number; title: string; description: string; qcPass: boolean; authorized: boolean; tags?: string[]; thumbnailPath?: string | null; categoryId?: string; language?: string; risks?: { severity: 'block' | 'warn'; category: string; match: string }[] }
@@ -43,7 +53,9 @@ export interface Adapter {
   verify(remoteId: string, expect?: { title: string; visibility: string }): Promise<{ processed: boolean; metadataMatches: boolean; visibility: string }>;
   /** Best-effort custom thumbnail; returns false (never throws for ordinary rejections). */
   thumbnail?(remoteId: string, path: string): Promise<boolean>;
-  publish(remoteId: string, at: Date | null): Promise<void>;
+  /** May return the final remote id/URL. `local` adapters never touch the network (manual platforms) so the publish gates don't apply to them. */
+  publish(remoteId: string, at: Date | null): Promise<void | { remoteId?: string }>;
+  readonly local?: boolean;
 }
 
 /** Records intents only; touches no network. Used for dry-runs and tests. */
@@ -61,13 +73,20 @@ export class DryRunAdapter implements Adapter {
   async publish(id: string) { this.calls.push(`publish:${id}`); const r = this.store.get(id); if (r) r.vis = 'public'; }
 }
 
+/** Channel a clip belongs to: clip -> video -> source -> channel (falls back to 'main'). */
+function channelIdOfClip(store: Store, clipId: number): number | null {
+  const r = store.get<{ cid: number | null }>('SELECT s.channel_id AS cid FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE c.id=?', clipId);
+  return r?.cid ?? store.get<{ id: number }>(`SELECT id FROM channels WHERE slug='main'`)?.id ?? null;
+}
+
 export function queueUpload(store: Store, clipId: number, platform: string): number {
   const clip = store.get<{ output_id: string; qc_pass: number | null }>('SELECT output_id, qc_pass FROM clips WHERE id=?', clipId);
   if (!clip) throw new Error(`Unknown clip ${clipId}`);
   const key = `${platform}:${clip.output_id}`;
   const ex = store.get<{ id: number }>('SELECT id FROM uploads WHERE idempotency_key=?', key);
   if (ex) return ex.id; // never queue duplicates
-  const r = store.exec('INSERT INTO uploads(clip_id, platform, state, idempotency_key) VALUES (?,?,?,?)', clipId, platform, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', key);
+  const chId = channelIdOfClip(store, clipId);
+  const r = store.exec('INSERT INTO uploads(clip_id, platform, state, idempotency_key, channel_id) VALUES (?,?,?,?,?)', clipId, platform, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', key, chId);
   store.logState('upload', r.lastId, null, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', 'queued');
   return r.lastId;
 }
@@ -91,15 +110,15 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'READY_FOR_QC': case 'FAILED': { const e = validateForPlatform(u.platform, o.facts); if (e.length) { setState(store, u.id, from, 'QC_FAILED', { err: e.join('; ') }); return 'QC_FAILED'; } setState(store, u.id, from, 'QC_PASSED'); return 'QC_PASSED'; }
       case 'QC_FAILED': return 'QC_FAILED';
       case 'QC_PASSED': { const e = validateForPlatform(u.platform, o.facts); if (e.length) { setState(store, u.id, from, 'QC_FAILED', { err: e.join('; ') }); return 'QC_FAILED'; } setState(store, u.id, from, 'UPLOAD_PENDING'); return 'UPLOAD_PENDING'; }
-      case 'UPLOAD_PENDING': assertPublishAllowed(cfg, 'unlisted'); setState(store, u.id, from, 'UPLOADING'); return 'UPLOADING';
+      case 'UPLOAD_PENDING': if (!adapter.local) assertPublishAllowed(cfg, 'unlisted'); setState(store, u.id, from, 'UPLOADING'); return 'UPLOADING';
       case 'UPLOADING': {
-        assertPublishAllowed(cfg, 'unlisted');
+        if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
         const r = await adapter.upload({ filePath: clip.edited_path, title: o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
         if (adapter.thumbnail && o.facts.thumbnailPath) { try { await adapter.thumbnail(r.remoteId, o.facts.thumbnailPath); } catch { /* thumbnails are optional */ } }
         setState(store, u.id, from, 'UPLOAD_VERIFYING', { remote: r.remoteId, vis: 'unlisted' }); return 'UPLOAD_VERIFYING';
       }
       case 'UPLOAD_VERIFYING': {
-        assertPublishAllowed(cfg, 'unlisted');
+        if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
         const v = await adapter.verify(u.remote_id!, { title: o.facts.title, visibility: 'unlisted' });
         if (!v.processed || !v.metadataMatches || v.visibility === 'public') throw new Error(`remote verify failed: ${JSON.stringify(v)}`);
         setState(store, u.id, from, 'UNLISTED_VERIFIED'); return 'UNLISTED_VERIFIED';
@@ -109,18 +128,18 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
         setState(store, u.id, from, 'SCHEDULED_OR_APPROVED', { at: o.scheduledAt?.toISOString() ?? null }); return 'SCHEDULED_OR_APPROVED';
       }
       case 'SCHEDULED_OR_APPROVED': {
-        assertPublishAllowed(cfg, 'public');
+        if (!adapter.local) assertPublishAllowed(cfg, 'public');
         // the time chosen at approval is stored; a stored time already in the past means "publish now"
         const stored = u.scheduled_at ? new Date(u.scheduled_at) : null; const when = o.scheduledAt ?? (stored && stored.getTime() > Date.now() ? stored : null);
-        await adapter.publish(u.remote_id!, when);
-        setState(store, u.id, from, 'PUBLISHED', { vis: 'public' }); return 'PUBLISHED';
+        const pr = await adapter.publish(u.remote_id!, when);
+        setState(store, u.id, from, 'PUBLISHED', { vis: 'public', ...(pr && pr.remoteId ? { remote: pr.remoteId } : {}) }); return 'PUBLISHED';
       }
       default: { const n = nextState(from); if (!n) return from; setState(store, u.id, from, n); return n; }
     }
   } catch (e) {
     const msg = (e as Error).message;
     // Gate / approval / not-ready / quota / auth blocks are NOT failures: state stays so it resumes later.
-    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_)/.test(msg)) { store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; }
+    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED)/.test(msg)) { store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; }
     setState(store, u.id, from, 'FAILED', { err: msg.slice(0, 500) });
     // keep a retry pointer: FAILED re-enters via READY_FOR_QC which re-validates, upload key is idempotent
     throw e;
