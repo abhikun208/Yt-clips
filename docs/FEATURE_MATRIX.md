@@ -37,3 +37,24 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Channel monitoring / yt-dlp download (new uploads + backlog, bounded) | Ssemble | yt-dlp | DONE as adapter, tested with a fake yt-dlp; real yt-dlp/network NOT tested here | test/adapters.test.ts |
 | Comment classify + draft replies (approval mode) | — | rules | DONE; posting adapter NOT implemented | comments test |
 | Clip rewards, game-video layout | Ssemble | n/a | NOT IMPLEMENTED / out of scope | — |
+
+## Session 4 review (2026-10-23): features taken from the owner's reference list
+| Reference | What it offers (as read) | Taken / not taken |
+|---|---|---|
+| JayWebtech/autoshorts | LLM-based short picking, onboarding | Taken: LLM **re-ranks** our own candidates (never asks the model for timestamps), setup checklist on Home. Not taken: its pipeline/code. |
+| nejib1/Free-LLM, mnfst/awesome-free-llm-apis | Lists of free/OpenAI-compatible LLM providers | Taken: provider presets (Groq, Gemini, OpenRouter, Mistral, Ollama, LM Studio) + fallback chain + keyless localhost. Honest: only Groq docs were read; the other base URLs/models are unverified starting points; no provider was called live. |
+| debpalash/VoiceStudio | Local TTS/voice cloning/dubbing studio | NOT implemented (heavy models, licence review needed). Dubbing/TTS stays a future item. |
+| Jakeschincariol/youtube-agent-skill | Agent-skill for YouTube workflows | Read in session 3; no code copied; its ideas (SEO + analytics loop) are covered by existing modules. |
+| ssemble.com, autocap.in | Clipping/caption SaaS | Already in the matrix above. New this session: jump cuts (silence removal), progress bar, keyword punch-zoom, flash transitions, LUT/grain/particles/light-leak, review inbox, export package. Not copied: their proprietary templates/assets. |
+
+| Feature | Status | Evidence |
+|---|---|---|
+| Local keyless text intelligence (keyphrases, hook, titles/desc/tags, sentence-snapped clip edges) | DONE (heuristic) | test/local.test.ts |
+| Cinematic curves per mood / owner .cube LUT, film grain, drifting dust particles, light leak, flash transitions | DONE | test/vfx.test.ts + frame inspected |
+| Measured visual change (1-SSIM vs plain reframe) + coverage vs 40% target in each manifest | DONE | test/vfx.test.ts |
+| Jump cuts (dead-air removal, captions re-timed), animated progress bar, keyword punch-zoom | DONE | test/jumpcut.test.ts (real ffmpeg + full render) |
+| LLM rerank + keyless local endpoints + fallback chain | DONE; fake-server tested only | test/llmchain.test.ts |
+| Review inbox, metadata edit, thumbnail frame, ZIP export, re-render variants, `requireReview` | DONE | test/review.test.ts, test/dashboard.test.ts |
+| Tabbed dashboard, setup checklist, live activity, Autopilot panel | DONE; loaded in real headless Chromium (desktop + 390px phone), no JS errors | test/dashboard.test.ts + screenshots |
+| Dubbing / TTS / voice cloning | NOT implemented | — |
+| Caption translation | NOT implemented | — |

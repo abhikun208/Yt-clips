@@ -10,7 +10,7 @@ Ek lambi video (ya YouTube channel) do → ye khud best moments dhoondta hai, un
 |---|---|---|
 | Video lena | Haan: file upload ya YouTube channel watch (yt-dlp) | Sirf wahi video/channel jiske rights aapke paas hain (checkbox) |
 | Best moments dhoondna, intro/outro skip | Haan | — |
-| Edit (crop 9:16, grade, zoom, beat punch, noise clean, -14 LUFS) | Haan | — |
+| Edit (crop 9:16, grade/LUT, zoom, beat+keyword punch, particles, light leak, flash cuts, jump cuts, slow-mo, progress bar, noise clean, -14 LUFS) | Haan | — |
 | Captions (72 styles, Hindi/Hinglish) | Haan, transcript milte hi | Style chuno (ek baar) |
 | Transcript | Haan agar faster-whisper installed; warna aap `.srt` do | — |
 | Title/desc/tags/thumbnail | Haan (template; optional free LLM) | — |
@@ -35,14 +35,24 @@ Browser mein "Video add karo" → file upload (rights checkbox) ya YouTube chann
 
 Bina UI ke: `npm run cli -- add video.mp4 --authorized` → `npm run cli -- run` → `npm run cli -- status`. Saari commands: `npm run cli -- help`.
 
-### Captions/titles ke liye free AI key (phone par bhi) — zaroori
-Bina transcript ke system video ki **baat sun nahi sakta**, to captions nahi banenge aur titles generic honge. Sabse aasaan free tareeka:
-1. console.groq.com par free account → **API Keys** → key banao (`gsk_...`).
-2. UI mein "AI keys + social accounts" → key paste → **Save**. Isse speech-to-text (whisper-large-v3-turbo, word-by-word timing) aur title/description/tags (Llama) dono chalu ho jaate hain.
-Free limits Groq ke hain (whisper: ~2 ghante audio/ghanta, ~8 ghante/din per Groq docs 2026-10-23; change ho sakte hain). Alternative: `pip install faster-whisper` (PC/VPS), ya koi bhi OpenAI-compatible endpoint (`STT_API_BASE`, `LLM_API_BASE`).
+### Dashboard (browser)
+Tabs: **Home** (live pipeline, setup checklist, video upload, channels auto-watch), **Clips** (review inbox: Approve/Reject, title/description/tags edit, thumbnail frame, re-render with another caption style/effects as a NEW version, ZIP export, Share to Instagram/TikTok/Facebook from phone), **Publish** (YouTube connect, upload queue, comments), **Insights** (analytics, best posting time), **Studio** (72 caption styles, transcript editor), **Setup** (Autopilot, AI, social login).
 
-### Social accounts login (UI mein)
-"AI keys + social accounts" panel: Google client ID/secret, Meta (Facebook+Instagram) app ID/secret, TikTok client key/secret save karo, phir login buttons. Har platform ka apna free developer app banana padta hai (kisi aur ka nahi chalta). Abhi ye logins **analytics** (views, best time) ke liye hain; Instagram/TikTok/Facebook par video upload adapters abhi nahi bane. TikTok/Meta redirect URI mein https maang sakte hain: phone par ho to HTTPS tunnel/domain chahiye.
+### Captions/titles/AI — key ke saath ya bina key
+- **Bina kisi key ke:** local engine transcript se keyphrases, hook line, title, description, tags banata hai aur clip ke edges sentence par kaat-ta hai. Par captions ke liye speech-to-text chahiye (neeche).
+- **Free Groq key** (console.groq.com → API Keys → `gsk_...`): Setup tab → AI → provider "Groq" → key → "Save → speech-to-text" aur "Save → titles + ranking". Free limits Groq ke hain (docs 2026-10-23: whisper-turbo ~20 req/min, 7.2K audio-sec/ghanta; badal sakte hain).
+- **Bilkul key-free (local):** apni machine par Ollama/LM Studio chalao → Setup → AI → preset "Ollama" (base `http://127.0.0.1:11434/v1`, key khali) → titles + AI clip-ranking local model se. Local speech-to-text: `pip install faster-whisper` ya koi OpenAI-compatible local STT server (base URL localhost ho to key nahi lagti).
+- **Fallback chain:** Primary + 2 fallback providers (Groq → Gemini → OpenRouter → Mistral ya local). Jo pehle chale. Presets ke base URLs unki docs se hain par maine kisi ko live call nahi kiya (sirf Groq docs padhe).
+- LLM clip timestamps nahi banata: sirf hamare candidates ko score karta hai (0.7 local + 0.3 AI).
+
+### Social accounts login — ID/password kyun nahi, kya hai
+Instagram/TikTok/YouTube ka ID-password kisi bot ko dena unki terms ke against hai (account ban, 2FA, password leak). Isliye official "Login with…" (OAuth): har platform par ek baar free developer app banao → Setup tab mein ID/Secret → Login → "Allow". Abhi ye logins **analytics** ke liye hain. **YouTube upload** bana hai. **Instagram/TikTok/Facebook upload adapters nahi bane** (unki app review/credentials chahiye) — unke liye Clips → **Share** (phone ka share sheet) ya **Export ZIP** (mp4 + thumbnail + srt + title/description/tags) use karo. TikTok/Meta redirect URI mein https maang sakte hain.
+
+### Full automation (Autopilot)
+Worker har ~30 sec: channels poll → analyze → clips → edit (LUT, grain, particles, light leak, flash cuts, jump cuts, slow-mo, beat/keyword zoom, progress bar, captions) → QC → title/thumbnail → [aapka review, optional] → unlisted upload → verify → schedule → publish → analytics → comments.
+- UI: Setup → Autopilot → "Auto-queue uploads" (+ "Pehle meri review").
+- Safety gates sirf server par (UI/API se nahi): `npm run cli -- autopilot on --publish --yes` (private/unlisted tak) · `npm run cli -- autopilot on --review --publish --approve --public --yes` (auto public, aapke review ke baad) · `npm run cli -- autopilot off`.
+- Source channel add karne ke baad kuch nahi karna: loop khud naye uploads dhoondh kar process karta rehta hai (yt-dlp chahiye).
 
 ### Optional installs (free)
 - Transcript (alternative to Groq): `pip install faster-whisper` (PC/VPS). Ya apna `.srt/.vtt/.json` video ke saath rakho.
@@ -66,7 +76,7 @@ Dhyan: Google naye/unverified API projects par videos ki visibility par pabandi 
 `npm run cli -- platforms` dikhata hai kaun connected hai. YouTube `youtube-connect` se milta hai. Instagram/Facebook/TikTok ke liye aapka khud ka access token: `echo TOKEN | npm run cli -- set-token instagram`. Ya CSV: `npm run cli -- analytics-import file.csv` (columns `published_at,views`). Worker har 6 ghante khud collect karta hai; `npm run cli -- plan 3` agle slots dikhata hai (data kam ho to baseline hours).
 
 ## Common problems
-- `EADDRINUSE: address already in use ...:8080` → pehle se koi server (ya aapka purana `npm start`) chal raha hai. Naya port lo: `PORT=8090 npm start`, ya purana band karo (`pkill -f "server/main.ts"`; Termux mein `pkill node`).
+- `EADDRINUSE: address already in use ...:8080` → pehle se koi server (ya aapka purana `npm start`) chal raha hai. Naya port lo: `PORT=8090 npm start`, ya purana band karo (Termux mein `pkill node`).
 - Termux/Android par bhi chalta hai (Node ≥ 22.18, `pkg install ffmpeg`); heavy rendering phone par dheere hoga, `edit.preset`/`glow`/`zoom` kam karke tez karo.
 - `yt-dlp`/`whisper` WARN normal hai: local video + `.srt` se kaam chalta hai.
 
