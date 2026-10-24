@@ -1,0 +1,49 @@
+Yt-clips Repo Review: Weaknesses, Improvements and Feature Ideas
+Repo: github.com/abhikun208/Yt-clips
+Note: Is review me README aur PROGRESS.md poora padha gaya hai. src/ ka asli code line-by-line nahi dekha gaya, isliye code-level bugs ka review nahi hai. Ye documentation aur architecture ke basis pe hai.
+Ye repo kya hai
+yt-clips ek free, self-hosted tool hai. Aap lambi video ya YouTube channel dete ho, ye best moments dhoondta hai, 9:16 Shorts me edit karta hai (captions, zoom, jump cuts, audio clean), title, tags aur thumbnail banata hai, aur chaho to YouTube pe upload aur schedule bhi karta hai. Runtime dependencies zero hain (Node, FFmpeg, SQLite). 108 tests hain aur safety gates (publish, public, comments) default OFF hain. Ye kaafi mehnat se bana hua project hai.
+Weaknesses
+1. Sabse badi: real duniya me kuch test nahi hua
+README khud maanta hai ki YouTube upload, comments, analytics, Groq, LLM providers, yt-dlp aur faster-whisper sab sirf fake servers pe test hue hain. Asli Google ya YouTube pe ek baar bhi nahi chala. Docker, systemd aur VPS script bhi "not verified" hain. Pehli real run me kuch na kuch toot sakta hai.
+2. YouTube upload ka practical blocker
+Jaisa mujhe pata hai, naye ya unaudited API project se upload kiye videos Google private lock kar deta hai jab tak project ka compliance audit pass na ho. To "auto public" wala feature audit ke bina kaam nahi karega. Upload quota (default 10,000 units/din) me bhi sirf kuch hi uploads ho paate hain. Ye baat README me hai par kaafi neeche chhupi hai.
+3. Render bahut slow hai
+PROGRESS.md ke hisaab se 2 vCPU pe 90 second ke video ke 2 clips me lagbhag 9.5 minute lagte hain. Live streams 2 se 4 ghante ki hongi, to ye tool bohot slow padega.
+4. Clip selection heuristic hai, gaming ke liye nahi bana
+Scoring audio, scene change aur keywords pe hai. Free Fire me achha moment kill, clutch, "BOOYAH" aur zone fight hota hai, jo is tool ko samajh nahi aata.
+5. Captions ki quality
+Word timing approximate hai (forced alignment nahi), ek clip me ek hi font chalta hai (Hindi + English mix me problem), aur Hinglish speech-to-text me Whisper mistakes karta hai. Caption translation nahi hai.
+6. Face tracking basic hai
+OpenCV Haar use hota hai. Gaming content me facecam aur gameplay ka layout alag chahiye, jo abhi nahi hai.
+7. Security aur reliability
+• YT_CLIPS_SECRET_KEY na ho to refresh token plaintext file (0600) me rakha jaata hai. Default me ye fallback nahi hona chahiye.
+• Ek hi shared token pura access deta hai, alag users ya roles nahi hain.
+• Zero-dependency ka matlab OAuth, zip writer aur server sab khud likha hua hai. Isme bug aur security risk zyada hote hain, aur node:sqlite ke liye newer Node version chahiye (22.18 ya upar), jo kai servers pe nahi hota.
+8. Repo hygiene
+Koi description, topics ya license nahi hai. Prompt, BRAIN.md aur MASTER_RUN_PROMPT.md jaisi AI-notes files root me hain, aur .github/workflows (CI) nahi dikha. Bahar ke developers ke liye ye confusing hai.
+9. Policy risk
+"Visual change 40% target" jaisa feature padhne me aisa lagta hai ki clips ko original se alag dikhane ki koshish hai. Repo kehta hai ki ye copyright-evasion nahi hai, par YouTube ki monetization policy mass-produced ya repetitive content ko penalize kar sakti hai. Apni hi live streams ke clips ke liye ye theek hai, par doosron ka content ya bahut zyada bulk posting risky hai.
+Improve kaise karein
+1. Real smoke test banao. Ek script jo asli Google account pe ek unlisted upload chalaye, ek real Groq call kare, aur ek real yt-dlp download kare. Pehle ye karo, baaki sab baad me.
+2. Hardware encoding. NVENC, VAAPI, ya Android MediaCodec use karo, aur analysis low-res proxy video pe karo. Parallel rendering add karo. Render time 5 se 10 guna kam ho sakta hai.
+3. YouTube API audit ke liye guide likho aur README me upar daalo.
+4. Token encryption mandatory karo (key na ho to start hi na ho, ya auto-generate karo).
+5. Setup simple karo: ek install.sh jo Node, ffmpeg, yt-dlp aur whisper check karke install kare, aur npm run doctor me fix suggestions do.
+6. CI, license aur AI-notes ko docs/ me daalo, README ko English aur Hinglish dono me do.
+7. Whisper word timestamps ya WhisperX use karo, aur Hinglish ke liye language hint aur initial prompt do.
+8. Mixed-script captions ke liye per-word font fallback.
+Naye features (Free Fire live ke liye sabse kaam ke)
+• Chat-based highlight detection. Live chat replay me jahan messages ka spike ho, wo moment almost hamesha clip-worthy hota hai. Ye sabse strong signal hai aur free hai.
+• Gaming audio events. Gunfire, headshot sound aur "BOOYAH" ke audio spikes ya killfeed pe OCR se kill moments dhoondho.
+• Gameplay + facecam layout. 9:16 me upar gameplay, neeche facecam (ya sirf character) ka split layout.
+• "Most replayed" heatmap use karna jahan available ho.
+• Auto thumbnail aur title variants aur A/B test, teen titles me se jo CTR zyada de.
+• YouTube Analytics API se retention aur CTR padhna, taaki tool seekhe kaunse clips chale. Abhi ye implemented nahi hai.
+• Clip se wapas live pe funnel: description me "full live yaha" link aur pinned comment auto-add.
+• Kick aur YouTube dono ki VOD ek hi pipeline me.
+• Notification: clip ready hone par Telegram ya WhatsApp message, review ke liye.
+• Queue priority aur multi-channel (Team Unknown aur Decider Gaming dono).
+• Subtitle translation (Hindi, English) aur gaming-specific caption presets (kill count, damage numbers jaisi emphasis).
+Recommendation
+Pehle step 1 (real smoke test) aur step 2 (hardware encoding) karo, kyunki inke bina tool live-stream workflow me kaam ka nahi banega. Phir chat-based highlight detection add karo, jo gaming clips ke liye sabse bada jump dega.
