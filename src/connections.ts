@@ -48,9 +48,11 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
     const j = await r.json().catch(() => null) as { choices?: unknown[]; error?: { message?: string } } | null;
     if (r.ok && j?.choices?.length) return [true, `${new URL(c.baseUrl).host} · model ${c.model} ne jawab diya`];
     if (r.status === 401 || r.status === 403) return [false, 'key galat/expired hai (HTTP ' + r.status + ')'];
+    const em = String(j?.error?.message ?? (Array.isArray(j) ? (j as { error?: { message?: string } }[])[0]?.error?.message : '') ?? '').slice(0, 160);
+    if (r.status === 400 && /api key|API_KEY/i.test(em)) return [false, `key galat hai (HTTP 400: ${em})`];
     if (r.status === 404 || r.status === 400) {
-      const lm = await listModels(cfg, Number(arg ?? 1)); const sug = lm.models.filter((x) => /flash|llama|mini|small|instruct/i.test(x)).slice(0, 5).join(', ');
-      return [false, `model "${c.model}" ya URL galat hai (HTTP ${r.status}${j?.error?.message ? ': ' + String(j.error.message).slice(0, 80) : ''}). ` + (lm.ok ? `Is key ke valid models: ${sug || lm.models.slice(0, 5).join(', ')} — "Models dikhao" dabake chuno.` : `Base URL check karo (${new URL(c.baseUrl).host}).`)];
+      const host = new URL(c.baseUrl).host; const hint = /openrouter/.test(host) && /endpoint|policy|privacy/i.test(em) ? ' OpenRouter: openrouter.ai/settings/privacy mein free endpoints allow karo ya koi aur ":free" model chuno.' : '';
+      return [false, `model "${c.model}" ya URL galat hai (HTTP ${r.status}${em ? ': ' + em : ''}).${hint} "🔧 Auto fix" dabao: key se sahi model khud dhoondh lega.`];
     }
     if (r.status === 429) return [true, 'key sahi hai (abhi rate-limit lagi hai, HTTP 429)'];
     return [false, `HTTP ${r.status} ${j?.error?.message ?? ''}`.trim()];
@@ -62,7 +64,7 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
     const fd = new FormData(); fd.set('file', new Blob([readFileSync(wav)], { type: 'audio/wav' }), 'tone.wav'); fd.set('model', s.model); fd.set('response_format', 'verbose_json');
     const r = await fetch(`${s.baseUrl}/audio/transcriptions`, { method: 'POST', headers: s.apiKey ? { authorization: `Bearer ${s.apiKey}` } : {}, body: fd, signal: t(60_000) });
     if (r.ok) return [true, `${new URL(s.baseUrl).host} · model ${s.model} ne audio liya`];
-    return [false, r.status === 401 || r.status === 403 ? `key galat hai (HTTP ${r.status})` : `HTTP ${r.status}`];
+    return [false, r.status === 401 || r.status === 403 ? `key galat hai (HTTP ${r.status})` : `${new URL(s.baseUrl).host}: HTTP ${r.status} (model "${s.model}")`];
   }
   if (kind === 'telegram' || kind === 'notify') {
     const name = arg ? `${kind}-${arg}` : kind; const v = secrets.read<{ botToken?: string; chatId?: string }>(name) ?? (arg ? secrets.read<{ botToken?: string; chatId?: string }>(kind) : null);
@@ -103,7 +105,7 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
 export async function testConnection(store: Store, cfg: Config, target: string): Promise<ConnResult> {
   if (!/^(llm(:[123])?|stt|telegram(:[\w-]+)?|notify|discord(:[\w-]+)?|mastodon(:[\w-]+)?|youtube(:[\w-]+)?|google-client)$/.test(target)) throw new Error('invalid: unknown target');
   let ok = false, detail = '';
-  try { [ok, detail] = await check(store, cfg, target); } catch (e) { const m = short(e); ok = false; detail = /fetch failed|ENOTFOUND|ECONN|timeout|aborted/i.test(m) ? `server tak pahunch nahi paya (internet/URL?): ${m}` : m; }
+  try { [ok, detail] = await check(store, cfg, target); } catch (e) { const m = short(e); ok = false; detail = /fetch failed|ENOTFOUND|ECONN|timeout|aborted/i.test(m) ? `server tak pahunch nahi paya (${(() => { try { const c = target.startsWith('stt') ? sttCreds(cfg) : target.startsWith('llm') ? llmSlot(cfg, Number(target.split(':')[1] ?? 1)) : null; return c ? new URL(c.baseUrl).host : 'internet/URL'; } catch { return 'URL galat'; } })()}): ${m}` : m; }
   const res: ConnResult = { target, ok, detail, at: new Date().toISOString() };
   store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, keyOf(target), JSON.stringify(res));
   return res;

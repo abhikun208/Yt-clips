@@ -16,6 +16,7 @@ const sizeB = (id: string) => { const m = /(\d+(?:\.\d+)?)\s*b\b/i.exec(id) ?? /
 export type ProviderId = 'groq' | 'gemini' | 'openrouter' | 'xai' | 'mistral' | 'ollama' | 'lmstudio';
 export const KEY_PREFIX: Record<string, ProviderId> = { gsk_: 'groq', AIza: 'gemini', 'sk-or-': 'openrouter', 'xai-': 'xai' };
 export const PROBE_ORDER: ProviderId[] = ['groq', 'gemini', 'openrouter', 'xai', 'mistral'];
+export const providerFromBase = (base: string): string | null => { for (const [id, b] of Object.entries(BASES)) if (base.replace(/\/+$/, '') === b) return id; return /11434/.test(base) ? 'ollama' : null; };
 export const providerFromKey = (key: string): ProviderId | null => { for (const [p, id] of Object.entries(KEY_PREFIX)) if (key.startsWith(p)) return id; return null; };
 
 /** Best-first chat models for a provider (pure; unit-tested). */
@@ -26,7 +27,7 @@ export function rankChat(provider: string, models: Model[]): string[] {
   switch (provider) {
     case 'groq': return uniq([...first(/^llama-3\.3-70b-versatile$/), ...first(/gpt-oss-120b/), ...first(/gpt-oss-20b/), ...first(/llama-3\.1-8b-instant/), ...chat.map((m) => m.id).sort(cmpVerDesc)].map((x) => typeof x === 'string' ? x : (x as Model).id));
     case 'gemini': { const ids = chat.map((m) => m.id).filter((id) => /^gemini/.test(id)); const flash = ids.filter((id) => /flash/.test(id) && !/lite/.test(id) && !/preview|exp/.test(id)).sort(cmpVerDesc), lite = ids.filter((id) => /flash-lite/.test(id)).sort(cmpVerDesc), rest = ids.filter((id) => /flash/.test(id)).sort(cmpVerDesc); return uniq([...flash, ...lite, ...rest, ...ids.sort(cmpVerDesc)]); }
-    case 'openrouter': { const free = chat.filter((m) => m.free || /:free$/.test(m.id)).map((m) => m.id); return uniq([...free.filter((id) => id === 'openrouter/free'), ...free.filter((id) => /instruct|chat|gpt-oss|qwen|gemma|llama|mistral|deepseek/i.test(id)).sort((a, b) => sizeB(b) - sizeB(a) || cmpVerDesc(a, b)), ...free]); }
+    case 'openrouter': { const free = chat.filter((m) => m.free || /:free$/.test(m.id)).map((m) => m.id); return uniq([...free.filter((id) => /instruct|chat|gpt-oss|qwen|gemma|llama|mistral|deepseek/i.test(id) && id !== 'openrouter/free').sort((a, b) => sizeB(b) - sizeB(a) || cmpVerDesc(a, b)), ...free.filter((id) => id !== 'openrouter/free'), ...free.filter((id) => id === 'openrouter/free')]); }
     case 'xai': { const ids = chat.map((m) => m.id).filter((id) => /^grok/.test(id)); return uniq([...ids.filter((id) => /mini/.test(id)).sort(cmpVerDesc), ...ids.sort(cmpVerDesc)]); }
     case 'mistral': { const ids = chat.map((m) => m.id); return uniq([...ids.filter((id) => /small-latest/.test(id)), ...ids.filter((id) => /latest/.test(id)), ...ids]); }
     default: { // ollama / lmstudio / anything local: what is installed. Prefer common instruct families, 3-14B first (fast on a laptop), then the rest.
@@ -72,21 +73,37 @@ export async function autoSetup(cfg: Config, o: { apiKey?: string; provider?: st
     for (const p of PROBE_ORDER) { const m = await fetchModels(BASES[p]!, key, fetchFn); if (m.ok) { provider = p; base = BASES[p]!; models = m.models; say(true, `${p} ne key accept ki`); break; } else say(false, `${p}: HTTP ${m.status || 'no connection'}`); }
     if (!base) { say(false, 'Kisi bhi provider ne key accept nahi ki. Key sahi copy hui? Ya provider/base URL manually chuno.'); return rep; }
   }
-  rep.provider = provider ?? 'custom'; rep.base = base;
+  provider ??= providerFromBase(base); rep.provider = provider ?? 'custom'; rep.base = base;
   if (!key && !isLocalBase(base)) { say(false, 'Is provider ke liye API key chahiye'); return rep; }
   if (!models.length) {
     const m = await fetchModels(base, key, fetchFn);
-    if (!m.ok) { say(false, m.status === 401 || m.status === 403 ? `Key reject hui (HTTP ${m.status})` : m.status === 404 ? `Base URL galat lagta hai (${base}/models → 404)` : m.status === 0 ? `Server tak pahunch nahi paya (${base})${isLocalBase(base) ? ' — Ollama chal raha hai? "ollama serve"' : ''}` : `HTTP ${m.status}`); return rep; }
+    if (!m.ok) { say(false, m.status === 401 || m.status === 403 ? `Key reject hui (HTTP ${m.status})` : m.status === 400 && provider === 'gemini' ? 'Gemini galat key par HTTP 400 deta hai: key dobara copy karo (aistudio.google.com/apikey se, shuru "AIza")' : m.status === 404 ? `Base URL galat lagta hai (${base}/models → 404)` : m.status === 0 ? `Server tak pahunch nahi paya (${base})${isLocalBase(base) ? ' — Ollama chal raha hai? "ollama serve"' : ''}` : `HTTP ${m.status}`); return rep; }
     models = m.models;
   }
   say(true, `${models.length} models mile`); if (!models.length) { say(false, provider === 'ollama' ? 'Ollama mein koi model installed nahi: pehle `ollama pull llama3.2` chalao' : 'Is key par koi model nahi mila'); return rep; }
   const ranked = rankChat(provider ?? 'custom', models); if (!ranked.length) { say(false, 'Koi chat model nahi mila'); return rep; }
-  for (const id of ranked.slice(0, 4)) {
+  for (const id of ranked.slice(0, provider === 'openrouter' ? 8 : 5)) {
     const t = await chatOk(base, key, id, fetchFn);
     if (t.ok || t.status === 429) { say(true, `${id} ${t.ok ? 'ne jawab diya' : 'sahi hai (abhi rate-limit)'}`); saveAi(cfg, 'llm', { apiKey: key || undefined, baseUrl: base, model: id, slot }); rep.llm = { model: id, slot }; rep.ok = true; break; }
     say(false, `${id}: HTTP ${t.status || 'x'} ${t.msg}`.trim());
+    if (provider === 'openrouter' && /0 endpoints|data policy|privacy/i.test(t.msg)) { say(false, 'OpenRouter: free models ke liye openrouter.ai/settings/privacy mein free endpoints allow karne padte hain (ya account par kuch credit ho)'); break; }
   }
   if (!rep.ok) say(false, 'Top models ne jawab nahi diya. Models list se manually chuno ("Models dikhao").');
   const stt = rankStt(models)[0]; if (stt && key) { try { saveAi(cfg, 'stt', { apiKey: key, baseUrl: base, model: stt }); rep.stt = { model: stt }; say(true, `Speech-to-text bhi set: ${stt} (Test dabake pakka karo)`); } catch { /* optional */ } }
   return rep;
+}
+
+/** "Auto fix" for a failing connection: reuse the key/base already saved in that slot, re-detect a working model. */
+export async function autoFix(cfg: Config, target: string, fetchFn: typeof fetch = fetch): Promise<AutoReport> {
+  const [kind, arg] = target.split(':'); const { llmSlot, sttCreds } = await import('./settings.ts');
+  if (kind === 'llm') { const c = llmSlot(cfg, Number(arg ?? 1)); if (!c) return { ok: false, provider: null, base: null, steps: [{ ok: false, text: 'Is slot mein key save nahi hai: upar Auto setup mein key daalo' }] }; return autoSetup(cfg, { apiKey: c.apiKey, baseUrl: c.baseUrl, slot: Number(arg ?? 1) }, fetchFn); }
+  if (kind === 'stt') {
+    const c = sttCreds(cfg); const rep: AutoReport = { ok: false, provider: null, base: c?.baseUrl ?? null, steps: [] };
+    if (!c) { rep.steps.push({ ok: false, text: 'Speech-to-text API save nahi hai. API zaruri nahi: Setup → Local speech-to-text se local engine chalao' }); return rep; }
+    const host = (() => { try { return new URL(c.baseUrl).host; } catch { return c.baseUrl; } })(); const m = await fetchModels(c.baseUrl, c.apiKey, fetchFn);
+    if (!m.ok) { rep.steps.push({ ok: false, text: m.status === 0 ? `${host} tak pahunch nahi paya (base URL galat ya offline). Groq ke liye: ${BASES.groq}. Ya "Sirf local" speech-to-text use karo` : `${host}: HTTP ${m.status} (key/URL check karo)` }); return rep; }
+    const w = rankStt(m.models)[0]; if (!w) { rep.steps.push({ ok: false, text: `${host} par koi whisper model nahi hai. Groq key daalo ya local speech-to-text use karo` }); return rep; }
+    saveAi(cfg, 'stt', { apiKey: c.apiKey, baseUrl: c.baseUrl, model: w }); rep.ok = true; rep.stt = { model: w }; rep.provider = providerFromBase(c.baseUrl); rep.steps.push({ ok: true, text: `${host}: model ${w} set` }); return rep;
+  }
+  return { ok: false, provider: null, base: null, steps: [{ ok: false, text: 'is target ke liye auto fix nahi' }] };
 }

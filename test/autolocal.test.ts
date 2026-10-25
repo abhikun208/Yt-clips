@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync, chmodSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { rankChat, rankStt, providerFromKey, autoSetup } from '../src/ai/autodetect.ts';
-import { PRESETS, sttCreds, llmCreds } from '../src/ai/settings.ts';
+import { rankChat, rankStt, providerFromKey, autoSetup, autoFix } from '../src/ai/autodetect.ts';
+import { PRESETS, sttCreds, llmCreds, llmSlot, saveAi } from '../src/ai/settings.ts';
 import { parseWhisperCppJson, runLocalCli, detectLocalEngines, probeVoiceStudio, testLocal } from '../src/analysis/localStt.ts';
 import { transcribeVideo } from '../src/analysis/stt.ts';
 import { testConfig, tmpDir, makeFixture } from './helpers.ts';
@@ -19,7 +19,7 @@ test('key prefix -> provider; ranking picks free/best chat models and drops whis
   assert.equal(rankChat('groq', M('whisper-large-v3', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b'))[0], 'llama-3.3-70b-versatile');
   assert.ok(!rankChat('groq', M('whisper-large-v3', 'playai-tts', 'meta-llama/llama-guard-4-12b')).length);
   assert.equal(rankChat('gemini', M('gemini-3.8-pro', 'gemini-3.8-flash-lite', 'gemini-3.8-flash', 'text-embedding-004', 'gemini-3.8-flash-image'))[0], 'gemini-3.8-flash');
-  assert.equal(rankChat('openrouter', [{ id: 'openai/gpt-5', free: false }, { id: 'meta-llama/llama-3.3-70b-instruct:free', free: true }, { id: 'openrouter/free', free: true }])[0], 'openrouter/free');
+  assert.equal(rankChat('openrouter', [{ id: 'openai/gpt-5', free: false }, { id: 'meta-llama/llama-3.3-70b-instruct:free', free: true }, { id: 'openrouter/free', free: true }]).join(), 'meta-llama/llama-3.3-70b-instruct:free,openrouter/free');
   assert.equal(rankChat('xai', M('grok-3', 'grok-3-mini', 'grok-2-image'))[0], 'grok-3-mini');
   assert.equal(rankChat('ollama', M('nomic-embed-text', 'llama3.1:70b', 'llama3.2:3b', 'qwen2.5:7b'))[0], 'llama3.2:3b');
   assert.deepEqual(rankStt(M('llama-3.3-70b-versatile', 'whisper-large-v3', 'whisper-large-v3-turbo')), ['whisper-large-v3-turbo', 'whisper-large-v3']);
@@ -49,6 +49,11 @@ test('autoSetup: local Ollama works with no key and picks an installed model', a
   const cfg = testConfig(); const rep = await autoSetup(cfg, { provider: 'ollama' }, stubFetch({ goodKey: '', base: 'http://127.0.0.1:11434/v1', models: ['nomic-embed-text', 'llama3.2:3b'] }));
   assert.equal(rep.ok, true, JSON.stringify(rep)); assert.equal(llmCreds(cfg)?.model, 'llama3.2:3b'); assert.equal(llmCreds(cfg)?.apiKey, '');
   const none = await autoSetup(testConfig(), { provider: 'ollama' }, stubFetch({ goodKey: '', base: 'http://127.0.0.1:11434/v1', models: [] })); assert.equal(none.ok, false); assert.match(none.steps.map((s) => s.text).join(), /ollama pull/);
+});
+test('autoFix reuses the saved key: stale gemini model replaced by a live one; unreachable STT base explained', async () => {
+  const cfg = testConfig(); saveAi(cfg, 'llm', { apiKey: 'AIzaSyTESTKEY1234567890', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash', slot: 2 });
+  const r = await autoFix(cfg, 'llm:2', stubFetch({ goodKey: 'AIzaSyTESTKEY1234567890', base: 'https://generativelanguage.googleapis.com/v1beta/openai', models: ['gemini-2.5-computer-use', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'] })); assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(llmSlot(cfg, 2)?.model, 'gemini-2.5-flash');
+  saveAi(cfg, 'stt', { apiKey: 'gsk_testkey1234567890', baseUrl: 'https://stt.example.invalid/v1' }); const f = await autoFix(cfg, 'stt', (async () => { throw new Error('fetch failed'); }) as typeof fetch); assert.equal(f.ok, false); assert.match(f.steps[0]!.text, /stt\.example\.invalid/);
 });
 test('parseWhisperCppJson: ms offsets -> seconds, drops [BLANK_AUDIO] markers', () => {
   const r = parseWhisperCppJson(JSON.stringify({ result: { language: 'hi' }, transcription: [{ offsets: { from: 500, to: 2500 }, text: ' booyah squad ' }, { offsets: { from: 2500, to: 3000 }, text: '[BLANK_AUDIO]' }] }));

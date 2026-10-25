@@ -22,7 +22,7 @@ import { UI_HTML } from './ui.ts';
 import { isPace } from '../edit/pace.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
-import { autoSetup } from '../ai/autodetect.ts';
+import { autoSetup, autoFix } from '../ai/autodetect.ts';
 import { detectLocalEngines, testLocal, cppModelPath, voiceStudioUrl, type LocalEngineId } from '../analysis/localStt.ts';
 import { listModels, testConnection, lastResults, knownTargets } from '../connections.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
@@ -318,6 +318,7 @@ export function createApp(o: AppOptions = {}): App {
       }
       if (p === '/api/schedule' && m === 'GET') { const sch = url.searchParams.get('channel') ? getChannel(store, url.searchParams.get('channel')) : null; const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: sch ? scheduleFor(cfg, sch) : cfg.schedule, channelId: sch?.id }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
       if (p === '/api/ai/models' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { slot?: number }; return json(res, 200, await listModels(cfg, Number(b.slot ?? 1))); }
+      if (p === '/api/ai/fix' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { target?: string }; const tg = String(b.target ?? ''); if (!/^(llm:[123]|stt)$/.test(tg)) return json(res, 400, { error: 'invalid: target' }); const rep = await autoFix(cfg, tg); const test = await testConnection(store, cfg, tg); return json(res, 200, { ...rep, test }); }
       if (p === '/api/ai/auto' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { apiKey?: string; provider?: string; baseUrl?: string; slot?: number }; if (b.baseUrl && !/^https?:\/\/[^\s]+$/.test(b.baseUrl)) return json(res, 400, { error: 'invalid: baseUrl' }); const rep = await autoSetup(cfg, b); if (rep.llm) rep.steps.push({ ok: (await testConnection(store, cfg, `llm:${rep.llm.slot}`)).ok, text: 'Save ke baad dobara asli test' }); return json(res, 200, rep); }
       if (p === '/api/stt/local' && m === 'GET') { const engines = await detectLocalEngines(cfg); return json(res, 200, { engines, engine: cfg.stt.engine, localEngine: cfg.stt.localEngine ?? 'auto', model: cfg.stt.model, language: cfg.stt.language, cppModel: cppModelPath(cfg), voiceStudioUrl: voiceStudioUrl(cfg), apiSaved: !!sttCreds(cfg) }); }
       if (p === '/api/stt/local' && m === 'POST') {
@@ -344,7 +345,7 @@ export function createApp(o: AppOptions = {}): App {
         if (review) items.push({ level: 'warn', text: `${review} clip aapke review ka wait kar rahi hai`, go: 'clips' });
         if (manualDue) items.push({ level: 'warn', text: `${manualDue} manual post abhi karni hai (Instagram/TikTok etc.)`, go: 'publish' });
         for (const b of blocked.slice(0, 3)) items.push({ level: 'warn', text: `Upload #${b.id} (${b.platform}) ruka hai: ${(b.error ?? '').slice(0, 100)}`, go: 'publish' });
-        const conn = lastResults(store); for (const [k, v] of Object.entries(conn)) if (!v.ok) items.push({ level: 'bad', text: `${k} connect nahi: ${v.detail.slice(0, 100)}`, go: 'settings' });
+        const conn = lastResults(store); for (const [k, v] of Object.entries(conn)) if (!v.ok) items.push({ level: 'bad', text: `${k} connect nahi: ${v.detail.slice(0, 260)}`, go: 'settings', ...(/^(llm:[123]|stt)$/.test(k) ? { fix: k } : {}) });
         if (!llmChain(cfg).length) items.push({ level: 'info', text: 'AI key nahi hai: titles/ranking local engine se hongi (Setup mein free key daalo)', go: 'settings' });
         if (!sttCreds(cfg)) items.push({ level: 'info', text: 'Speech-to-text nahi hai: captions generic honge (Setup → AI → speech-to-text)', go: 'settings' });
         if (!cfg.automation.autoQueue) items.push({ level: 'info', text: 'Autopilot OFF: clips ban jaayengi par upload khud queue nahi hoga', go: 'settings' });
