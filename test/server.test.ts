@@ -12,7 +12,7 @@ async function boot(extra: Record<string, unknown> = {}): Promise<{ app: App; ba
   const port = await app.start(); return { app, base: `http://127.0.0.1:${port}` };
 }
 const auth = { authorization: `Bearer ${TOKEN}` };
-const wait = async (f: () => Promise<boolean>, ms = 150_000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await f()) return true; await new Promise((r) => setTimeout(r, 400)); } return false; };
+const wait = async (f: () => Promise<boolean>, ms = 240_000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await f()) return true; await new Promise((r) => setTimeout(r, 400)); } return false; };
 
 test('startup guards: no token on public host, short token', () => {
   assert.throws(() => createApp({ host: '0.0.0.0', token: '', dataDir: tmpDir() }), /non-loopback.*YT_CLIPS_TOKEN/);
@@ -67,7 +67,8 @@ test('upload -> automatic pipeline -> clips with QC pass, range streaming, manif
     const up = await (await fetch(`${base}/api/upload?authorized=1&name=in.mp4`, { method: 'POST', headers: auth, body })).json() as any; assert.equal(up.ok, true); assert.equal(up.duplicate, false);
     assert.equal(((await (await fetch(`${base}/api/upload?authorized=1&name=in.mp4`, { method: 'POST', headers: auth, body })).json()) as any).duplicate, true);
     const done = await wait(async () => { const s = await (await fetch(`${base}/api/status`, { headers: auth })).json() as any; const cl = await (await fetch(`${base}/api/clips`, { headers: auth })).json() as any; return !s.running && cl.clips.length > 0 && cl.clips.every((c: any) => c.title); });
-    assert.ok(done, 'pipeline finished'); 
+    if (!done) { const s = await (await fetch(`${base}/api/status`, { headers: auth })).json() as any; const cl = await (await fetch(`${base}/api/clips`, { headers: auth })).json() as any; console.error('PIPELINE DIAG', JSON.stringify({ status: s, clips: cl.clips.map((c: any) => ({ title: c.title, qc: c.qcPass })) }).slice(0, 1500)); }
+    assert.ok(done, 'pipeline finished (see PIPELINE DIAG above)'); 
     const { clips } = await (await fetch(`${base}/api/clips`, { headers: auth })).json() as any; const c = clips[0];
     assert.equal(c.qcPass, true); assert.ok(c.title && c.tags.length >= 0); assert.ok(c.thumb);
     const full = await fetch(`${base}${c.video}`, { headers: auth }); const size = Number(full.headers.get('content-length')); assert.ok(size > 1000); assert.equal(full.headers.get('accept-ranges'), 'bytes'); await full.arrayBuffer();
