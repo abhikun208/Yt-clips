@@ -67,6 +67,15 @@
 | Social login in UI: Google client, Meta (Facebook+Instagram) and TikTok OAuth code flows, one-time state, long-lived Meta token + Page/IG discovery, TikTok auto-refresh; tokens feed the analytics providers | DONE; fake servers only. TikTok may require an https redirect URI (unverified) | test/ai.test.ts |
 | Clip cards show every editing feature applied/skipped with reason; `doctor` checks ffmpeg has all needed filters/encoders and STT readiness; startup prints the URL (+ tries termux-open-url) | DONE | test/ai.test.ts, doctor |
 
+### Session 5c (2026-10-25): UI made functional (owner complaint: "show-off, kaam nahi karta")
+| Area | Status | Evidence |
+|---|---|---|
+| Key status: save now runs a real test request (LLM chat, STT audio, Telegram getMe/getChat, Discord webhook GET, Mastodon verify_credentials, Google client via device-code request, YouTube channels.list); last result persisted in kv `conn:*`, shown as Connected/Failed + reason, Test buttons | DONE; verified in a real browser against a LOCAL stand-in LLM endpoint (bad key -> Failed 401, good key -> Connected). Telegram/Discord/Mastodon/Google/YouTube test calls never ran against the real services (sandbox blocked) | src/connections.ts, test/real/ui-e2e.mjs |
+| Schedule tab: labelled fields, 24-hour grid, quiet hours selects, per-channel slot preview, timeline across channels. **Real bug fixed: `staggerMinutes` was rejected by the channel API, so saving a channel schedule always failed (400)** | DONE; browser-verified save + reload | ui-e2e |
+| Publish tab: readiness checklist (client, per-channel login, gates), upload cards with step bar + plain-language hint for each block reason, schedule-at-time + next-free-slot, credential dialogs instead of prompt() | DONE; browser-verified queue flow | ui-e2e |
+| Clips: default "Review baaki", rejected clips move to Rejected with reason, Restore / new version, Undo toast, bulk approve, Queue dialog | DONE; browser-verified reject/undo/restore/approve/queue | ui-e2e |
+| Home: "Aapka kaam abhi" todo (/api/todo) + per-channel cards. Auto-refresh no longer wipes forms or interrupts playing video | DONE | ui-e2e |
+
 ### Added in session 5b (2026-10-25): the "not built yet" list
 | Area | Status | Evidence |
 |---|---|---|

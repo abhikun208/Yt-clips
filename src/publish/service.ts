@@ -49,7 +49,7 @@ export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Cha
 }
 
 export function listUploads(store: Store) {
-  return store.all(`SELECT u.id, u.clip_id, u.platform, u.state, u.remote_id, u.visibility, u.scheduled_at, u.error, u.updated_at, c.output_id FROM uploads u JOIN clips c ON c.id=u.clip_id ORDER BY u.id DESC LIMIT 200`);
+  return store.all(`SELECT u.id, u.clip_id, u.platform, u.state, u.remote_id, u.visibility, u.scheduled_at, u.error, u.updated_at, c.output_id, c.metadata_json, ch.slug AS channel, ch.name AS channel_name FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id ORDER BY u.id DESC LIMIT 200`).map((r) => { const x = r as Record<string, unknown>; let title = ''; try { title = (JSON.parse(String(x.metadata_json ?? '{}')) as { title?: string }).title ?? ''; } catch { /* no metadata */ } delete x.metadata_json; return { ...x, title }; });
 }
 
 export async function advance(store: Store, cfg: Config, uploadId: number, o: { approve?: boolean; scheduledAt?: Date | null } = {}): Promise<{ state: UploadState } | { state: string; blocked: string }> {

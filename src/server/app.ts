@@ -19,6 +19,7 @@ import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
 import { enqueue } from '../db.ts';
 import { UI_HTML } from './ui.ts';
+import { testConnection, lastResults, knownTargets } from '../connections.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
 import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
@@ -234,8 +235,8 @@ export function createApp(o: AppOptions = {}): App {
         setCommentStatus(store, id, cm[2] as 'approve' | 'reject' | 'edit', b.text); return json(res, 200, { ok: true });
       }
       if (p === '/api/settings' && m === 'GET') return json(res, 200, { ai: aiStatus(cfg), apps: { facebook: !!appCreds(cfg, 'facebook'), tiktok: !!appCreds(cfg, 'tiktok') }, platforms: platformStatus(store, cfg), callbackBase: publicBase(req) });
-      if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); return json(res, 200, { ok: true, ai: aiStatus(cfg) }); }
-      if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); return json(res, 200, { ok: true }); }
+      if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); const test = await testConnection(store, cfg, b.kind === 'stt' ? 'stt' : `llm:${b.slot ?? 1}`); return json(res, 200, { ok: true, ai: aiStatus(cfg), test }); }
+      if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); const test = b.app === 'google' ? await testConnection(store, cfg, 'google-client') : null; return json(res, 200, { ok: true, test }); }
       const os = /^\/api\/oauth\/(facebook|tiktok)\/start$/.exec(p); if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, os[1] as SocialApp, publicBase(req)), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback` });
       if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg), registry: PLATFORMS.map((x) => ({ id: x.id, label: x.label, kind: x.kind, note: x.note, fields: x.fields?.map((f) => ({ name: f.name, label: f.label, secret: !!f.secret })), configured: x.kind === 'direct' ? credentialsConfigured(secretsFor(cfg), x.id) : x.kind === 'manual' })) });
       const cred = /^\/api\/credentials\/(\w+)$/.exec(p);
@@ -243,7 +244,8 @@ export function createApp(o: AppOptions = {}): App {
         const b = JSON.parse((await readBody(req, 8 * 1024)).toString('utf8') || '{}') as { fields?: Record<string, unknown>; channel?: string };
         const ch = b.channel ? getChannel(store, b.channel) : null; if (!platformInfo(cred[1]!) && cred[1] !== 'notify') return json(res, 400, { error: 'invalid: unknown platform' });
         saveCredentials(secretsFor(cfg), cred[1]!, b.fields ?? {}, ch && ch.slug !== 'main' ? `${platformInfo(cred[1]!)?.secret ?? 'notify'}-${ch.slug}` : undefined); store.logState('credentials', 0, null, 'saved', `${cred[1]}${ch ? ':' + ch.slug : ''}`);
-        return json(res, 200, { ok: true, encrypted: secretsFor(cfg).encrypted });
+        const slug = ch && ch.slug !== 'main' ? ch.slug : undefined; const test = await testConnection(store, cfg, slug ? `${cred[1]}:${slug}` : cred[1]!);
+        return json(res, 200, { ok: true, encrypted: secretsFor(cfg).encrypted, test });
       }
       if (p === '/api/manual' && m === 'GET') {
         const rows = store.all<{ id: number; platform: string; scheduled_at: string | null; output_id: string; metadata_json: string | null; slug: string | null }>(`SELECT u.id, u.platform, u.scheduled_at, c.output_id, c.metadata_json, ch.slug FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.state='SCHEDULED_OR_APPROVED' AND u.platform IN (${PLATFORMS.filter((x) => x.kind === 'manual').map((x) => `'${x.id}'`).join(',')}) ORDER BY u.scheduled_at LIMIT 100`);
@@ -289,10 +291,30 @@ export function createApp(o: AppOptions = {}): App {
         return json(res, 200, { ok: true, channel: ch.slug }); // already-queued uploads keep the channel they were queued under
       }
       if (p === '/api/calendar' && m === 'GET') {
-        const rows = store.all<{ id: number; platform: string; state: string; scheduled_at: string; slug: string | null; name: string | null; output_id: string }>(`SELECT u.id, u.platform, u.state, u.scheduled_at, ch.slug, ch.name, c.output_id FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.scheduled_at IS NOT NULL AND u.state IN ('SCHEDULED_OR_APPROVED','PUBLISHED') AND u.scheduled_at >= datetime('now','-1 day') ORDER BY u.scheduled_at LIMIT 300`);
-        return json(res, 200, { timezone: cfg.timezone, items: rows });
+        const rows = store.all<{ id: number; platform: string; state: string; scheduled_at: string; slug: string | null; name: string | null; output_id: string; metadata_json: string | null }>(`SELECT u.id, u.platform, u.state, u.scheduled_at, ch.slug, ch.name, c.output_id, c.metadata_json FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.scheduled_at IS NOT NULL AND u.state IN ('SCHEDULED_OR_APPROVED','PUBLISHED') AND u.scheduled_at >= datetime('now','-1 day') ORDER BY u.scheduled_at LIMIT 300`);
+        return json(res, 200, { timezone: cfg.timezone, items: rows.map((r) => { let title = ''; try { title = (JSON.parse(String((r as { metadata_json?: string }).metadata_json ?? '{}')) as { title?: string }).title ?? ''; } catch { /* none */ } const { metadata_json: _m, ...rest } = r as typeof r & { metadata_json?: string }; return { ...rest, title }; }) });
       }
       if (p === '/api/schedule' && m === 'GET') { const sch = url.searchParams.get('channel') ? getChannel(store, url.searchParams.get('channel')) : null; const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: sch ? scheduleFor(cfg, sch) : cfg.schedule, channelId: sch?.id }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
+      if (p === '/api/connections' && m === 'GET') return json(res, 200, { results: lastResults(store), targets: knownTargets(store, cfg) });
+      if (p === '/api/connections/test' && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { target?: string }; try { return json(res, 200, await testConnection(store, cfg, String(b.target ?? ''))); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }
+      if (p === '/api/todo' && m === 'GET') {
+        const one = (q: string, ...a: (string | number | null)[]) => (store.get<{ n: number }>(q, ...a)?.n ?? 0);
+        const review = one(`SELECT count(*) n FROM clips WHERE review='pending' AND qc_pass=1`);
+        const blocked = store.all<{ id: number; platform: string; state: string; error: string | null }>(`SELECT id, platform, state, error FROM uploads WHERE error IS NOT NULL AND error<>'' AND state NOT IN ('PUBLISHED') ORDER BY id DESC LIMIT 20`);
+        const manualDue = one(`SELECT count(*) n FROM uploads WHERE state='SCHEDULED_OR_APPROVED' AND platform IN (${PLATFORMS.filter((x) => x.kind === 'manual').map((x) => `'${x.id}'`).join(',')}) AND (scheduled_at IS NULL OR scheduled_at <= datetime('now'))`);
+        const dead = store.all<{ key: string; last_error: string | null }>(`SELECT key, last_error FROM jobs WHERE state='DEAD' ORDER BY id DESC LIMIT 5`);
+        const items: { level: 'bad' | 'warn' | 'ok' | 'info'; text: string; go?: string }[] = [];
+        if (dead.length) items.push({ level: 'bad', text: `${dead.length} job fail hui: ${dead[0]!.key} — ${(dead[0]!.last_error ?? '').slice(0, 90)}`, go: 'home' });
+        if (review) items.push({ level: 'warn', text: `${review} clip aapke review ka wait kar rahi hai`, go: 'clips' });
+        if (manualDue) items.push({ level: 'warn', text: `${manualDue} manual post abhi karni hai (Instagram/TikTok etc.)`, go: 'publish' });
+        for (const b of blocked.slice(0, 3)) items.push({ level: 'warn', text: `Upload #${b.id} (${b.platform}) ruka hai: ${(b.error ?? '').slice(0, 100)}`, go: 'publish' });
+        const conn = lastResults(store); for (const [k, v] of Object.entries(conn)) if (!v.ok) items.push({ level: 'bad', text: `${k} connect nahi: ${v.detail.slice(0, 100)}`, go: 'settings' });
+        if (!llmChain(cfg).length) items.push({ level: 'info', text: 'AI key nahi hai: titles/ranking local engine se hongi (Setup mein free key daalo)', go: 'settings' });
+        if (!sttCreds(cfg)) items.push({ level: 'info', text: 'Speech-to-text nahi hai: captions generic honge (Setup → AI → speech-to-text)', go: 'settings' });
+        if (!cfg.automation.autoQueue) items.push({ level: 'info', text: 'Autopilot OFF: clips ban jaayengi par upload khud queue nahi hoga', go: 'settings' });
+        if (!items.length) items.push({ level: 'ok', text: 'Sab theek hai — koi kaam baaki nahi' });
+        return json(res, 200, { items, counts: { review, manualDue, blocked: blocked.length, dead: dead.length } });
+      }
       if (p === '/api/run' && m === 'POST') { void runOnce(); return json(res, 202, { started: true }); }
       if (p === '/api/upload' && m === 'POST') {
         if (url.searchParams.get('authorized') !== '1') return json(res, 400, { error: 'rights/authorization must be confirmed (authorized=1)' });

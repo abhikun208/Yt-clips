@@ -97,7 +97,7 @@ test('UI: served script is valid JavaScript and contains the publishing/comments
   try {
     const html = await (await fetch(`${base}/`)).text(); const script = /<script>([\s\S]*)<\/script>/.exec(html)![1]!;
     assert.doesNotThrow(() => new Function(script), 'UI script must parse');
-    for (const id of ['ytc', 'qgo', 'ccol', 'acol', 'csvgo', 'eload', 'esave']) assert.ok(html.includes(`id="${id}"`), id);
+    for (const id of ['ready', 'qgo', 'ccol', 'acol', 'csvgo', 'eload', 'esave', 'todo', 'chlist', 'aist']) assert.ok(html.includes(`id="${id}"`), id);
     app.store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (1, '/a/b/talk.mp4', 'f')`);
     const v = await (await fetch(`${base}/api/videos`, { headers: auth })).json() as any; assert.equal(v.videos[0].title, 'talk.mp4');
     for (const p of ['/api/uploads', '/api/comments', '/api/analytics', '/api/schedule?n=2', '/api/youtube', '/api/platforms']) assert.equal((await fetch(`${base}${p}`, { headers: auth })).status, 200, p);
