@@ -6,6 +6,7 @@ import { run, which } from '../util/proc.ts';
 import { warn, info } from '../util/log.ts';
 import { sttCreds } from '../ai/settings.ts';
 import { transcribeViaApi } from './sttApi.ts';
+import { pickLocal, runLocalCli, voiceStudioUrl } from './localStt.ts';
 
 export interface SttResult { status: 'ok' | 'no_speech' | 'unavailable' | 'failed'; cues: Cue[]; language?: string; engine?: string; error?: string }
 
@@ -44,7 +45,7 @@ export function parseSttJson(stdout: string): { cues: Cue[]; language?: string }
 
 /** Extract 16k mono audio, run STT, write the `<video>.json` sidecar the analyzer/captions already read. Never throws: failure => status. */
 export async function transcribeVideo(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
-  if (!process.env.YT_CLIPS_STT_CMD) {
+  if (!process.env.YT_CLIPS_STT_CMD && cfg.stt.engine !== 'local') {
     const api = sttCreds(cfg);
     if (api) {
       try {
@@ -55,14 +56,24 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
       } catch (e) { warn('api stt failed', { err: (e as Error).message.slice(0, 160) }); return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; }
     }
   }
-  const eng = await sttEngine(cfg.rootDir);
-  if (!eng) return { status: 'unavailable', cues: [], error: 'no STT engine (add a free Groq key in the UI, or install faster-whisper, or set YT_CLIPS_STT_CMD)' };
+  if (cfg.stt.engine === 'api') return { status: 'unavailable', cues: [], error: 'stt.engine=api but no API key saved' };
+  const pick = await pickLocal(cfg);
+  if (pick?.id === 'voicestudio') {
+    try {
+      const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, { baseUrl: voiceStudioUrl(cfg) + '/v1', apiKey: '', model: cfg.stt.model }, { language: hint.language ?? cfg.stt.language, prompt: hint.prompt ?? cfg.stt.prompt });
+      if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'voicestudio', language: r.language };
+      writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'voicestudio', cues: r.cues.length });
+      return { status: 'ok', cues: r.cues, language: r.language, engine: 'voicestudio' };
+    } catch (e) { return { status: 'failed', cues: [], engine: 'voicestudio', error: (e as Error).message.slice(0, 200) }; }
+  }
+  const eng = pick && (pick.id === 'faster-whisper' || pick.id === 'custom') ? await sttEngine(cfg.rootDir) : pick ? { cmd: '', args: [], name: pick.id } : null;
+  if (!eng) return { status: 'unavailable', cues: [], error: 'no local STT engine (Setup -> Local speech-to-text shows what to install; or add a free Groq key)' };
   const wav = join(cfg.dirs.tmp, `stt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
   try {
     const ex = await run('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], { timeoutMs: 30 * 60_000 });
     if (ex.code !== 0) return { status: 'failed', cues: [], engine: eng.name, error: `audio extraction failed: ${ex.stderr.slice(0, 150)}` };
-    const r = await run(eng.cmd, [...eng.args, wav, cfg.stt.model, hint.language ?? cfg.stt.language], { timeoutMs: 4 * 60 * 60_000 });
-    let parsed; try { parsed = parseSttJson(r.stdout); } catch (e) { return { status: 'failed', cues: [], engine: eng.name, error: (e as Error).message.slice(0, 200) }; }
+    let r = { code: 0, stdout: '', stderr: '' }; let parsed: { cues: Cue[]; language?: string };
+    try { if (eng.cmd) { r = await run(eng.cmd, [...eng.args, wav, cfg.stt.model, hint.language ?? cfg.stt.language], { timeoutMs: 4 * 60 * 60_000 }); parsed = parseSttJson(r.stdout); } else parsed = await runLocalCli(cfg, eng.name as 'whisper-cpp' | 'whisper-cli', wav, hint.language ?? cfg.stt.language); } catch (e) { return { status: 'failed', cues: [], engine: eng.name, error: (e as Error).message.slice(0, 200) }; }
     if (r.code !== 0) return { status: 'failed', cues: [], engine: eng.name, error: `engine exit ${r.code}` };
     if (!parsed.cues.length) return { status: 'no_speech', cues: [], engine: eng.name, language: parsed.language };
     writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(parsed.cues));

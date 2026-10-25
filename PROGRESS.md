@@ -180,3 +180,11 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 2. First real run of yt-dlp + faster-whisper/Groq on the target server; fix whatever breaks.
 3. Owner: Google OAuth client (device flow), connect, test ONE unlisted upload; fix whatever real Google disagrees with.
 4. Unbuilt (see table above): Instagram/TikTok/Facebook upload adapters (after owner app review), caption translation, speed-up of boring parts, YouTube Analytics API pull, dubbing/TTS, Docker/VPS verification on a real host.
+
+### Session 5f (2026-10-26): provider auto-setup + local speech-to-text
+| Item | Status |
+|---|---|
+| Correct base URLs in presets (Groq, Gemini, Ollama, OpenRouter) + new xAI Grok preset | URLs read from provider docs 2026-10-25; model ids change often, so the live `/models` list wins |
+| `src/ai/autodetect.ts`, `POST /api/ai/auto`, UI "Auto setup — sirf API key daalo": key prefix (gsk_/AIza/sk-or-/xai-) or probing, model ranking (non-chat filtered), real 1-token chat call before saving, fallback to next model, Groq whisper set for STT, keyless local Ollama | Tested with stand-in fetch only (8 tests); never run against real providers from the sandbox. Key prefixes are from memory |
+| `src/analysis/localStt.ts` + `stt.engine` (auto/local/api): faster-whisper, whisper.cpp CLI, openai-whisper CLI, custom cmd, VoiceStudio local server; UI "Local speech-to-text" card with detection, install hints, Test | Adapters tested with stand-in binaries. No real Whisper model was run in the sandbox |
+| VoiceStudio | Its source could not be read from the sandbox; it is an AGPL-3.0 desktop app, so its code is NOT copied. Only an optional HTTP backend (default http://127.0.0.1:3900, assumed OpenAI-style `/v1/audio/transcriptions`) — UNVERIFIED, use the Test button |

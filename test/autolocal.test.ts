@@ -1,0 +1,75 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { writeFileSync, chmodSync, mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { rankChat, rankStt, providerFromKey, autoSetup } from '../src/ai/autodetect.ts';
+import { PRESETS, sttCreds, llmCreds } from '../src/ai/settings.ts';
+import { parseWhisperCppJson, runLocalCli, detectLocalEngines, probeVoiceStudio, testLocal } from '../src/analysis/localStt.ts';
+import { transcribeVideo } from '../src/analysis/stt.ts';
+import { testConfig, tmpDir, makeFixture } from './helpers.ts';
+
+const M = (...ids: string[]) => ids.map((id) => ({ id }));
+test('provider presets have the documented base URLs (xAI added)', () => {
+  const b = Object.fromEntries(PRESETS.map((p) => [p.id, p.base]));
+  assert.equal(b.groq, 'https://api.groq.com/openai/v1'); assert.equal(b.gemini, 'https://generativelanguage.googleapis.com/v1beta/openai');
+  assert.equal(b.ollama, 'http://127.0.0.1:11434/v1'); assert.equal(b.xai, 'https://api.x.ai/v1'); assert.equal(b.openrouter, 'https://openrouter.ai/api/v1');
+});
+test('key prefix -> provider; ranking picks free/best chat models and drops whisper/embedding/tts', () => {
+  assert.equal(providerFromKey('gsk_abc'), 'groq'); assert.equal(providerFromKey('AIzaXYZ'), 'gemini'); assert.equal(providerFromKey('sk-or-v1-x'), 'openrouter'); assert.equal(providerFromKey('xai-1'), 'xai'); assert.equal(providerFromKey('zzz'), null);
+  assert.equal(rankChat('groq', M('whisper-large-v3', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'openai/gpt-oss-20b'))[0], 'llama-3.3-70b-versatile');
+  assert.ok(!rankChat('groq', M('whisper-large-v3', 'playai-tts', 'meta-llama/llama-guard-4-12b')).length);
+  assert.equal(rankChat('gemini', M('gemini-3.8-pro', 'gemini-3.8-flash-lite', 'gemini-3.8-flash', 'text-embedding-004', 'gemini-3.8-flash-image'))[0], 'gemini-3.8-flash');
+  assert.equal(rankChat('openrouter', [{ id: 'openai/gpt-5', free: false }, { id: 'meta-llama/llama-3.3-70b-instruct:free', free: true }, { id: 'openrouter/free', free: true }])[0], 'openrouter/free');
+  assert.equal(rankChat('xai', M('grok-3', 'grok-3-mini', 'grok-2-image'))[0], 'grok-3-mini');
+  assert.equal(rankChat('ollama', M('nomic-embed-text', 'llama3.1:70b', 'llama3.2:3b', 'qwen2.5:7b'))[0], 'llama3.2:3b');
+  assert.deepEqual(rankStt(M('llama-3.3-70b-versatile', 'whisper-large-v3', 'whisper-large-v3-turbo')), ['whisper-large-v3-turbo', 'whisper-large-v3']);
+});
+function stubFetch(o: { goodKey: string; base: string; models: string[]; badModels?: string[] }): typeof fetch {
+  return (async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url); const auth = String((init?.headers as Record<string, string> | undefined)?.authorization ?? '');
+    const j = (code: number, b: unknown) => new Response(JSON.stringify(b), { status: code, headers: { 'content-type': 'application/json' } });
+    if (!u.startsWith(o.base)) return j(401, { error: { message: 'bad key' } });
+    if (auth !== `Bearer ${o.goodKey}` && o.goodKey) return j(401, { error: { message: 'invalid key' } });
+    if (u.endsWith('/models')) return j(200, { data: o.models.map((id) => ({ id })) });
+    const model = JSON.parse(String(init!.body)).model as string;
+    return o.badModels?.includes(model) ? j(404, { error: { message: 'model not found' } }) : j(200, { choices: [{ message: { content: 'ok' } }] });
+  }) as typeof fetch;
+}
+test('autoSetup: only a Groq key -> provider detected, best chat model verified by a real call and saved, whisper set for STT', async () => {
+  const cfg = testConfig(); const rep = await autoSetup(cfg, { apiKey: 'gsk_test' }, stubFetch({ goodKey: 'gsk_test', base: 'https://api.groq.com/openai/v1', models: ['whisper-large-v3-turbo', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'] }));
+  assert.equal(rep.ok, true, JSON.stringify(rep)); assert.equal(rep.provider, 'groq'); assert.equal(llmCreds(cfg)?.model, 'llama-3.3-70b-versatile'); assert.equal(sttCreds(cfg)?.model, 'whisper-large-v3-turbo');
+});
+test('autoSetup: falls to next model when the first 404s; unknown key shape is probed across providers; wrong key reports clearly', async () => {
+  const cfg = testConfig(); const f = stubFetch({ goodKey: 'weird-key', base: 'https://api.mistral.ai/v1', models: ['mistral-large-latest', 'mistral-small-latest'], badModels: ['mistral-small-latest'] });
+  const rep = await autoSetup(cfg, { apiKey: 'weird-key' }, f); assert.equal(rep.ok, true, JSON.stringify(rep)); assert.equal(rep.provider, 'mistral'); assert.equal(llmCreds(cfg)?.model, 'mistral-large-latest');
+  const bad = await autoSetup(testConfig(), { apiKey: 'nope' }, stubFetch({ goodKey: 'x', base: 'https://api.groq.com/openai/v1', models: [] })); assert.equal(bad.ok, false);
+  const rep2 = await autoSetup(testConfig(), { apiKey: 'gsk_nope' }, stubFetch({ goodKey: 'gsk_real', base: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile'] })); assert.equal(rep2.ok, false); assert.match(rep2.steps.map((s) => s.text).join(), /reject/i);
+});
+test('autoSetup: local Ollama works with no key and picks an installed model', async () => {
+  const cfg = testConfig(); const rep = await autoSetup(cfg, { provider: 'ollama' }, stubFetch({ goodKey: '', base: 'http://127.0.0.1:11434/v1', models: ['nomic-embed-text', 'llama3.2:3b'] }));
+  assert.equal(rep.ok, true, JSON.stringify(rep)); assert.equal(llmCreds(cfg)?.model, 'llama3.2:3b'); assert.equal(llmCreds(cfg)?.apiKey, '');
+  const none = await autoSetup(testConfig(), { provider: 'ollama' }, stubFetch({ goodKey: '', base: 'http://127.0.0.1:11434/v1', models: [] })); assert.equal(none.ok, false); assert.match(none.steps.map((s) => s.text).join(), /ollama pull/);
+});
+test('parseWhisperCppJson: ms offsets -> seconds, drops [BLANK_AUDIO] markers', () => {
+  const r = parseWhisperCppJson(JSON.stringify({ result: { language: 'hi' }, transcription: [{ offsets: { from: 500, to: 2500 }, text: ' booyah squad ' }, { offsets: { from: 2500, to: 3000 }, text: '[BLANK_AUDIO]' }] }));
+  assert.deepEqual(r.cues, [{ start: 0.5, end: 2.5, text: 'booyah squad' }]); assert.equal(r.language, 'hi');
+});
+test('local STT with stand-in whisper.cpp + whisper CLI binaries: detected, run, cues written to the sidecar (no API anywhere)', async () => {
+  const d = tmpDir(); const bin = join(d, 'bin'); mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'whisper-cli'), '#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in -of) of="$2";; esac; shift; done\necho \'{"result":{"language":"en"},"transcription":[{"offsets":{"from":1000,"to":3000},"text":" clutch time "}]}\' > "$of.json"\n'); chmodSync(join(bin, 'whisper-cli'), 0o755);
+  writeFileSync(join(d, 'ggml-small.bin'), 'x');
+  const old = process.env.PATH; process.env.PATH = `${bin}:${old}`; const oldCmd = process.env.YT_CLIPS_STT_CMD; delete process.env.YT_CLIPS_STT_CMD;
+  try {
+    const cfg = testConfig({ stt: { engine: 'local', cppModel: join(d, 'ggml-small.bin'), voiceStudioUrl: 'http://127.0.0.1:9' } });
+    const eng = await detectLocalEngines(cfg); assert.equal(eng.find((e) => e.id === 'whisper-cpp')!.available, true); assert.equal(eng.find((e) => e.id === 'voicestudio')!.available, false);
+    const t = await testLocal(cfg, 'whisper-cpp'); assert.equal(t.ok, true, t.text);
+    const v = join(d, 'v.mp4'); await makeFixture(v, 3); const r = await transcribeVideo(cfg, v); assert.equal(r.status, 'ok', JSON.stringify(r)); assert.equal(r.engine, 'whisper-cpp'); assert.equal(r.cues[0]!.text, 'clutch time'); assert.ok(existsSync(join(d, 'v.json')));
+    assert.equal((await transcribeVideo(testConfig({ stt: { engine: 'api' } }), v)).status, 'unavailable');
+    writeFileSync(join(bin, 'whisper'), '#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in --output_dir) od="$2";; esac; shift; done\necho \'{"language":"en","segments":[{"start":0,"end":1.5,"text":" hi","words":[{"word":" hi","start":0,"end":1.5}]}]}\' > "$od/a.json"\n'); chmodSync(join(bin, 'whisper'), 0o755);
+    const w = join(d, 'a.wav'); writeFileSync(w, 'x'); const c = await runLocalCli(cfg, 'whisper-cli', w, 'auto'); assert.equal(c.cues[0]!.words![0]!.text, 'hi');
+  } finally { process.env.PATH = old; if (oldCmd !== undefined) process.env.YT_CLIPS_STT_CMD = oldCmd; }
+});
+test('VoiceStudio probe: any HTTP answer = up; refused = down', async () => {
+  assert.equal((await probeVoiceStudio('http://127.0.0.1:3900', (async () => new Response('ok', { status: 200 })) as typeof fetch)).up, true);
+  assert.equal((await probeVoiceStudio('http://127.0.0.1:3900', (async () => { throw new Error('ECONNREFUSED'); }) as typeof fetch)).up, false);
+});

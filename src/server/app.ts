@@ -22,6 +22,8 @@ import { UI_HTML } from './ui.ts';
 import { isPace } from '../edit/pace.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
+import { autoSetup } from '../ai/autodetect.ts';
+import { detectLocalEngines, testLocal, cppModelPath, voiceStudioUrl, type LocalEngineId } from '../analysis/localStt.ts';
 import { listModels, testConnection, lastResults, knownTargets } from '../connections.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
@@ -316,6 +318,19 @@ export function createApp(o: AppOptions = {}): App {
       }
       if (p === '/api/schedule' && m === 'GET') { const sch = url.searchParams.get('channel') ? getChannel(store, url.searchParams.get('channel')) : null; const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: sch ? scheduleFor(cfg, sch) : cfg.schedule, channelId: sch?.id }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
       if (p === '/api/ai/models' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { slot?: number }; return json(res, 200, await listModels(cfg, Number(b.slot ?? 1))); }
+      if (p === '/api/ai/auto' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { apiKey?: string; provider?: string; baseUrl?: string; slot?: number }; if (b.baseUrl && !/^https?:\/\/[^\s]+$/.test(b.baseUrl)) return json(res, 400, { error: 'invalid: baseUrl' }); const rep = await autoSetup(cfg, b); if (rep.llm) rep.steps.push({ ok: (await testConnection(store, cfg, `llm:${rep.llm.slot}`)).ok, text: 'Save ke baad dobara asli test' }); return json(res, 200, rep); }
+      if (p === '/api/stt/local' && m === 'GET') { const engines = await detectLocalEngines(cfg); return json(res, 200, { engines, engine: cfg.stt.engine, localEngine: cfg.stt.localEngine ?? 'auto', model: cfg.stt.model, language: cfg.stt.language, cppModel: cppModelPath(cfg), voiceStudioUrl: voiceStudioUrl(cfg), apiSaved: !!sttCreds(cfg) }); }
+      if (p === '/api/stt/local' && m === 'POST') {
+        const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
+        if (b.engine !== undefined) { if (!['auto', 'local', 'api'].includes(String(b.engine))) return json(res, 400, { error: 'invalid: engine' }); patch.engine = b.engine; }
+        if (b.localEngine !== undefined) { if (!['auto', 'faster-whisper', 'whisper-cpp', 'whisper-cli', 'custom', 'voicestudio'].includes(String(b.localEngine))) return json(res, 400, { error: 'invalid: localEngine' }); patch.localEngine = b.localEngine; }
+        if (b.model !== undefined) { if (!/^[\w.\-]{1,40}$/.test(String(b.model))) return json(res, 400, { error: 'invalid: model' }); patch.model = b.model; }
+        if (b.language !== undefined) { if (!/^(auto|[a-z]{2,3})$/.test(String(b.language))) return json(res, 400, { error: 'invalid: language' }); patch.language = b.language; }
+        if (b.cppModel !== undefined) { const v = String(b.cppModel).trim(); if (v && (!/^[^\0\n]{1,300}$/.test(v) || !existsSync(v))) return json(res, 400, { error: 'invalid: cppModel file nahi mili' }); patch.cppModel = v; }
+        if (b.voiceStudioUrl !== undefined) { const v = String(b.voiceStudioUrl).trim().replace(/\/+$/, ''); if (v && !/^https?:\/\/[^\s]+$/.test(v)) return json(res, 400, { error: 'invalid: voiceStudioUrl' }); patch.voiceStudioUrl = v; }
+        updateOwnerConfig(cfg, { stt: patch }); Object.assign(cfg.stt, patch); return json(res, 200, { ok: true });
+      }
+      if (p === '/api/stt/local/test' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { engine?: string }; return json(res, 200, await testLocal(cfg, String(b.engine) as LocalEngineId)); }
       if (p === '/api/connections' && m === 'GET') return json(res, 200, { results: lastResults(store), targets: knownTargets(store, cfg) });
       if (p === '/api/connections/test' && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { target?: string }; try { return json(res, 200, await testConnection(store, cfg, String(b.target ?? ''))); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }
       if (p === '/api/todo' && m === 'GET') {

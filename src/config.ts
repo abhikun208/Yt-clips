@@ -21,7 +21,7 @@ export interface Config {
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
   gates: { publishEnabled: boolean; commentsAutoPost: boolean; publicVisibilityAllowed: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number; renderConcurrency: number };
-  stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string };
+  stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
   comments: { pollMinutes: number; maxRepliesPerDay: number };
@@ -50,7 +50,7 @@ const DEFAULTS = (rootDir: string): Config => {
     schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4, renderConcurrency: 1 },
-    stt: { mode: 'auto', model: 'small', language: 'auto' },
+    stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'auto' },
     youtube: { pollMinutes: 60, maxPerPoll: 3, maxDurationMin: 180, maxHeight: 1080 },
     analytics: { pollMinutes: 360 },
     comments: { pollMinutes: 60, maxRepliesPerDay: 20 },
