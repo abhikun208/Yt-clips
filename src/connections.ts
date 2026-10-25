@@ -8,7 +8,7 @@ import { llmSlot, sttCreds } from './ai/settings.ts';
 import { getChannel, listChannels } from './channels.ts';
 import { secretsFor, tokenFor } from './publish/service.ts';
 import { YouTubeAdapter } from './publish/youtube.ts';
-import { clientCreds, startDeviceFlow } from './publish/oauth.ts';
+import { clientCreds, form, base } from './publish/oauth.ts';
 
 /**
  * "Is this key actually working?" — one cheap, read-only request per service (nothing is posted or published).
@@ -18,6 +18,16 @@ import { clientCreds, startDeviceFlow } from './publish/oauth.ts';
 export interface ConnResult { target: string; ok: boolean; detail: string; at: string }
 const keyOf = (t: string) => `conn:${t}`;
 
+/** Asks the provider which models this key can use (OpenAI-compatible GET /models), so a stale model name (404/400) can be replaced with a valid one. */
+export async function listModels(cfg: Config, slot: number): Promise<{ ok: boolean; models: string[]; detail: string }> {
+  const c = llmSlot(cfg, slot); if (!c) return { ok: false, models: [], detail: 'is slot mein provider save nahi hai' };
+  try {
+    const r = await fetch(`${c.baseUrl}/models`, { headers: c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}, signal: AbortSignal.timeout(20_000) }); const j = await r.json().catch(() => null) as { data?: { id?: string }[]; models?: { name?: string }[] } | null;
+    if (!r.ok) return { ok: false, models: [], detail: `HTTP ${r.status} (key galat ya provider models list nahi deta)` };
+    const ids = [...(j?.data ?? []).map((x) => x.id ?? ''), ...(j?.models ?? []).map((x) => x.name ?? '')].map((x) => x.replace(/^models\//, '')).filter(Boolean).sort();
+    return { ok: true, models: ids.slice(0, 200), detail: `${ids.length} models mile` };
+  } catch (e) { return { ok: false, models: [], detail: short(e) }; }
+}
 export function lastResults(store: Store): Record<string, ConnResult> {
   const out: Record<string, ConnResult> = {};
   for (const r of store.all<{ k: string; v: string }>(`SELECT k, v FROM kv WHERE k LIKE 'conn:%'`)) { try { out[r.k.slice(5)] = JSON.parse(r.v) as ConnResult; } catch { /* ignore corrupt row */ } }
@@ -38,7 +48,10 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
     const j = await r.json().catch(() => null) as { choices?: unknown[]; error?: { message?: string } } | null;
     if (r.ok && j?.choices?.length) return [true, `${new URL(c.baseUrl).host} · model ${c.model} ne jawab diya`];
     if (r.status === 401 || r.status === 403) return [false, 'key galat/expired hai (HTTP ' + r.status + ')'];
-    if (r.status === 404) return [false, `model "${c.model}" ya URL galat hai (HTTP 404)`];
+    if (r.status === 404 || r.status === 400) {
+      const lm = await listModels(cfg, Number(arg ?? 1)); const sug = lm.models.filter((x) => /flash|llama|mini|small|instruct/i.test(x)).slice(0, 5).join(', ');
+      return [false, `model "${c.model}" ya URL galat hai (HTTP ${r.status}${j?.error?.message ? ': ' + String(j.error.message).slice(0, 80) : ''}). ` + (lm.ok ? `Is key ke valid models: ${sug || lm.models.slice(0, 5).join(', ')} — "Models dikhao" dabake chuno.` : `Base URL check karo (${new URL(c.baseUrl).host}).`)];
+    }
     if (r.status === 429) return [true, 'key sahi hai (abhi rate-limit lagi hai, HTTP 429)'];
     return [false, `HTTP ${r.status} ${j?.error?.message ?? ''}`.trim()];
   }
@@ -71,8 +84,13 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
     return r.ok ? [true, `@${j?.acct}@${new URL(v.instance).host}`] : [false, r.status === 401 ? 'token galat/expired (401)' : `HTTP ${r.status} ${j?.error ?? ''}`.trim()];
   }
   if (kind === 'google-client') {
+    // A dummy code is sent to the token endpoint: valid client => "invalid_grant"-style answer, wrong ID/secret => "invalid_client" (standard OAuth behaviour; not verified against real Google).
     const cc = clientCreds(secrets); if (!cc) return [false, 'Google client ID/secret save nahi hai (Setup → Social accounts login → YouTube)'];
-    const d = await startDeviceFlow(cc.clientId); return d.user_code ? [true, 'Client ID Google ne accept kiya (login baaki hai: Connect dabao)'] : [false, 'Google ne client ID reject kiya'];
+    const r = await form(`${base()}/token`, { client_id: cc.clientId, client_secret: cc.clientSecret, code: 'connection-check', redirect_uri: 'http://127.0.0.1:8765/', grant_type: 'authorization_code' });
+    const e = String(r.json?.error ?? '');
+    if (e === 'invalid_client') return [false, 'Google ne client ID/secret reject kiya (ID ya secret galat, ya client delete ho gaya)'];
+    if (r.status >= 500) return [false, `Google error HTTP ${r.status}`];
+    return [true, 'Client ID/secret Google ko sahi lage. Ab Connect dabao (login baaki hai)'];
   }
   if (kind === 'youtube') {
     const ch = getChannel(store, arg ?? 'main'); const tp = tokenFor(cfg, ch);

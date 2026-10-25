@@ -20,8 +20,9 @@ import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../r
 import { enqueue } from '../db.ts';
 import { UI_HTML } from './ui.ts';
 import { isPace } from '../edit/pace.ts';
-import { startWebAuth, finishWebAuth, identityOf } from '../publish/webauth.ts';
-import { testConnection, lastResults, knownTargets } from '../connections.ts';
+import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
+import { metaCanPublish, metaPerms } from '../publish/meta.ts';
+import { listModels, testConnection, lastResults, knownTargets } from '../connections.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
 import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
@@ -144,6 +145,15 @@ export function createApp(o: AppOptions = {}): App {
         catch (e) { body = String((e as Error).message).slice(0, 240).replace(/[<>&]/g, ''); }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); return void res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:17px system-ui;background:#0b0d14;color:#eef1f8;padding:28px;text-align:center"><h2>${title}</h2><p>${body}</p><p style="color:#98a2b8">Ab ye tab band kar sakte ho.</p>`);
       }
+      const pf = /^\/pub\/([a-f0-9]{48})\.mp4$/.exec(p); // one clip, unguessable + expiring: Instagram's servers fetch this themselves (video_url)
+      if (pf && (m === 'GET' || m === 'HEAD')) {
+        const row = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `pubfile:${pf[1]}`); const j = row ? JSON.parse(row.v) as { file: string; exp: number } : null;
+        if (!j || j.exp < Date.now() || !existsSync(j.file)) return json(res, 404, { error: 'not found' });
+        const size = statSync(j.file).size; const range = /^bytes=(\d+)-(\d*)$/.exec(String(req.headers.range ?? ''));
+        const hb = { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
+        if (range) { const a = Number(range[1]), b = Math.min(size - 1, range[2] ? Number(range[2]) : size - 1); if (a >= size || b < a) { res.writeHead(416, { 'content-range': `bytes */${size}` }); return void res.end(); } res.writeHead(206, { ...hb, 'content-range': `bytes ${a}-${b}/${size}`, 'content-length': b - a + 1 }); return m === 'HEAD' ? void res.end() : void createReadStream(j.file, { start: a, end: b }).pipe(res); }
+        res.writeHead(200, { ...hb, 'content-length': size }); return m === 'HEAD' ? void res.end() : void createReadStream(j.file).pipe(res);
+      }
       const ip = req.socket.remoteAddress ?? '?';
       const f = fails.get(ip); if (f && f.n >= 10 && Date.now() - f.t < 60_000) return json(res, 429, { error: 'too many failed attempts' });
       if (!authed(req)) { fails.set(ip, { n: (f && Date.now() - f.t < 60_000 ? f.n : 0) + 1, t: Date.now() }); return json(res, 401, { error: 'unauthorized' }); }
@@ -245,8 +255,8 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/settings' && m === 'GET') return json(res, 200, { ai: aiStatus(cfg), apps: { facebook: !!appCreds(cfg, 'facebook'), tiktok: !!appCreds(cfg, 'tiktok') }, platforms: platformStatus(store, cfg), callbackBase: publicBase(req) });
       if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); const test = await testConnection(store, cfg, b.kind === 'stt' ? 'stt' : `llm:${b.slot ?? 1}`); return json(res, 200, { ok: true, ai: aiStatus(cfg), test }); }
       if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); const test = b.app === 'google' ? await testConnection(store, cfg, 'google-client') : null; return json(res, 200, { ok: true, test }); }
-      const os = /^\/api\/oauth\/(facebook|tiktok)\/start$/.exec(p); if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, os[1] as SocialApp, publicBase(req)), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback` });
-      if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg), registry: PLATFORMS.map((x) => ({ id: x.id, label: x.label, kind: x.kind, note: x.note, fields: x.fields?.map((f) => ({ name: f.name, label: f.label, secret: !!f.secret })), configured: x.kind === 'direct' ? credentialsConfigured(secretsFor(cfg), x.id) : x.kind === 'manual' })) });
+      const os = /^\/api\/oauth\/(facebook|tiktok)\/start$/.exec(p); if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, os[1] as SocialApp, publicBase(req), { publish: url.searchParams.get('publish') === '1' }), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback` });
+      if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg), registry: PLATFORMS.map((x) => ({ id: x.id, label: x.label, kind: x.kind, note: x.note, fields: x.fields?.map((f) => ({ name: f.name, label: f.label, secret: !!f.secret })), configured: x.kind === 'direct' ? credentialsConfigured(secretsFor(cfg), x.id) : x.kind === 'oauth' ? metaCanPublish(secretsFor(cfg), x.id) : x.kind === 'manual', app: x.app ?? null, openUrl: x.openUrl ?? null, loggedIn: x.kind === 'oauth' ? (metaPerms(secretsFor(cfg), x.id === 'facebook_reels' ? 'facebook' : 'instagram').length > 0 || !!secretsFor(cfg).read(x.id === 'facebook_reels' ? 'facebook' : 'instagram')) : false, appSaved: x.app ? !!appCreds(cfg, x.app) : null })) });
       const cred = /^\/api\/credentials\/(\w+)$/.exec(p);
       if (cred && m === 'POST') { // write-only vault: values are validated, stored (encrypted when a key exists) and never returned or logged
         const b = JSON.parse((await readBody(req, 8 * 1024)).toString('utf8') || '{}') as { fields?: Record<string, unknown>; channel?: string };
@@ -256,8 +266,8 @@ export function createApp(o: AppOptions = {}): App {
         return json(res, 200, { ok: true, encrypted: secretsFor(cfg).encrypted, test });
       }
       if (p === '/api/manual' && m === 'GET') {
-        const rows = store.all<{ id: number; platform: string; scheduled_at: string | null; output_id: string; metadata_json: string | null; slug: string | null }>(`SELECT u.id, u.platform, u.scheduled_at, c.output_id, c.metadata_json, ch.slug FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.state='SCHEDULED_OR_APPROVED' AND u.platform IN (${PLATFORMS.filter((x) => x.kind === 'manual').map((x) => `'${x.id}'`).join(',')}) ORDER BY u.scheduled_at LIMIT 100`);
-        return json(res, 200, { tasks: rows.map((r) => { const md = r.metadata_json ? JSON.parse(r.metadata_json) as { title?: string; description?: string; tags?: string[] } : {}; const due = !r.scheduled_at || Date.parse(r.scheduled_at.replace(' ', 'T') + (/Z|\+/.test(r.scheduled_at) ? '' : 'Z')) <= Date.now(); return { uploadId: r.id, platform: r.platform, channel: r.slug ?? 'main', due, at: r.scheduled_at, title: md.title ?? '', caption: md.description ?? '', tags: md.tags ?? [], video: `/files/edited/${r.output_id}.mp4` }; }) });
+        const rows = store.all<{ id: number; platform: string; scheduled_at: string | null; output_id: string; metadata_json: string | null; slug: string | null }>(`SELECT u.id, u.platform, u.scheduled_at, c.output_id, c.metadata_json, ch.slug FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.state='SCHEDULED_OR_APPROVED' AND u.platform IN (${PLATFORMS.filter((x) => x.kind === 'manual' || x.kind === 'oauth').map((x) => `'${x.id}'`).join(',')}) ORDER BY u.scheduled_at LIMIT 100`);
+        return json(res, 200, { tasks: rows.filter((r) => !metaCanPublish(secretsFor(cfg), r.platform)).map((r) => { const md = r.metadata_json ? JSON.parse(r.metadata_json) as { title?: string; description?: string; tags?: string[] } : {}; const due = !r.scheduled_at || Date.parse(r.scheduled_at.replace(' ', 'T') + (/Z|\+/.test(r.scheduled_at) ? '' : 'Z')) <= Date.now(); return { uploadId: r.id, platform: r.platform, channel: r.slug ?? 'main', due, at: r.scheduled_at, title: md.title ?? '', caption: md.description ?? '', tags: md.tags ?? [], video: `/files/edited/${r.output_id}.mp4` }; }) });
       }
       const posted = /^\/api\/uploads\/(\d+)\/posted$/.exec(p);
       if (posted && m === 'POST') { const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as { url?: string }; markPosted(store, Number(posted[1]), b.url ? String(b.url) : undefined); return json(res, 200, { ok: true }); }
@@ -283,12 +293,13 @@ export function createApp(o: AppOptions = {}): App {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown };
         return json(res, 200, { ok: true, channel: createChannel(store, { name: String(b.name ?? ''), profile: b.profile, config: b.config }, (id) => !!getPreset(id)) });
       }
-      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube\/web|youtube|plan))?$/.exec(p);
+      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube\/web|youtube\/paste|youtube|plan))?$/.exec(p);
       if (chm) {
         const ch = getChannel(store, chm[1]!);
         if (!chm[2] && m === 'POST') { const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown; archived?: boolean }; return json(res, 200, { ok: true, channel: updateChannel(store, ch.id, b, (id) => !!getPreset(id)) }); }
         if (chm[2] === 'plan' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 7))), tz: cfg.timezone, cfg: scheduleFor(cfg, ch), channelId: ch.id, platform: url.searchParams.get('platform') ?? undefined }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
-        if (chm[2] === 'youtube/web' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { share?: boolean }; const w = startWebAuth(store, cfg, ch, { base: publicBase(req), share: b.share === true }); return json(res, 200, w); }
+        if (chm[2] === 'youtube/web' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { share?: boolean; paste?: boolean }; const w = startWebAuth(store, cfg, ch, { base: publicBase(req), share: b.share === true, paste: b.paste === true }); return json(res, 200, w); }
+        if (chm[2] === 'youtube/paste' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { url?: string }; try { const r = await finishPaste(store, cfg, ch.slug, String(b.url ?? '')); return json(res, 200, { ok: true, identity: r.identity }); } catch (e) { return json(res, 400, { error: String((e as Error).message).slice(0, 240) }); } }
         if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, { ...youtubeStatus(store, cfg, ch), identity: identityOf(store, ch.slug) });
         if (chm[2] === 'youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg, ch); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
         if (chm[2] === 'youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg, ch));
@@ -304,6 +315,7 @@ export function createApp(o: AppOptions = {}): App {
         return json(res, 200, { timezone: cfg.timezone, items: rows.map((r) => { let title = ''; try { title = (JSON.parse(String((r as { metadata_json?: string }).metadata_json ?? '{}')) as { title?: string }).title ?? ''; } catch { /* none */ } const { metadata_json: _m, ...rest } = r as typeof r & { metadata_json?: string }; return { ...rest, title }; }) });
       }
       if (p === '/api/schedule' && m === 'GET') { const sch = url.searchParams.get('channel') ? getChannel(store, url.searchParams.get('channel')) : null; const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: sch ? scheduleFor(cfg, sch) : cfg.schedule, channelId: sch?.id }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
+      if (p === '/api/ai/models' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { slot?: number }; return json(res, 200, await listModels(cfg, Number(b.slot ?? 1))); }
       if (p === '/api/connections' && m === 'GET') return json(res, 200, { results: lastResults(store), targets: knownTargets(store, cfg) });
       if (p === '/api/connections/test' && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { target?: string }; try { return json(res, 200, await testConnection(store, cfg, String(b.target ?? ''))); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }
       if (p === '/api/todo' && m === 'GET') {

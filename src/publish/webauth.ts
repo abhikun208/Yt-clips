@@ -18,12 +18,14 @@ const TTL_MS = 30 * 60_000;
 const key = (s: string) => `ytweb:${s}`;
 export interface WebStart { authUrl: string; redirectUri: string; share: boolean; expiresInSec: number }
 
-export function startWebAuth(store: Store, cfg: Config, ch: Channel, o: { base: string; share?: boolean }): WebStart {
+export const PASTE_REDIRECT = 'http://127.0.0.1:8765/';
+export function startWebAuth(store: Store, cfg: Config, ch: Channel, o: { base: string; share?: boolean; paste?: boolean }): WebStart {
   const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('invalid: pehle Google client ID/secret save karo (Setup → Social accounts login → YouTube)');
-  const redirectUri = `${o.base.replace(/\/+$/, '')}/api/oauth/youtube/callback`;
+  const redirectUri = o.paste ? PASTE_REDIRECT : `${o.base.replace(/\/+$/, '')}/api/oauth/youtube/callback`;
   const verifier = randomBytes(32).toString('base64url'), state = randomBytes(24).toString('hex');
   store.exec(`DELETE FROM kv WHERE k LIKE 'ytweb:%' AND json_extract(v,'$.exp') < ?`, Date.now()); // expired states never pile up
   store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, key(state), JSON.stringify({ slug: ch.slug, verifier, redirectUri, exp: Date.now() + TTL_MS, share: !!o.share }));
+  if (o.paste) store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `ytweb-last:${ch.slug}`, state);
   const q = new URLSearchParams({ client_id: cc.clientId, redirect_uri: redirectUri, response_type: 'code', scope: YT_WEB_SCOPE, access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'false', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', state });
   return { authUrl: `${authBase()}?${q}`, redirectUri, share: !!o.share, expiresInSec: TTL_MS / 1000 };
 }
@@ -48,4 +50,16 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString() }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }
   store.logState('youtube-connect', ch.id, null, 'connected', identity ? identity.channelId : 'no identity yet');
   return { slug: st.slug, identity };
+}
+
+/**
+ * "Paste" mode (no redirect URI to register): works with a Google "Desktop app" OAuth client from ANY device. After Allow, Google sends the browser to
+ * http://127.0.0.1:8765/?code=...&state=... (that page will not load, which is expected); the owner pastes that address (or just the code) here.
+ */
+export async function finishPaste(store: Store, cfg: Config, slug: string, pasted: string): Promise<{ slug: string; identity: Identity | null }> {
+  const t = pasted.trim(); let code: string | null = null, state: string | null = null, error: string | null = null;
+  try { const u = new URL(t); code = u.searchParams.get('code'); state = u.searchParams.get('state'); error = u.searchParams.get('error'); } catch { code = /^[\w./~-]{10,300}$/.test(t) ? t : null; }
+  if (!state) state = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytweb-last:${slug}`)?.v ?? null;
+  if (!code && !error) throw new Error('paste: address bar ka poora link (ya sirf code) daalo');
+  return finishWebAuth(store, cfg, { code, state, error });
 }

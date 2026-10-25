@@ -11,26 +11,26 @@ import type { Adapter } from './machine.ts';
  *  - 'manual'      no usable free posting API from here (or ToS forbids bots): the system prepares file + caption + schedule and
  *                  raises a "post now" task; the owner posts it and marks it done (optional URL). Never logs in with a password.
  */
-export type PlatformKind = 'api-upload' | 'direct' | 'manual';
-export interface PlatformInfo { id: string; label: string; kind: PlatformKind; secret?: string; fields?: { name: string; label: string; secret?: boolean }[]; note: string }
+export type PlatformKind = 'api-upload' | 'direct' | 'manual' | 'oauth';
+export interface PlatformInfo { id: string; label: string; kind: PlatformKind; secret?: string; app?: 'facebook' | 'tiktok'; openUrl?: string; fields?: { name: string; label: string; secret?: boolean }[]; note: string }
 export const PLATFORMS: PlatformInfo[] = [
   { id: 'youtube_shorts', label: 'YouTube Shorts', kind: 'api-upload', note: 'OAuth (device flow) per channel; real adapter, tested against a fake Google only.' },
   { id: 'telegram', label: 'Telegram channel/group', kind: 'direct', secret: 'telegram', fields: [{ name: 'botToken', label: 'Bot token (from @BotFather)', secret: true }, { name: 'chatId', label: 'Chat id or @channelname' }], note: 'Bot must be admin of the channel. Fake-tested only.' },
   { id: 'discord', label: 'Discord channel', kind: 'direct', secret: 'discord', fields: [{ name: 'webhookUrl', label: 'Webhook URL', secret: true }], note: 'Channel webhook; file size limit of the server applies. Fake-tested only.' },
   { id: 'mastodon', label: 'Mastodon', kind: 'direct', secret: 'mastodon', fields: [{ name: 'instance', label: 'Instance URL (https://...)' }, { name: 'accessToken', label: 'Access token (write:media write:statuses)', secret: true }], note: 'Fake-tested only.' },
-  { id: 'instagram_reels', label: 'Instagram Reels', kind: 'manual', note: 'Meta API needs a Business account + app review; manual task instead.' },
-  { id: 'facebook_reels', label: 'Facebook Reels', kind: 'manual', note: 'Manual task.' },
-  { id: 'tiktok', label: 'TikTok', kind: 'manual', note: 'Direct Post API needs app audit (unaudited apps post private only); manual task.' },
-  { id: 'x', label: 'X (Twitter)', kind: 'manual', note: 'Paid API; manual task.' },
-  { id: 'linkedin', label: 'LinkedIn', kind: 'manual', note: 'Manual task.' },
-  { id: 'pinterest', label: 'Pinterest', kind: 'manual', note: 'Manual task.' },
-  { id: 'snapchat', label: 'Snapchat Spotlight', kind: 'manual', note: 'Manual task.' },
-  { id: 'threads', label: 'Threads', kind: 'manual', note: 'Manual task.' },
-  { id: 'bluesky', label: 'Bluesky', kind: 'manual', note: 'Manual task (adapter not built).' },
-  { id: 'reddit', label: 'Reddit', kind: 'manual', note: 'Manual task.' },
+  { id: 'instagram_reels', label: 'Instagram Reels', kind: 'oauth', app: 'facebook', openUrl: 'https://www.instagram.com/', note: 'Login with Facebook (Instagram professional account linked to a Page). Uploads Reels through Meta Graph API once logged in; until then a manual task. Meta docs read 2026-10-25; never run against real Meta.' },
+  { id: 'facebook_reels', label: 'Facebook Reels', kind: 'oauth', app: 'facebook', openUrl: 'https://www.facebook.com/reels/create', note: 'Login with Facebook (Page admin). Uploads Reels to the Page through Meta Graph API once logged in; until then a manual task. Meta docs read 2026-10-25; never run against real Meta.' },
+  { id: 'tiktok', label: 'TikTok', kind: 'manual', app: 'tiktok', openUrl: 'https://www.tiktok.com/upload', note: 'Direct Post API needs app audit (unaudited apps post private only); manual task.' },
+  { id: 'x', openUrl: 'https://x.com/compose/post', label: 'X (Twitter)', kind: 'manual', note: 'Paid API; manual task.' },
+  { id: 'linkedin', openUrl: 'https://www.linkedin.com/feed/', label: 'LinkedIn', kind: 'manual', note: 'Manual task.' },
+  { id: 'pinterest', openUrl: 'https://www.pinterest.com/pin-creation-tool/', label: 'Pinterest', kind: 'manual', note: 'Manual task.' },
+  { id: 'snapchat', openUrl: 'https://www.snapchat.com/', label: 'Snapchat Spotlight', kind: 'manual', note: 'Manual task.' },
+  { id: 'threads', openUrl: 'https://www.threads.net/', label: 'Threads', kind: 'manual', note: 'Manual task.' },
+  { id: 'bluesky', openUrl: 'https://bsky.app/', label: 'Bluesky', kind: 'manual', note: 'Manual task (adapter not built).' },
+  { id: 'reddit', openUrl: 'https://www.reddit.com/submit', label: 'Reddit', kind: 'manual', note: 'Manual task.' },
 ];
 export const platformInfo = (id: string) => PLATFORMS.find((p) => p.id === id);
-export const isManual = (id: string) => platformInfo(id)?.kind === 'manual';
+export const isManual = (id: string) => { const k = platformInfo(id)?.kind; return k === 'manual' || k === 'oauth'; };
 
 const uploadKey = (k: string) => `sent:${k}`;
 const safeHttp = (u: string, what: string, hosts?: RegExp) => {
@@ -62,7 +62,7 @@ async function http(url: string, init: RequestInit): Promise<{ status: number; j
 }
 
 /** Adapters for 'direct' platforms. upload() only STAGES (no network); the one real request happens in publish(), after the gates. */
-abstract class StagedAdapter implements Adapter {
+export abstract class StagedAdapter implements Adapter {
   abstract readonly name: string; protected store: Store; protected cred: Record<string, string>; protected sent = new Map<string, { file: string; title: string; description: string }>();
   constructor(store: Store, cred: Record<string, string>) { this.store = store; this.cred = cred; }
   private staged(id: string) { const raw = this.store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `stage:${id}`)?.v; return raw ? JSON.parse(raw) as { file: string; title: string; description: string } : null; }

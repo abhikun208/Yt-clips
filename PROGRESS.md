@@ -67,6 +67,16 @@
 | Social login in UI: Google client, Meta (Facebook+Instagram) and TikTok OAuth code flows, one-time state, long-lived Meta token + Page/IG discovery, TikTok auto-refresh; tokens feed the analytics providers | DONE; fake servers only. TikTok may require an https redirect URI (unverified) | test/ai.test.ts |
 | Clip cards show every editing feature applied/skipped with reason; `doctor` checks ffmpeg has all needed filters/encoders and STT readiness; startup prints the URL (+ tries termux-open-url) | DONE | test/ai.test.ts, doctor |
 
+### Session 5e (2026-10-25): owner-reported failures
+| Area | Status | Evidence |
+|---|---|---|
+| "Google client ID/secret save karo" error on Connect: Connect dialog now shows an inline client form + setup steps, and checks the client (dummy-code token request: invalid_client = wrong) | DONE; stand-in tested; the dummy-code check is standard OAuth behaviour, not verified against real Google | test/webauth.test.ts, ui-e2e-connect.mjs |
+| redirect_uri_mismatch: **Paste mode** (Desktop-app client, loopback redirect, no URI registration; paste the address-bar link or bare code) + copy button for the exact redirect URI + share link | DONE; stand-in tested | test/webauth.test.ts |
+| Gemini 404/400: preset model was stale (`gemini-2.0-flash`); now `gemini-3.8-flash` (Google docs 2026-10-25) + "Models dikhao" (GET /models) + failing test lists the key's valid models | DONE; never called against real Gemini; model ids change often | UI, src/connections.ts |
+| Instagram/Facebook: Connect button (Facebook Login incl. publish scopes) + **real Reels upload adapters** (FB: video_reels start/upload/finish; IG: container/poll/media_publish, public one-time link via PUBLIC_URL else resumable). Falls back to manual task when login/permission missing | DONE per Meta docs read 2026-10-25; stand-in tested only; Meta app permissions (pages_manage_posts, instagram_content_publish) must be enabled; IG resumable limited by Meta to some apps; app review needed for non-admin accounts | test/meta.test.ts |
+| TikTok/X/LinkedIn/Pinterest/Snapchat/Threads/Bluesky/Reddit: still manual tasks, now with "Open upload page" buttons; TikTok has app login (analytics). Bluesky video flow still unverifiable | honest limitation | UI |
+| Schedule tab: 3-step multi-channel explanation + Source -> channel dropdown mapping + add source with channel | DONE; browser-verified | ui-e2e-connect.mjs |
+
 ### Session 5d (2026-10-25): Login with Google, pace, dark UI
 | Area | Status | Evidence |
 |---|---|---|

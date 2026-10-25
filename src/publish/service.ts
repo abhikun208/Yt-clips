@@ -11,6 +11,7 @@ import { probe } from '../media/probe.ts';
 import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
+import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish } from './meta.ts';
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { notify } from '../notify.ts';
 import { planFromStore } from '../schedule/analytics.ts';
@@ -38,6 +39,7 @@ const channelByUpload = (store: Store, uploadId: number): Channel => { const r =
 export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Channel): Adapter {
   if (platform === 'dryrun') return new DryRunAdapter();
   if (platform === 'youtube_shorts' || platform === 'youtube') return new YouTubeAdapter(store, ch ? tokenFor(cfg, ch) : new TokenProvider(secretsFor(cfg)));
+  if ((platform === 'facebook_reels' || platform === 'instagram_reels') && metaCanPublish(secretsFor(cfg), platform)) { const cred = secretsFor(cfg).read<Record<string, string>>(platform === 'facebook_reels' ? 'facebook' : 'instagram'); if (cred) return platform === 'facebook_reels' ? new FacebookReelsAdapter(store, cred) : new InstagramReelsAdapter(store, cred); }
   if (isManual(platform)) return new ManualAdapter(platform);
   const info = platformInfo(platform);
   if (info?.kind === 'direct' && info.secret) {

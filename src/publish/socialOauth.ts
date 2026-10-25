@@ -16,6 +16,8 @@ const graph = () => process.env.GRAPH_API_BASE ?? `https://graph.facebook.com/${
 const ttAuth = () => process.env.TIKTOK_AUTH_BASE ?? 'https://www.tiktok.com/v2/auth/authorize/';
 const ttApi = () => process.env.TIKTOK_API_BASE ?? 'https://open.tiktokapis.com';
 export const FB_SCOPES = 'pages_show_list,pages_read_engagement,read_insights,instagram_basic,instagram_manage_insights';
+/** Added only when the owner asks for upload access (Publish tab): the Meta app must have these permissions enabled or the dialog refuses. */
+export const FB_PUBLISH_SCOPES = ',pages_manage_posts,instagram_content_publish';
 export const TT_SCOPES = 'user.info.basic,video.list';
 export type SocialApp = 'facebook' | 'tiktok';
 
@@ -34,11 +36,11 @@ export function saveAppCreds(cfg: Config, app: string, id: string, secret: strin
 }
 export const redirectUri = (base: string, app: SocialApp) => `${base.replace(/\/+$/, '')}/api/oauth/${app}/callback`;
 
-export function startAuth(store: Store, cfg: Config, app: SocialApp, base: string): string {
+export function startAuth(store: Store, cfg: Config, app: SocialApp, base: string, o: { publish?: boolean } = {}): string {
   const c = appCreds(cfg, app); if (!c) throw new Error(`invalid: save the ${app === 'facebook' ? 'Meta (Facebook) app id/secret' : 'TikTok client key/secret'} first`);
   const state = randomBytes(18).toString('hex'); store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, `oauth_state_${state}`, JSON.stringify({ app, at: Date.now() }));
   const ru = redirectUri(base, app);
-  if (app === 'facebook') return `${fbDialog()}?${new URLSearchParams({ client_id: c.id, redirect_uri: ru, state, scope: FB_SCOPES, response_type: 'code' })}`;
+  if (app === 'facebook') return `${fbDialog()}?${new URLSearchParams({ client_id: c.id, redirect_uri: ru, state, scope: FB_SCOPES + (o.publish ? FB_PUBLISH_SCOPES : ''), response_type: 'code' })}`;
   return `${ttAuth()}?${new URLSearchParams({ client_key: c.id, scope: TT_SCOPES, response_type: 'code', redirect_uri: ru, state })}`;
 }
 function takeState(store: Store, state: string, app: SocialApp): void {
@@ -65,9 +67,10 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
   const pages = await getJ(`${graph()}/me/accounts?${new URLSearchParams({ fields: 'id,name,access_token,instagram_business_account', access_token: user })}`);
   const list = (pages.data ?? []) as { id: string; name: string; access_token: string; instagram_business_account?: { id: string } }[];
   if (!list.length) throw new Error('oauth: no Facebook Page found for this login (Page admin access is needed for Facebook/Instagram insights)');
+  let perms: string[] = []; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); perms = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission); } catch { /* publishing just stays manual */ }
   const pg = list.find((p) => p.instagram_business_account) ?? list[0]!; const connected = ['facebook'];
-  sec.write('facebook', { access_token: pg.access_token, page_id: pg.id, page_name: pg.name, connected_at: new Date().toISOString() });
-  if (pg.instagram_business_account) { sec.write('instagram', { access_token: user, ig_user_id: pg.instagram_business_account.id, connected_at: new Date().toISOString() }); connected.push('instagram'); }
+  sec.write('facebook', { access_token: pg.access_token, page_id: pg.id, page_name: pg.name, perms, connected_at: new Date().toISOString() });
+  if (pg.instagram_business_account) { sec.write('instagram', { access_token: user, page_token: pg.access_token, ig_user_id: pg.instagram_business_account.id, perms, connected_at: new Date().toISOString() }); connected.push('instagram'); }
   return { connected, note: pg.instagram_business_account ? undefined : `Page "${pg.name}" has no linked Instagram professional account` };
 }
 

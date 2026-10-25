@@ -9,7 +9,7 @@ export const DEFAULT_LLM_MODEL = 'llama-3.3-70b-versatile';
 /** Provider presets (OpenAI-compatible). Base URLs come from each provider's public docs; NONE were called live from this project, so treat them as starting points. Free tiers/limits change: check the provider. */
 export const PRESETS = [
   { id: 'groq', label: 'Groq (free tier, key needed)', base: 'https://api.groq.com/openai/v1', llm: 'llama-3.3-70b-versatile', stt: 'whisper-large-v3-turbo', needsKey: true, verified: 'docs read 2026-10-23' },
-  { id: 'gemini', label: 'Google Gemini (OpenAI-compat, free tier, key needed)', base: 'https://generativelanguage.googleapis.com/v1beta/openai', llm: 'gemini-2.0-flash', stt: '', needsKey: true, verified: 'unverified' },
+  { id: 'gemini', label: 'Google Gemini (OpenAI-compat, free tier, key needed)', base: 'https://generativelanguage.googleapis.com/v1beta/openai', llm: 'gemini-3.8-flash', stt: '', needsKey: true, verified: 'base URL + model id read from Google docs 2026-10-25; model ids change often, use Models dikhao' },
   { id: 'openrouter', label: 'OpenRouter (":free" models, key needed)', base: 'https://openrouter.ai/api/v1', llm: 'meta-llama/llama-3.3-70b-instruct:free', stt: '', needsKey: true, verified: 'unverified' },
   { id: 'mistral', label: 'Mistral (free tier, key needed)', base: 'https://api.mistral.ai/v1', llm: 'mistral-small-latest', stt: '', needsKey: true, verified: 'unverified' },
   { id: 'ollama', label: 'Ollama on this machine (NO key, fully free/offline)', base: 'http://127.0.0.1:11434/v1', llm: 'llama3.2', stt: '', needsKey: false, verified: 'unverified (fake-server tested only)' },

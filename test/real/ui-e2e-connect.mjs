@@ -1,0 +1,32 @@
+import { createApp } from '../../src/server/app.ts';
+import { tmpDir } from '../../test/helpers.ts';
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module'; const { chromium } = createRequire('/')(process.env.PLAYWRIGHT_PATH||'playwright');
+const g=createServer((req,res)=>{let b='';req.on('data',d=>b+=d);req.on('end',()=>{const u=new URL(req.url,'http://x');const p=new URLSearchParams(b);const H={'content-type':'application/json'};
+ if(u.pathname==='/token'){ if(p.get('code')==='connection-check'){res.writeHead(400,H);return res.end('{"error":"invalid_grant"}')} res.writeHead(200,H);return res.end(JSON.stringify(p.get('grant_type')==='refresh_token'?{access_token:'at',expires_in:3600}:{refresh_token:'RT',access_token:'at'})) }
+ if(u.pathname==='/youtube/v3/channels'){res.writeHead(200,H);return res.end(JSON.stringify({items:[{id:'UCabc123',snippet:{title:'Team Unknown'}}]}))}res.writeHead(200,H);res.end('{}')})});
+await new Promise(r=>g.listen(0,'127.0.0.1',r)); const gb=`http://127.0.0.1:${g.address().port}`; process.env.YT_OAUTH_BASE=gb; process.env.YT_API_BASE=gb;
+const TOKEN='test-token-0123456789'; const app=createApp({host:'127.0.0.1',port:0,token:TOKEN,dataDir:tmpDir(),autoRun:false}); const port=await app.start(); const base=`http://127.0.0.1:${port}`;
+const br=await chromium.launch(); const pg=await (await br.newContext({viewport:{width:400,height:900}})).newPage(); const w=ms=>pg.waitForTimeout(ms); const ok=(c,m)=>console.log((c?'PASS ':'FAIL ')+m);
+const errs=[];pg.on('pageerror',e=>errs.push(e.message));
+await pg.goto(base+'/'); await pg.fill('#tok',TOKEN); await pg.click('#go'); await w(2000);
+await pg.click('nav [data-tab=schedule]'); await w(1500);
+ok(/3 step/.test(await pg.textContent('#t-schedule')),'schedule explains multi-channel steps');
+ok(await pg.locator('#srcmap').count()===1,'source->channel card present');
+await pg.click('[data-yc=main]'); await w(1200);
+ok(await pg.locator('#gcid').count()===1,'no client saved -> inline Google client form shown (instead of error)');
+await pg.fill('#gcid','client-id-1234567890.apps'); await pg.fill('#gcsec','secret-12345678'); await pg.click('#gcsave'); await w(1800);
+ok(await pg.locator('#wc3').count()===1,'after save+check the Connect options appear: '+(await pg.textContent('#gform')).slice(0,0));
+await pg.click('#wc3'); await w(900); const href=await pg.getAttribute('#wcpaste a','href'); const state=new URL(href).searchParams.get('state'); ok(new URL(href).searchParams.get('redirect_uri')==='http://127.0.0.1:8765/','paste mode uses loopback redirect (no registration)');
+await pg.fill('#pastein',`http://127.0.0.1:8765/?state=${state}&code=4/0AbCdefGhi12345`); await pg.click('#pastego'); await w(2000);
+ok(/Team Unknown/.test(await pg.textContent('#wcout')),'paste login -> confirmation shows channel name + ID: '+(await pg.textContent('#wcout')).replace(/\s+/g,' ').slice(0,90));
+await w(3000);
+await pg.click('nav [data-tab=publish]'); await w(2500); await pg.screenshot({path:'/tmp/plats.png',fullPage:true});
+const plats=await pg.textContent('#plats'); ok(/Instagram Reels/.test(plats)&&await pg.locator('#plats [data-app=facebook]').count()>=2,'Instagram/Facebook rows have connect/app buttons'); ok(await pg.locator('#plats a[href*=reddit]').count()===1,'manual platforms have Open links');
+// source mapping
+await pg.click('nav [data-tab=schedule]'); await w(800); await pg.fill('#chn','Decider Gaming'); await pg.click('#chadd'); await w(1500);
+await pg.check('#smauth'); await pg.fill('#smurl','https://www.youtube.com/watch?v=dQw4w9WgXcQ'); await pg.selectOption('#smch','decider-gaming'); await pg.click('#smadd'); await w(1500);
+const sel=pg.locator('#srcmap select').first(); ok(await sel.inputValue()==='decider-gaming','new source mapped to chosen channel'); await sel.selectOption('main'); await w(1200);
+const srcs=await (await fetch(base+'/api/sources',{headers:{authorization:'Bearer '+TOKEN}})).json(); ok(srcs.sources[0].channel==='main','dropdown change saved server-side');
+console.log('JS errors:',errs.length?errs:'none');
+await br.close(); await app.stop(); g.close(); process.exit(0);
