@@ -67,6 +67,14 @@
 | Social login in UI: Google client, Meta (Facebook+Instagram) and TikTok OAuth code flows, one-time state, long-lived Meta token + Page/IG discovery, TikTok auto-refresh; tokens feed the analytics providers | DONE; fake servers only. TikTok may require an https redirect URI (unverified) | test/ai.test.ts |
 | Clip cards show every editing feature applied/skipped with reason; `doctor` checks ffmpeg has all needed filters/encoders and STT readiness; startup prints the URL (+ tries termux-open-url) | DONE | test/ai.test.ts, doctor |
 
+### Session 5d (2026-10-25): Login with Google, pace, dark UI
+| Area | Status | Evidence |
+|---|---|---|
+| **Login with Google** (replaces device code, which failed with `invalid_client` unless the client type is "TVs and Limited Input"): Connect opens Google's page, owner picks the Gmail and presses Allow; callback `/api/oauth/youtube/callback` (single-use 30-min state + PKCE). Share link lets another device/person connect a channel. Refresh token stored only in the encrypted vault; API/UI return only YouTube channel id + title | DONE; tested against a local stand-in for Google (token + channels endpoints) incl. no plaintext token on disk and no token in any API response. NEVER run against real Google; needs Web/Desktop OAuth client + the redirect URI registered; consent screen must be "In production" or token expires in 7 days (Google rule, from memory, unverified here). A password/ID login bot is deliberately not built | test/webauth.test.ts, browser run |
+| Pace: beat (punch-zoom/flash) at least every 2-4s (fast), 4-6s (medium, default), <=10s (relaxed) or off; Studio selector + per-clip re-render | DONE; unit-tested (gap bound), not visually judged on real footage | test/pace.test.ts |
+| Dark-only theme | DONE | UI |
+| Sources panel shows per-channel discovered videos by status, failure reason, retry button | DONE; yt-dlp downloads not testable here | UI |
+
 ### Session 5c (2026-10-25): UI made functional (owner complaint: "show-off, kaam nahi karta")
 | Area | Status | Evidence |
 |---|---|---|

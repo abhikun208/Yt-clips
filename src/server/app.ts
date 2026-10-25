@@ -19,6 +19,8 @@ import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
 import { enqueue } from '../db.ts';
 import { UI_HTML } from './ui.ts';
+import { isPace } from '../edit/pace.ts';
+import { startWebAuth, finishWebAuth, identityOf } from '../publish/webauth.ts';
 import { testConnection, lastResults, knownTargets } from '../connections.ts';
 import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
@@ -137,6 +139,11 @@ export function createApp(o: AppOptions = {}): App {
         catch (e) { msg = 'Failed: ' + (e as Error).message.slice(0, 200); }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return void res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:16px system-ui;padding:24px"><p>${msg.replace(/[<>&]/g, '')}</p><p><a href="/">yt-clips kholo</a></p>`);
       }
+      if (p === '/api/oauth/youtube/callback' && m === 'GET') { // Google redirect: protected by the single-use server-side `state` (works for a shared link opened on another device)
+        let title = 'Failed', body = ''; try { const r = await finishWebAuth(store, cfg, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') }); title = 'Connected ✓'; body = r.identity ? `YouTube channel: <b>${r.identity.title.replace(/[<>&"]/g, '')}</b><br><small>ID: ${r.identity.channelId.replace(/[^\w-]/g, '')}</small>` : 'Login ho gaya (channel ka naam baad mein Test se aayega).'; }
+        catch (e) { body = String((e as Error).message).slice(0, 240).replace(/[<>&]/g, ''); }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }); return void res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:17px system-ui;background:#0b0d14;color:#eef1f8;padding:28px;text-align:center"><h2>${title}</h2><p>${body}</p><p style="color:#98a2b8">Ab ye tab band kar sakte ho.</p>`);
+      }
       const ip = req.socket.remoteAddress ?? '?';
       const f = fails.get(ip); if (f && f.n >= 10 && Date.now() - f.t < 60_000) return json(res, 429, { error: 'too many failed attempts' });
       if (!authed(req)) { fails.set(ip, { n: (f && Date.now() - f.t < 60_000 ? f.n : 0) + 1, t: Date.now() }); return json(res, 401, { error: 'unauthorized' }); }
@@ -155,7 +162,7 @@ export function createApp(o: AppOptions = {}): App {
         if (rv[2] === 'meta') return json(res, 200, { ok: true, metadata: editClipMeta(store, id, { title: b.title as string | undefined, description: b.description as string | undefined, tags: b.tags as string[] | undefined, thumbnailText: b.thumbnailText as string | undefined }) });
         if (rv[2] === 'thumbnail') { const t = await setThumbnailFrame(store, cfg, id, Number(b.at)); return t ? json(res, 200, { ok: true }) : json(res, 422, { error: 'that frame was rejected (blank/flat); pick another time' }); }
         if (rv[2] === 'export') { const x = exportPackage(store, cfg, id); return json(res, 200, { ok: true, url: `/files/export/${x.name}`, files: x.files }); }
-        const o: Record<string, unknown> = {}; for (const k of ['captionPreset']) if (typeof b[k] === 'string') o[k] = b[k]; for (const k of ['zoom', 'glow', 'fade', 'jumpCuts', 'speedRamp', 'beats']) if (typeof b[k] === 'boolean') o[k] = b[k];
+        const o: Record<string, unknown> = {}; for (const k of ['captionPreset', 'pace']) if (typeof b[k] === 'string') o[k] = b[k]; for (const k of ['zoom', 'glow', 'fade', 'jumpCuts', 'speedRamp', 'beats']) if (typeof b[k] === 'boolean') o[k] = b[k];
         if (b.vfx && typeof b.vfx === 'object') { const v: Record<string, boolean> = {}; for (const k of ['lut', 'grain', 'particles', 'lightLeak', 'flash', 'progress']) if (typeof (b.vfx as Record<string, unknown>)[k] === 'boolean') v[k] = (b.vfx as Record<string, boolean>)[k]!; o.vfx = v; }
         if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return json(res, 400, { error: `Unknown clip ${id}` });
         enqueue(store, 'rerender', `rerender:${id}:${Date.now()}`, o); void runOnce(); return json(res, 202, { ok: true, queued: true });
@@ -190,8 +197,8 @@ export function createApp(o: AppOptions = {}): App {
         return json(res, 200, { automation: cfg.automation, gates: cfg.gates, note: 'Gates + autoApprove can only be changed on the server (CLI: npm run cli -- autopilot ...).' });
       }
       const sp = /^\/api\/sources\/(\d+)\/status$/.exec(p);
-      if (sp && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { status?: string }; if (b.status !== 'active' && b.status !== 'paused') return json(res, 400, { error: 'invalid: status active|paused' }); const r = store.exec(`UPDATE sources SET status=? WHERE id=? AND kind<>'local'`, b.status, Number(sp[1])); if (!r.changes) return json(res, 400, { error: 'Unknown source' }); return json(res, 200, { ok: true }); }
-      if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, palette: x.palette.id, tags: x.tags, mode: x.mode })) });
+      if (sp && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { status?: string }; if (b.status !== 'active' && b.status !== 'paused' && b.status !== 'pending') return json(res, 400, { error: 'invalid: status active|paused|pending' }); const r = store.exec(`UPDATE sources SET status=?, meta_json=json_set(COALESCE(meta_json,'{}'),'$.tries',0) WHERE id=? AND kind<>'local'`, b.status, Number(sp[1])); if (!r.changes) return json(res, 400, { error: 'Unknown source' }); return json(res, 200, { ok: true }); }
+      if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, pace: cfg.edit.pace, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, palette: x.palette.id, tags: x.tags, mode: x.mode })) });
       const pv = /^\/api\/presets\/([\w-]+)\/preview\.png$/.exec(p);
       if (pv) { if (!getPreset(pv[1]!)) return json(res, 404, { error: 'unknown preset' }); const lang = url.searchParams.get('lang') === 'hi' ? 'hi' : 'en'; const png = await presetPreview(previewDir, pv[1]!, lang); res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600' }); return void createReadStream(png).pipe(res); }
       const mf = /^\/api\/manifest\/([\w.-]+)$/.exec(p);
@@ -200,13 +207,14 @@ export function createApp(o: AppOptions = {}): App {
 
       if (p === '/api/config' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
-        const known = new Set(['captionPreset', 'captionEmphasis', 'reframe']); for (const k of Object.keys(b)) if (!known.has(k)) return json(res, 400, { error: `key not allowed: ${k} (gates/publishing can only be changed by editing data/config.json on the server)` });
+        const known = new Set(['captionPreset', 'captionEmphasis', 'reframe', 'pace']); for (const k of Object.keys(b)) if (!known.has(k)) return json(res, 400, { error: `key not allowed: ${k} (gates/publishing can only be changed by editing data/config.json on the server)` });
         if ('captionPreset' in b) { if (b.captionPreset !== 'none' && !getPreset(String(b.captionPreset))) return json(res, 400, { error: 'unknown caption preset' }); patch.captionPreset = b.captionPreset; }
         if ('captionEmphasis' in b) { if (!Array.isArray(b.captionEmphasis) || b.captionEmphasis.some((x) => typeof x !== 'string' || x.length > 40) || b.captionEmphasis.length > 50) return json(res, 400, { error: 'captionEmphasis must be <=50 short strings' }); patch.captionEmphasis = b.captionEmphasis; }
         if ('reframe' in b) { if (b.reframe !== 'crop' && b.reframe !== 'fit_blur') return json(res, 400, { error: 'reframe must be crop|fit_blur' }); patch.reframe = b.reframe; }
-        updateOwnerConfig(cfg, { edit: patch }); Object.assign(cfg.edit, patch); return json(res, 200, { ok: true, edit: { captionPreset: cfg.edit.captionPreset, captionEmphasis: cfg.edit.captionEmphasis, reframe: cfg.edit.reframe } });
+        if ('pace' in b) { if (!isPace(b.pace)) return json(res, 400, { error: 'pace must be fast|medium|relaxed|off' }); patch.pace = b.pace; }
+        updateOwnerConfig(cfg, { edit: patch }); Object.assign(cfg.edit, patch); return json(res, 200, { ok: true, edit: { captionPreset: cfg.edit.captionPreset, captionEmphasis: cfg.edit.captionEmphasis, reframe: cfg.edit.reframe, pace: cfg.edit.pace } });
       }
-      if (p === '/api/sources' && m === 'GET') return json(res, 200, { ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id ORDER BY s.id DESC LIMIT 200`) });
+      if (p === '/api/sources' && m === 'GET') return json(res, 200, { ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id ORDER BY s.id DESC LIMIT 200`) });
       if (p === '/api/sources' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean; channel?: string };
         const r = addYoutubeSource(store, String(b.url ?? ''), b.authorized === true, b.channel ? getChannel(store, String(b.channel)).id : undefined); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, ...r, ytdlp: await ytdlpAvailable() });
@@ -267,7 +275,7 @@ export function createApp(o: AppOptions = {}): App {
           const cnt = store.get<{ sources: number }>('SELECT count(*) AS sources FROM sources WHERE channel_id=?', ch.id)!;
           const up = store.get<{ queued: number; scheduled: number; published: number }>(`SELECT count(*) AS queued, sum(state='SCHEDULED_OR_APPROVED') AS scheduled, sum(state='PUBLISHED') AS published FROM uploads WHERE channel_id=?`, ch.id)!;
           const yt = youtubeStatus(store, cfg, ch);
-          return { id: ch.id, slug: ch.slug, name: ch.name, profile: ch.profile, config: ch.config, schedule: eff, evidenceRows: pl.samples, nextSlots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })), sources: cnt.sources, uploads: { queued: up.queued, scheduled: up.scheduled ?? 0, published: up.published ?? 0 }, youtube: { connected: yt.connected, clientConfigured: yt.clientConfigured } };
+          return { id: ch.id, slug: ch.slug, name: ch.name, profile: ch.profile, config: ch.config, schedule: eff, evidenceRows: pl.samples, nextSlots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })), sources: cnt.sources, uploads: { queued: up.queued, scheduled: up.scheduled ?? 0, published: up.published ?? 0 }, youtube: { connected: yt.connected, clientConfigured: yt.clientConfigured, identity: identityOf(store, ch.slug) } };
         });
         return json(res, 200, { channels: rows, platforms: ALLOWED_PLATFORMS, timezone: cfg.timezone, globalSchedule: cfg.schedule });
       }
@@ -275,12 +283,13 @@ export function createApp(o: AppOptions = {}): App {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown };
         return json(res, 200, { ok: true, channel: createChannel(store, { name: String(b.name ?? ''), profile: b.profile, config: b.config }, (id) => !!getPreset(id)) });
       }
-      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube|plan))?$/.exec(p);
+      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube\/web|youtube|plan))?$/.exec(p);
       if (chm) {
         const ch = getChannel(store, chm[1]!);
         if (!chm[2] && m === 'POST') { const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown; archived?: boolean }; return json(res, 200, { ok: true, channel: updateChannel(store, ch.id, b, (id) => !!getPreset(id)) }); }
         if (chm[2] === 'plan' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 7))), tz: cfg.timezone, cfg: scheduleFor(cfg, ch), channelId: ch.id, platform: url.searchParams.get('platform') ?? undefined }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
-        if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, youtubeStatus(store, cfg, ch));
+        if (chm[2] === 'youtube/web' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { share?: boolean }; const w = startWebAuth(store, cfg, ch, { base: publicBase(req), share: b.share === true }); return json(res, 200, w); }
+        if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, { ...youtubeStatus(store, cfg, ch), identity: identityOf(store, ch.slug) });
         if (chm[2] === 'youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg, ch); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
         if (chm[2] === 'youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg, ch));
       }

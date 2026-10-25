@@ -7,6 +7,7 @@ import { probe } from '../media/probe.ts';
 import { loadTranscript } from '../analysis/transcript.ts';
 import { buildStyledAss, type CaptionResult } from './captions.ts';
 import { getPreset } from './captionPresets.ts';
+import { fillPace, isPace } from './pace.ts';
 import { translateCues } from '../ai/translate.ts';
 import { llmChain } from '../ai/settings.ts';
 import { channelOfVideo } from '../channels.ts';
@@ -27,7 +28,7 @@ import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { translateTo?: 'en' | 'hi'; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { pace?: string; translateTo?: 'en' | 'hi'; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -133,6 +134,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
       const extra = hits.filter((h) => punch.every((q) => Math.abs(q - h) > 1.2)).slice(0, 3); if (extra.length) { punch = [...punch, ...extra].sort((a, b) => a - b); emph = top; }
     } catch { emph = []; }
   }
+  const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
   const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, facecam, cropXFrac: cx, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const music = pickMusic(cfg.dirs.assets);

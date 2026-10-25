@@ -2,11 +2,11 @@ import { createServer } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import type { SecretStore } from './secrets.ts';
 
-const base = () => process.env.YT_OAUTH_BASE ?? 'https://oauth2.googleapis.com';
+export const base = () => process.env.YT_OAUTH_BASE ?? 'https://oauth2.googleapis.com';
 /** `youtube` is allowed by Google's device flow and covers upload, list, update and thumbnails (verified in Google's docs 2026-10-22). */
 export const YT_SCOPE = 'https://www.googleapis.com/auth/youtube';
 
-async function form(url: string, body: Record<string, string>): Promise<{ status: number; json: any }> {
+export async function form(url: string, body: Record<string, string>): Promise<{ status: number; json: any }> {
   const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body), signal: AbortSignal.timeout(30_000) });
   return { status: r.status, json: await r.json().catch(() => ({})) };
 }
@@ -35,7 +35,7 @@ export async function pollDeviceFlow(secrets: SecretStore, clientId: string, cli
 export const YT_FORCE_SSL_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
 /** Analytics (retention) read scope. NOT allowed in the device flow, so it comes with the loopback flow together with force-ssl. */
 export const YT_ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/yt-analytics.readonly';
-const authBase = () => process.env.YT_OAUTH_AUTH_BASE ?? 'https://accounts.google.com/o/oauth2/v2/auth';
+export const authBase = () => process.env.YT_OAUTH_AUTH_BASE ?? 'https://accounts.google.com/o/oauth2/v2/auth';
 
 /**
  * Installed-app OAuth (loopback redirect + PKCE) for the force-ssl scope. Starts a one-shot HTTP listener on 127.0.0.1; the owner opens
