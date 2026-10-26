@@ -1,4 +1,4 @@
-import { totalmem, cpus, arch, platform } from 'node:os';
+import { totalmem, cpus, arch, platform, availableParallelism } from 'node:os';
 import type { Config } from './config.ts';
 import { detectLocalEngines } from './analysis/localStt.ts';
 import { fetchModels } from './ai/autodetect.ts';
@@ -12,5 +12,5 @@ export function recommend(ramGb: number, termux: boolean): { whisper: string; wh
 export async function localReport(cfg: Config, fetchFn: typeof fetch = fetch) {
   const ramGb = Math.round((totalmem() / 2 ** 30) * 10) / 10; const termux = /com\.termux/.test(process.env.PREFIX ?? '') || !!process.env.TERMUX_VERSION;
   const engines = await detectLocalEngines(cfg, fetchFn); const ol = await fetchModels('http://127.0.0.1:11434/v1', '', fetchFn);
-  return { ramGb, cpuCores: cpus().length, arch: arch(), platform: platform(), termux, recommend: recommend(ramGb, termux), engines: engines.map((e) => ({ id: e.id, available: e.available, detail: e.detail })), ollama: { running: ol.ok, models: ol.models.map((m) => m.id) }, note: 'Built-in rule engine (titles/tags/clip edges) bina kisi model ke hamesha chalta hai.' };
+  return { ramGb, cpuCores: Math.max(cpus().length, availableParallelism()), arch: arch(), platform: platform(), termux, recommend: recommend(ramGb, termux), engines: engines.map((e) => ({ id: e.id, available: e.available, detail: e.detail })), ollama: { running: ol.ok, models: ol.models.map((m) => m.id) }, note: 'Built-in rule engine (titles/tags/clip edges) bina kisi model ke hamesha chalta hai.' };
 }

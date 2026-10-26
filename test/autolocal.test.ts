@@ -121,3 +121,10 @@ test('multi-key env: GEMINI_API_KEY_2 gets its own fallback slot; failing keys t
   assert.equal(llmSlot(cfg, 1)?.apiKey, 'AQ.firstkey1234567890'); assert.equal(llmSlot(cfg, 2)?.apiKey, 'AQ.secondkey123456789'); assert.equal(llmSlot(cfg, 3), null);
   assert.equal(recommend(2, true).whisper, 'tiny'); assert.equal(recommend(6, false).llm, 'llama3.2:3b'); assert.equal(recommend(2, true).llm, 'none');
 });
+test('Gemini audio STT fallback: chunks offset to full timeline, code fences tolerated, busy chunks retried, no engine => used only when allowed', async () => {
+  const { transcribeViaGemini, parseGeminiSegments } = await import('../src/analysis/geminiStt.ts');
+  assert.deepEqual(parseGeminiSegments('```json\n[{"start":1,"end":2.5,"text":" booyah "},{"start":"x","end":2,"text":"bad"}]\n```', 90, 90), [{ start: 91, end: 92.5, text: 'booyah' }]);
+  const d = tmpDir(); const v = join(d, 'g.mp4'); await makeFixture(v, 6); let n = 0; const bodies: string[] = [];
+  const f = (async (_u: string | URL | Request, i?: RequestInit) => { bodies.push(String(i!.body).slice(0, 4000)); n++; return n === 1 ? new Response('{}', { status: 503 }) : new Response(JSON.stringify({ choices: [{ message: { content: '[{"start":0.5,"end":2,"text":"hello squad"}]' } }] })); }) as typeof fetch;
+  const r = await transcribeViaGemini(v, d, { baseUrl: 'https://x/v1', apiKey: 'k', model: 'm' }, { chunkSec: 10, fetchFn: f, gapMs: 1 }); assert.ok(r.cues.length >= 1 && r.cues[0]!.text === 'hello squad'); assert.ok(bodies[0]!.includes('input_audio'));
+});

@@ -6,6 +6,8 @@ import { run, which } from '../util/proc.ts';
 import { warn, info } from '../util/log.ts';
 import { sttCreds } from '../ai/settings.ts';
 import { transcribeViaApi } from './sttApi.ts';
+import { transcribeViaGemini } from './geminiStt.ts';
+import { llmChain } from '../ai/settings.ts';
 import { pickLocal, runLocalCli, voiceStudioUrl } from './localStt.ts';
 
 export interface SttResult { status: 'ok' | 'no_speech' | 'unavailable' | 'failed'; cues: Cue[]; language?: string; engine?: string; error?: string }
@@ -67,6 +69,10 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
     } catch (e) { return { status: 'failed', cues: [], engine: 'voicestudio', error: (e as Error).message.slice(0, 200) }; }
   }
   const eng = pick && (pick.id === 'faster-whisper' || pick.id === 'custom') ? await sttEngine(cfg.rootDir) : pick ? { cmd: '', args: [], name: pick.id } : null;
+  if (!eng && cfg.stt.engine !== 'local') { // last resort: a saved Gemini key can listen to audio (approximate timing, labelled engine "gemini-audio")
+    const g = llmChain(cfg).find((x) => /generativelanguage\.googleapis\.com/.test(x.baseUrl));
+    if (g) { try { const r = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: hint.language ?? cfg.stt.language }); if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'gemini-audio' }; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'gemini-audio', cues: r.cues.length }); return { status: 'ok', cues: r.cues, engine: 'gemini-audio' }; } catch (e) { return { status: 'failed', cues: [], engine: 'gemini-audio', error: (e as Error).message.slice(0, 200) }; } }
+  }
   if (!eng) return { status: 'unavailable', cues: [], error: 'no local STT engine (Setup -> Local speech-to-text shows what to install; or add a free Groq key)' };
   const wav = join(cfg.dirs.tmp, `stt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
   try {
