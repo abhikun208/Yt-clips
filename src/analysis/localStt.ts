@@ -53,9 +53,18 @@ export async function pickLocal(cfg: Config, fetchFn: typeof fetch = fetch): Pro
 /** whisper.cpp -oj output: { transcription: [{ offsets: {from,to} (ms), text }] }. Segment-level timing only (no word times). */
 export function parseWhisperCppJson(txt: string): { cues: Cue[]; language?: string } {
   const j = JSON.parse(txt) as { result?: { language?: string }; transcription?: { offsets?: { from: number; to: number }; text?: string }[] };
-  const cues: Cue[] = [];
-  for (const s of j.transcription ?? []) { const a = Number(s.offsets?.from) / 1000, b = Number(s.offsets?.to) / 1000, t = String(s.text ?? '').trim(); if (Number.isFinite(a) && Number.isFinite(b) && b > a && t && !/^\[.*\]$/.test(t)) cues.push({ start: a, end: b, text: t }); }
-  return { cues, language: j.result?.language };
+  const segs: { start: number; end: number; text: string }[] = [];
+  for (const s of j.transcription ?? []) { const a = Number(s.offsets?.from) / 1000, b = Number(s.offsets?.to) / 1000, t = String(s.text ?? '').trim(); if (Number.isFinite(a) && Number.isFinite(b) && b > a && t && !/^\[.*\]$/.test(t) && !/^\(.*\)$/.test(t)) segs.push({ start: a, end: b, text: t }); }
+  // `-ml 1 -sow` makes whisper.cpp emit one word per entry: regroup into short caption cues that keep per-word times (needed for word-highlight captions)
+  if (segs.length > 3 && segs.every((x) => !/\s/.test(x.text))) {
+    const cues: Cue[] = []; let cur: Cue | null = null;
+    for (const w of segs) {
+      if (cur && (w.start - cur.end > 0.7 || cur.words!.length >= 7 || /[.?!]$/.test(cur.words![cur.words!.length - 1]!.text))) { cues.push(cur); cur = null; }
+      if (!cur) cur = { start: w.start, end: w.end, text: '', words: [] }; cur.words!.push({ start: w.start, end: w.end, text: w.text }); cur.end = w.end; cur.text = cur.words!.map((x) => x.text).join(' ');
+    }
+    if (cur) cues.push(cur); return { cues, language: j.result?.language };
+  }
+  return { cues: segs.map((x) => ({ start: x.start, end: x.end, text: x.text })), language: j.result?.language };
 }
 
 /** Run one local engine on a 16 kHz mono wav. Returns cues or throws. VoiceStudio is handled by the caller (needs the video for chunking). */
@@ -63,7 +72,9 @@ export async function runLocalCli(cfg: Config, id: LocalEngineId, wav: string, l
   const l = lang && lang !== 'auto' ? lang : 'auto';
   if (id === 'whisper-cpp') {
     const bin = await cppBin(); if (!bin) throw new Error('whisper.cpp binary nahi mila'); const prefix = wav.replace(/\.wav$/, '');
-    const r = await run(bin, ['-m', cppModelPath(cfg), '-f', wav, '-oj', '-of', prefix, '-l', l, '-np'], { timeoutMs: 4 * 60 * 60_000 });
+    const base = ['-m', cppModelPath(cfg), '-f', wav, '-oj', '-of', prefix, '-l', l, '-np'];
+    let r = await run(bin, [...base, '-ml', '1', '-sow'], { timeoutMs: 4 * 60 * 60_000 }); // word times; older builds without these flags: retry plain
+    if (r.code !== 0) r = await run(bin, base, { timeoutMs: 4 * 60 * 60_000 });
     const jf = prefix + '.json'; try { if (r.code !== 0 || !existsSync(jf)) throw new Error(`whisper.cpp exit ${r.code}: ${r.stderr.slice(0, 150)}`); return parseWhisperCppJson(readFileSync(jf, 'utf8')); } finally { rmSync(jf, { force: true }); }
   }
   if (id === 'whisper-cli') {

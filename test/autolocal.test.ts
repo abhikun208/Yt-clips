@@ -128,3 +128,9 @@ test('Gemini audio STT fallback: chunks offset to full timeline, code fences tol
   const f = (async (_u: string | URL | Request, i?: RequestInit) => { bodies.push(String(i!.body).slice(0, 4000)); n++; return n === 1 ? new Response('{}', { status: 503 }) : new Response(JSON.stringify({ choices: [{ message: { content: '[{"start":0.5,"end":2,"text":"hello squad"}]' } }] })); }) as typeof fetch;
   const r = await transcribeViaGemini(v, d, { baseUrl: 'https://x/v1', apiKey: 'k', model: 'm' }, { chunkSec: 10, fetchFn: f, gapMs: 1 }); assert.ok(r.cues.length >= 1 && r.cues[0]!.text === 'hello squad'); assert.ok(bodies[0]!.includes('input_audio'));
 });
+
+test('whisper.cpp word-mode output (-ml 1 -sow) is regrouped into caption cues with per-word times', () => {
+  const w = (t: string, a: number, b: number) => ({ offsets: { from: a, to: b }, text: ' ' + t });
+  const r = parseWhisperCppJson(JSON.stringify({ transcription: [w('Booyah', 0, 400), w('squad,', 400, 900), w('push', 1000, 1300), w('now.', 1300, 1700), w('Next', 3000, 3300), w('one', 3300, 3600)] }));
+  assert.equal(r.cues.length, 2); assert.equal(r.cues[0]!.text, 'Booyah squad, push now.'); assert.equal(r.cues[0]!.words!.length, 4); assert.equal(r.cues[1]!.start, 3); assert.equal(r.cues[1]!.text, 'Next one');
+});
