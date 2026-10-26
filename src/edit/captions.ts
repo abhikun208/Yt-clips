@@ -7,6 +7,8 @@ const hms = (t: number) => {
   return `${Math.floor(cs / 360000)}:${String(Math.floor((cs % 360000) / 6000)).padStart(2, '0')}:${String(Math.floor((cs % 6000) / 100)).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
 };
 /** '#RRGGBB' -> ASS '&HAABBGGRR' (alpha 00 = opaque). */
+/** Amounts and numbers pop in the emphasis colour ("16 lakh", "₹30", "50%", "1v4"). */
+const NUMBERISH = /\d|^(lakh|lakhs|crore|crores|million|billion|thousand|hazaar|rupees?|rs\.?|₹|\$)$/i;
 export const assColor = (hex: string, alpha = 0): string => {
   const h = hex.replace('#', '');
   return `&H${alpha.toString(16).padStart(2, '0').toUpperCase()}${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toUpperCase();
@@ -107,7 +109,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const wordFont = (w: string): string | null => { if (!/\p{L}/u.test(w)) return null; const sc = detectScript(w); if (sc === script) return null; const fx = pickFont(sc, o.resolveFont); return fx.warning || fx.font === f.font ? null : fx.font; };
   const F = (w: string) => { const fn = wordFont(w); const t = T(w); return fn ? `{\\fn${fn}}${t}{\\fn${f.font}}` : t; };
   const glow = p.glow ? '{\\blur5}' : '';
-  const colorFor = (w: TWord, state: 'active' | 'spoken' | 'upcoming') => state === 'active' ? pal.active : state === 'upcoming' ? pal.upcoming : emph.has(norm(w.w)) && norm(w.w) ? pal.emphasis : pal.base;
+  const colorFor = (w: TWord, state: 'active' | 'spoken' | 'upcoming') => state === 'active' ? pal.active : state === 'upcoming' ? pal.upcoming : (emph.has(norm(w.w)) || NUMBERISH.test(w.w)) && norm(w.w) ? pal.emphasis : pal.base;
   const popTag = (pct: number) => (pct === 100 ? '' : `\\fscx100\\fscy100\\t(0,90,\\fscx${pct}\\fscy${pct})\\t(90,200,\\fscx100\\fscy100)`);
   const render = (chunk: TWord[], k: number, upto: number, showUpcoming: boolean): string => chunk.slice(0, upto).map((w, i) => {
     const state = i === k ? 'active' : i < k ? 'spoken' : 'upcoming';

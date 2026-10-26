@@ -1,6 +1,6 @@
 import { run } from '../util/proc.ts';
 
-export interface MediaInfo { duration: number; width: number; height: number; fps: number; hasAudio: boolean; videoCodec: string; audioCodec?: string; sampleRate?: number; rotation: number }
+export interface MediaInfo { duration: number; width: number; height: number; fps: number; hasAudio: boolean; videoCodec: string; audioCodec?: string; sampleRate?: number; rotation: number; interlaced?: boolean }
 
 function parseFps(r: string | undefined): number {
   if (!r) return 0;
@@ -23,6 +23,6 @@ export async function probe(path: string): Promise<MediaInfo> {
   return {
     duration, width: swap ? v.height : v.width, height: swap ? v.width : v.height,
     fps: parseFps(v.avg_frame_rate) || parseFps(v.r_frame_rate), hasAudio: !!a, videoCodec: v.codec_name,
-    audioCodec: a?.codec_name, sampleRate: a ? Number(a.sample_rate) : undefined, rotation,
+    audioCodec: a?.codec_name, sampleRate: a ? Number(a.sample_rate) : undefined, rotation, interlaced: ['tt', 'bb', 'tb', 'bt'].includes(String(v.field_order ?? '')),
   };
 }

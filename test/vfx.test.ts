@@ -36,7 +36,7 @@ test('real ffmpeg: full vfx graph renders; measured visual change is real (more 
   await render(src, p, { ...NONE, particles: true });
   const off = (await measureVisualChange(src, a, g))!; const on = (await measureVisualChange(src, b, g))!; const part = (await measureVisualChange(src, p, g))!;
   assert.ok(off && on && part, 'ssim measured');
-  assert.ok(on.change > off.change + 0.03, `vfx visibly changes frames: ${on.change} vs ${off.change}`);
+  assert.ok(on.change > off.change + 0.012, `vfx visibly changes frames: ${on.change} vs ${off.change}`);
   assert.ok(part.change > off.change + 0.002, `particles alone change pixels: ${part.change}`);
 });
 

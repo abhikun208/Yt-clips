@@ -1,5 +1,6 @@
 // Extra visual treatments built with plain ffmpeg filters (no overlay assets, no paid tools): cinematic curves / owner .cube LUT,
 // film grain, drifting dust particles, animated light leak, flash transitions on beats. Pure builders; every one is recorded as a Treatment.
+import { screenBlend } from './filters.ts';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Treatment } from './filters.ts';
@@ -64,7 +65,7 @@ export function addVfx(o: VfxOpts, parts: string[], chain: (f: string) => void, 
     const pw = Math.round(o.w / 4), ph = Math.round(o.h / 4);
     const src = `p${next()}`; const out = `v${next()}`;
     parts.push(`color=c=black:s=${pw}x${ph}:r=${o.fps}:d=${d},format=gray,noise=alls=100:allf=u:all_seed=11,lut=y='if(gt(val\\,92)\\,255\\,0)',scroll=v=-0.0035,scale=${o.w}:${o.h}:flags=bicubic,gblur=sigma=3.2,format=rgb24,colorchannelmixer=gg=0.88:bb=0.6,format=yuv420p[${src}]`);
-    parts.push(`[${getCur()}][${src}]blend=all_mode=screen:all_opacity=0.55:shortest=1[${out}]`);
+    screenBlend(parts, getCur(), src, out, 0.4);
     setCur(out); t.push({ dimension: 'particles', applied: true, detail: 'drifting dust/bokeh specks (generated, screen blend 55%)' });
   } else t.push({ dimension: 'particles', applied: false, detail: 'disabled' });
 
@@ -73,7 +74,7 @@ export function addVfx(o: VfxOpts, parts: string[], chain: (f: string) => void, 
     const src = `l${next()}`; const out = `v${next()}`;
     const k = `exp(-(pow(X/W-(0.1+0.8*mod(T/${per}\\,1))\\,2)*8+pow(Y/H-0.25\\,2)*4))*(0.3+0.3*sin(2*PI*T/${per}))`;
     parts.push(`color=c=black:s=108x192:r=${o.fps}:d=${d},format=rgb24,geq=r='${r}*${k}':g='${g}*${k}':b='${b}*${k}',scale=${o.w}:${o.h}:flags=bicubic,format=yuv420p[${src}]`);
-    parts.push(`[${getCur()}][${src}]blend=all_mode=screen:all_opacity=0.6:shortest=1[${out}]`);
+    screenBlend(parts, getCur(), src, out, 0.35);
     setCur(out); t.push({ dimension: 'light_leak', applied: true, detail: `${name} light leak sweeping across, pulsing every ~${per}s` });
   } else t.push({ dimension: 'light_leak', applied: false, detail: 'disabled' });
 

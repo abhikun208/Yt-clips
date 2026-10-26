@@ -18,10 +18,14 @@ export function gradeFor(mood: Mood): { eq: string; balance: string; detail: str
   }
 }
 
+/** Screen-blend two video labels in RGB (gbrp). Blending in yuv420p also blends the chroma planes, which shifts every colour toward magenta (the pink tint bug). */
+export function screenBlend(parts: string[], a: string, b: string, out: string, opacity: number): void {
+  parts.push(`[${a}]format=gbrp[${a}_g];[${b}]format=gbrp[${b}_g];[${a}_g][${b}_g]blend=all_mode=screen:all_opacity=${opacity}:shortest=1[${out}]`);
+}
 export interface VideoGraphOpts {
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
   reframe: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; cropXFrac?: number; // 0..1 center of subject horizontally (from face tracking), default .5
-  assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[];
+  deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[];
   vfx?: Omit<VfxOpts, 'w' | 'h' | 'fps' | 'duration' | 'mood'>;
 }
 
@@ -62,7 +66,8 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
   const t: Treatment[] = [];
   const g = gradeFor(o.mood);
   const parts: string[] = [];
-  const rf = reframeParts(o); parts.push(...rf.parts); t.push(...rf.treatments);
+  let inLab = '0:v'; if (o.deinterlace) { parts.push(`[0:v]yadif=mode=0:parity=-1:deint=0[dv]`); inLab = 'dv'; t.push({ dimension: 'deinterlace', applied: true, detail: 'interlaced source (TV footage): yadif removes the horizontal comb lines' }); }
+  const rf = reframeParts(o, inLab); parts.push(...rf.parts); t.push(...rf.treatments);
 
   let cur = 'base'; let n = 0;
   const chain = (f: string) => { const nx = `v${n++}`; parts.push(`[${cur}]${f}[${nx}]`); cur = nx; };
@@ -86,7 +91,7 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
     parts.push(`[${cur}]split=2[${a}][${b}]`);
     parts.push(`[${b}]gblur=sigma=18,eq=brightness=-0.15[${c}]`);
     const out = `v${n++}`;
-    parts.push(`[${a}][${c}]blend=all_mode=screen:all_opacity=0.28[${out}]`);
+    screenBlend(parts, a, c, out, 0.28);
     cur = out; t.push({ dimension: 'glow', applied: true, detail: 'soft bloom (screen blend, 28%)' });
   } else t.push({ dimension: 'glow', applied: false, detail: 'disabled' });
 
