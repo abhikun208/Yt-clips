@@ -100,3 +100,9 @@ test('Gemini: /models returns "models/" prefixed ids in `data` -> still ranked (
   const r = await autoSetup(cfg, { apiKey: 'AQ.Ab8RN6testkey1234567', provider: 'gemini' }, f); assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(llmCreds(cfg)?.model, 'gemini-2.5-flash');
   const sh = keyShape(' "AQ.Ab8 secret" '); assert.equal(sh.start, '"AQ.'); assert.ok(sh.problems.length >= 2); assert.ok(!JSON.stringify(sh).includes('secret'));
 });
+
+test('busy providers: 503 / 200-with-rate-limit-body accepted as "model exists"; OpenRouter prefers known free models over obscure ones', async () => {
+  assert.equal(rankChat('openrouter', [{ id: 'xingchen-agi/xing4.0-29b-a4b:free', free: true }, { id: 'meta-llama/llama-3.3-70b-instruct:free', free: true }, { id: 'openrouter/free', free: true }])[0], 'meta-llama/llama-3.3-70b-instruct:free');
+  const f = (async (u: string | URL | Request) => String(u).endsWith('/models') ? new Response(JSON.stringify({ data: [{ id: 'gemini-2.5-flash' }, { id: 'gemini-3.8-flash' }] })) : new Response('{}', { status: 503 })) as typeof fetch;
+  const r = await autoSetup(testConfig(), { apiKey: 'AQ.keykeykeykeykeykey', provider: 'gemini' }, f); assert.equal(r.ok, true, JSON.stringify(r));
+});

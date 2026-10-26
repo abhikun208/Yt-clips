@@ -46,6 +46,8 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
     if (!c) return [false, 'is slot mein koi key/provider save nahi hai'];
     const r = await fetch(`${c.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) }, body: JSON.stringify({ model: c.model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with: ok' }] }), signal: t(30_000) });
     const j = await r.json().catch(() => null) as { choices?: unknown[]; error?: { message?: string } } | null;
+    const busy = String(j?.error?.message ?? '');
+    if ((r.ok && !j?.choices?.length && /rate.?limit|overload|high demand|try again/i.test(busy)) || r.status >= 500) return [true, `key + model sahi, provider abhi busy hai (HTTP ${r.status}${busy ? ': ' + busy.slice(0, 80) : ''}); thodi der baad chalega, fallback slot bhi use hota hai`];
     if (r.ok && j?.choices?.length) return [true, `${new URL(c.baseUrl).host} · model ${c.model} ne jawab diya`];
     if (r.status === 401 || r.status === 403) return [false, 'key galat/expired hai (HTTP ' + r.status + ')'];
     const em = String(j?.error?.message ?? (Array.isArray(j) ? (j as { error?: { message?: string } }[])[0]?.error?.message : '') ?? '').slice(0, 160);
