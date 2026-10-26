@@ -78,3 +78,10 @@ test('VoiceStudio probe: any HTTP answer = up; refused = down', async () => {
   assert.equal((await probeVoiceStudio('http://127.0.0.1:3900', (async () => new Response('ok', { status: 200 })) as typeof fetch)).up, true);
   assert.equal((await probeVoiceStudio('http://127.0.0.1:3900', (async () => { throw new Error('ECONNREFUSED'); }) as typeof fetch)).up, false);
 });
+test('simple provider save: catalog model preferred, slots assigned, key-less Ollama ok', async () => {
+  const { saveProviderKey, slotFor, CATALOG } = await import('../src/ai/autodetect.ts'); const cfg = testConfig();
+  assert.ok(CATALOG.length >= 6 && CATALOG.every((c) => c.models.length && /^https?:\/\//.test(c.base)));
+  const g = await saveProviderKey(cfg, 'groq', 'gsk_testkey1234567890', stubFetch({ goodKey: 'gsk_testkey1234567890', base: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile', 'openai/gpt-oss-20b', 'whisper-large-v3-turbo'] })); assert.equal(g.ok, true, JSON.stringify(g)); assert.equal(g.llm!.slot, 1);
+  const o = await saveProviderKey(cfg, 'ollama', '', stubFetch({ goodKey: '', base: 'http://127.0.0.1:11434/v1', models: ['llama3.2'] })); assert.equal(o.ok, true, JSON.stringify(o)); assert.equal(o.llm!.slot, 2);
+  assert.equal(slotFor(cfg, 'https://api.groq.com/openai/v1'), 1);
+});

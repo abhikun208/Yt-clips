@@ -1,0 +1,11 @@
+{
+  "_note": "Pre-made provider list. Users only paste an API key. Edit models here if a provider renames them; the live /models list of the key is still checked first.",
+  "providers": [
+    { "id": "groq", "label": "Groq (free)", "base": "https://api.groq.com/openai/v1", "keyHint": "gsk_...", "getKey": "console.groq.com/keys", "models": ["llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"], "stt": ["whisper-large-v3-turbo", "whisper-large-v3"] },
+    { "id": "gemini", "label": "Google Gemini (free)", "base": "https://generativelanguage.googleapis.com/v1beta/openai", "keyHint": "AIza...", "getKey": "aistudio.google.com/apikey", "models": ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"], "stt": [] },
+    { "id": "openrouter", "label": "OpenRouter (free models)", "base": "https://openrouter.ai/api/v1", "keyHint": "sk-or-...", "getKey": "openrouter.ai/keys", "models": ["meta-llama/llama-3.3-70b-instruct:free", "openrouter/free"], "stt": [] },
+    { "id": "xai", "label": "xAI Grok (paid)", "base": "https://api.x.ai/v1", "keyHint": "xai-...", "getKey": "console.x.ai", "models": ["grok-3-mini", "grok-3"], "stt": [] },
+    { "id": "mistral", "label": "Mistral", "base": "https://api.mistral.ai/v1", "keyHint": "key", "getKey": "console.mistral.ai", "models": ["mistral-small-latest"], "stt": [] },
+    { "id": "ollama", "label": "Ollama (local, no key)", "base": "http://127.0.0.1:11434/v1", "keyHint": "", "getKey": "ollama pull llama3.2", "models": ["llama3.2", "qwen2.5:7b"], "stt": [] }
+  ]
+}

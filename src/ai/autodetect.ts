@@ -1,5 +1,9 @@
 import type { Config } from '../config.ts';
-import { PRESETS, saveAi, isLocalBase } from './settings.ts';
+import { readFileSync } from 'node:fs';
+import { PRESETS, saveAi, isLocalBase, llmSlot } from './settings.ts';
+
+export interface CatalogEntry { id: string; label: string; base: string; keyHint: string; getKey: string; models: string[]; stt: string[] }
+export const CATALOG: CatalogEntry[] = (JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8')) as { providers: CatalogEntry[] }).providers;
 
 /**
  * "Give only the API key": figure out the provider (key prefix, else probe each provider's GET /models), list the models that key can use,
@@ -81,7 +85,8 @@ export async function autoSetup(cfg: Config, o: { apiKey?: string; provider?: st
     models = m.models;
   }
   say(true, `${models.length} models mile`); if (!models.length) { say(false, provider === 'ollama' ? 'Ollama mein koi model installed nahi: pehle `ollama pull llama3.2` chalao' : 'Is key par koi model nahi mila'); return rep; }
-  const ranked = rankChat(provider ?? 'custom', models); if (!ranked.length) { say(false, 'Koi chat model nahi mila'); return rep; }
+  const cat = CATALOG.find((c) => c.id === provider); const live = new Set(models.map((m) => m.id));
+  const ranked = [...new Set([...(cat?.models ?? []).filter((m) => live.has(m)), ...rankChat(provider ?? 'custom', models)])]; if (!ranked.length) { say(false, 'Koi chat model nahi mila'); return rep; }
   for (const id of ranked.slice(0, provider === 'openrouter' ? 8 : 5)) {
     const t = await chatOk(base, key, id, fetchFn);
     if (t.ok || t.status === 429) { say(true, `${id} ${t.ok ? 'ne jawab diya' : 'sahi hai (abhi rate-limit)'}`); saveAi(cfg, 'llm', { apiKey: key || undefined, baseUrl: base, model: id, slot }); rep.llm = { model: id, slot }; rep.ok = true; break; }
@@ -106,4 +111,14 @@ export async function autoFix(cfg: Config, target: string, fetchFn: typeof fetch
     saveAi(cfg, 'stt', { apiKey: c.apiKey, baseUrl: c.baseUrl, model: w }); rep.ok = true; rep.stt = { model: w }; rep.provider = providerFromBase(c.baseUrl); rep.steps.push({ ok: true, text: `${host}: model ${w} set` }); return rep;
   }
   return { ok: false, provider: null, base: null, steps: [{ ok: false, text: 'is target ke liye auto fix nahi' }] };
+}
+
+/** Simple path used by the UI: provider + key only. Picks/reuses a slot (existing slot for this provider, else the first empty, else slot 3). */
+export function slotFor(cfg: Config, base: string): number {
+  const b = base.replace(/\/+$/, ''); for (const n of [1, 2, 3]) if (llmSlot(cfg, n)?.baseUrl === b) return n;
+  for (const n of [1, 2, 3]) if (!llmSlot(cfg, n)) return n; return 3;
+}
+export async function saveProviderKey(cfg: Config, id: string, apiKey: string, fetchFn: typeof fetch = fetch): Promise<AutoReport> {
+  const c = CATALOG.find((x) => x.id === id); if (!c) return { ok: false, provider: null, base: null, steps: [{ ok: false, text: 'unknown provider' }] };
+  return autoSetup(cfg, { apiKey, provider: id, baseUrl: c.base, slot: slotFor(cfg, c.base) }, fetchFn);
 }
