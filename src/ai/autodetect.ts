@@ -18,7 +18,7 @@ const cmpVerDesc = (a: string, b: string) => { const x = ver(a), y = ver(b); for
 const sizeB = (id: string) => { const m = /(\d+(?:\.\d+)?)\s*b\b/i.exec(id) ?? /-(\d+)b/i.exec(id); return m ? Number(m[1]) : 0; };
 
 export type ProviderId = 'groq' | 'gemini' | 'openrouter' | 'xai' | 'mistral' | 'ollama' | 'lmstudio';
-export const KEY_PREFIX: Record<string, ProviderId> = { gsk_: 'groq', AIza: 'gemini', 'sk-or-': 'openrouter', 'xai-': 'xai' };
+export const KEY_PREFIX: Record<string, ProviderId> = { gsk_: 'groq', AIza: 'gemini', 'AQ.': 'gemini', 'sk-or-': 'openrouter', 'xai-': 'xai' };
 export const PROBE_ORDER: ProviderId[] = ['groq', 'gemini', 'openrouter', 'xai', 'mistral'];
 export const providerFromBase = (base: string): string | null => { for (const [id, b] of Object.entries(BASES)) if (base.replace(/\/+$/, '') === b) return id; return /11434/.test(base) ? 'ollama' : null; };
 export const providerFromKey = (key: string): ProviderId | null => { for (const [p, id] of Object.entries(KEY_PREFIX)) if (key.startsWith(p)) return id; return null; };
@@ -43,11 +43,11 @@ export function rankChat(provider: string, models: Model[]): string[] {
 export const rankStt = (models: Model[]): string[] => { const w = models.map((m) => m.id).filter((id) => /whisper/i.test(id)); return [...w.filter((x) => /turbo/.test(x)), ...w.filter((x) => !/turbo/.test(x))]; };
 
 const T = (ms: number) => AbortSignal.timeout(ms);
-export async function fetchModels(base: string, key: string, fetchFn: typeof fetch = fetch): Promise<{ ok: boolean; status: number; models: Model[] }> {
+export async function fetchModels(base: string, key: string, fetchFn: typeof fetch = fetch): Promise<{ ok: boolean; status: number; models: Model[]; message?: string }> {
   try {
-    const r = await fetchFn(`${base.replace(/\/+$/, '')}/models`, { headers: key ? { authorization: `Bearer ${key}` } : {}, signal: T(20_000) }); if (!r.ok) return { ok: false, status: r.status, models: [] };
+    const r = await fetchFn(`${base.replace(/\/+$/, '')}/models`, { headers: key ? { authorization: `Bearer ${key}` } : {}, signal: T(20_000) }); if (!r.ok) { const e = await r.json().catch(() => null) as { error?: { message?: string } | string; message?: string } | { error?: { message?: string } }[] | null; const em = Array.isArray(e) ? e[0]?.error?.message : typeof e?.error === 'string' ? e.error : e?.error?.message ?? e?.message; return { ok: false, status: r.status, models: [], message: String(em ?? '').slice(0, 160) }; }
     const j = await r.json() as { data?: { id?: string; pricing?: { prompt?: string | number; completion?: string | number } }[]; models?: { name?: string }[] };
-    const a = (j.data ?? []).map((x) => ({ id: String(x.id ?? ''), free: x.pricing ? Number(x.pricing.prompt) === 0 && Number(x.pricing.completion) === 0 : undefined }));
+    const a = (j.data ?? []).map((x) => ({ id: String(x.id ?? '').replace(/^models\//, ''), free: x.pricing ? Number(x.pricing.prompt) === 0 && Number(x.pricing.completion) === 0 : undefined }));
     const b = (j.models ?? []).map((x) => ({ id: String(x.name ?? '').replace(/^models\//, '') }));
     return { ok: true, status: 200, models: [...a, ...b].filter((m) => m.id) };
   } catch { return { ok: false, status: 0, models: [] }; }
@@ -74,14 +74,14 @@ export async function autoSetup(cfg: Config, o: { apiKey?: string; provider?: st
   }
   if (!base) { // unknown key shape: probe the known providers; first one that accepts the key wins
     if (!key) { say(false, 'API key daalo (ya local Ollama ke liye provider = ollama chuno)'); return rep; }
-    for (const p of PROBE_ORDER) { const m = await fetchModels(BASES[p]!, key, fetchFn); if (m.ok) { provider = p; base = BASES[p]!; models = m.models; say(true, `${p} ne key accept ki`); break; } else say(false, `${p}: HTTP ${m.status || 'no connection'}`); }
+    for (const p of PROBE_ORDER) { const m = await fetchModels(BASES[p]!, key, fetchFn); if (m.ok) { provider = p; base = BASES[p]!; models = m.models; say(true, `${p} ne key accept ki`); break; } else say(false, `${p}: HTTP ${m.status || 'no connection'}${m.message ? ' ' + m.message : ''}`); }
     if (!base) { say(false, 'Kisi bhi provider ne key accept nahi ki. Key sahi copy hui? Ya provider/base URL manually chuno.'); return rep; }
   }
   provider ??= providerFromBase(base); rep.provider = provider ?? 'custom'; rep.base = base;
   if (!key && !isLocalBase(base)) { say(false, 'Is provider ke liye API key chahiye'); return rep; }
   if (!models.length) {
     const m = await fetchModels(base, key, fetchFn);
-    if (!m.ok) { say(false, m.status === 401 || m.status === 403 ? `Key reject hui (HTTP ${m.status})` : m.status === 400 && provider === 'gemini' ? 'Gemini galat key par HTTP 400 deta hai: key dobara copy karo (aistudio.google.com/apikey se, shuru "AIza")' : m.status === 404 ? `Base URL galat lagta hai (${base}/models → 404)` : m.status === 0 ? `Server tak pahunch nahi paya (${base})${isLocalBase(base) ? ' — Ollama chal raha hai? "ollama serve"' : ''}` : `HTTP ${m.status}`); return rep; }
+    if (!m.ok) { say(false, m.status === 401 || m.status === 403 ? `Key reject hui (HTTP ${m.status}${m.message ? ': ' + m.message : ''})` : m.status === 400 && provider === 'gemini' ? 'Gemini galat key par HTTP 400 deta hai: key dobara copy karo (aistudio.google.com/apikey se, shuru "AIza")' : m.status === 404 ? `Base URL galat lagta hai (${base}/models → 404)` : m.status === 0 ? `Server tak pahunch nahi paya (${base})${isLocalBase(base) ? ' — Ollama chal raha hai? "ollama serve"' : ''}` : `HTTP ${m.status}${m.message ? ': ' + m.message : ''}`); return rep; }
     models = m.models;
   }
   say(true, `${models.length} models mile`); if (!models.length) { say(false, provider === 'ollama' ? 'Ollama mein koi model installed nahi: pehle `ollama pull llama3.2` chalao' : 'Is key par koi model nahi mila'); return rep; }
@@ -121,4 +121,10 @@ export function slotFor(cfg: Config, base: string): number {
 export async function saveProviderKey(cfg: Config, id: string, apiKey: string, fetchFn: typeof fetch = fetch): Promise<AutoReport> {
   const c = CATALOG.find((x) => x.id === id); if (!c) return { ok: false, provider: null, base: null, steps: [{ ok: false, text: 'unknown provider' }] };
   return autoSetup(cfg, { apiKey, provider: id, baseUrl: c.base, slot: slotFor(cfg, c.base) }, fetchFn);
+}
+
+/** Safe key-shape report for debugging "key reject": never prints the key (only length, first 4 chars, and suspicious characters). */
+export function keyShape(raw: string): { length: number; start: string; problems: string[] } {
+  const problems: string[] = []; if (/^["']|["']$/.test(raw)) problems.push('quotes ke saath'); if (/\s/.test(raw.trim())) problems.push('beech mein space/newline'); if (raw !== raw.trim()) problems.push('aage/peeche space'); if (/[^\x21-\x7e]/.test(raw.trim())) problems.push('non-ASCII character (copy ke saath kuch extra aa gaya)'); if (/^bearer/i.test(raw)) problems.push('"Bearer" likha hai'); if (/#/.test(raw)) problems.push('# hai (comment samjha ja sakta hai)');
+  return { length: raw.trim().length, start: raw.trim().slice(0, 4), problems };
 }

@@ -94,3 +94,9 @@ test('.env: loader (real env wins, blanks skipped) + applyEnvKeys saves/tests ke
   const a = await applyEnvKeys(cfg, { env, fetchFn: f }); assert.ok(a.every((x) => x.report?.ok), JSON.stringify(a)); assert.equal(llmCreds(cfg)?.apiKey, 'gsk_envkey1234567890');
   const b = await applyEnvKeys(cfg, { env, fetchFn: f }); assert.equal(b.find((x) => x.provider === 'groq')!.skipped, true);
 });
+test('Gemini: /models returns "models/" prefixed ids in `data` -> still ranked (regression: "Koi chat model nahi mila"); new AQ. keys map to gemini; keyShape never prints the key', async () => {
+  const { providerFromKey: pk, keyShape } = await import('../src/ai/autodetect.ts'); assert.equal(pk('AQ.Ab8RN6xyz'), 'gemini');
+  const cfg = testConfig(); const f = (async (u: string | URL | Request, i?: RequestInit) => String(u).endsWith('/models') ? new Response(JSON.stringify({ data: [{ id: 'models/gemini-2.5-flash' }, { id: 'models/text-embedding-004' }, { id: 'models/gemini-2.5-pro' }] })) : new Response(JSON.stringify({ choices: [{}] }), { status: JSON.parse(String(i!.body)).model === 'gemini-2.5-flash' ? 200 : 404 })) as typeof fetch;
+  const r = await autoSetup(cfg, { apiKey: 'AQ.Ab8RN6testkey1234567', provider: 'gemini' }, f); assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(llmCreds(cfg)?.model, 'gemini-2.5-flash');
+  const sh = keyShape(' "AQ.Ab8 secret" '); assert.equal(sh.start, '"AQ.'); assert.ok(sh.problems.length >= 2); assert.ok(!JSON.stringify(sh).includes('secret'));
+});
