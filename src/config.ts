@@ -51,7 +51,7 @@ const DEFAULTS = (rootDir: string): Config => {
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4, renderConcurrency: 1 },
     stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'auto' },
-    youtube: { pollMinutes: 60, maxPerPoll: 3, maxDurationMin: 180, maxHeight: 1080 },
+    youtube: { pollMinutes: 15, maxPerPoll: 3, maxDurationMin: 360, maxHeight: 720 },
     analytics: { pollMinutes: 360 },
     comments: { pollMinutes: 60, maxRepliesPerDay: 20 },
     automation: { autoQueue: false, platforms: ['youtube_shorts'], autoApprove: false, maxAdvancePerCycle: 20, requireReview: false, titleTest: false, titleTestHours: 24, funnelComment: false },

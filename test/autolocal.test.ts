@@ -134,3 +134,16 @@ test('whisper.cpp word-mode output (-ml 1 -sow) is regrouped into caption cues w
   const r = parseWhisperCppJson(JSON.stringify({ transcription: [w('Booyah', 0, 400), w('squad,', 400, 900), w('push', 1000, 1300), w('now.', 1300, 1700), w('Next', 3000, 3300), w('one', 3300, 3600)] }));
   assert.equal(r.cues.length, 2); assert.equal(r.cues[0]!.text, 'Booyah squad, push now.'); assert.equal(r.cues[0]!.words!.length, 4); assert.equal(r.cues[1]!.start, 3); assert.equal(r.cues[1]!.text, 'Next one');
 });
+test('channel polling: new uploads discovered, result recorded for the UI, failures explained in plain words', async () => {
+  const { pollSources, explainYtdlp, addYoutubeSource } = await import('../src/sources/youtube.ts'); const { Store } = await import('../src/db.ts');
+  assert.match(explainYtdlp("ERROR: Sign in to confirm you're not a bot"), /YT_DLP_COOKIES/); assert.match(explainYtdlp('ERROR: HTTP Error 404'), /link galat/);
+  const d = tmpDir(); const bin = join(d, 'bin'); mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'yt-dlp'), '#!/bin/sh\ncase "$*" in *--help*) echo "  --js-runtimes RUNTIME";; *--flat-playlist*) echo \'{"entries":[{"id":"abcdefghijk","title":"Old stream","duration":99999},{"id":"lmnopqrstuv","title":"Live 2","duration":99999}]}\';; esac\n'); chmodSync(join(bin, 'yt-dlp'), 0o755);
+  const old = process.env.PATH; process.env.PATH = `${bin}:${old}`;
+  try {
+    const cfg = testConfig(); const store = new Store(join(cfg.dataDir, 'x.db')); addYoutubeSource(store, 'https://www.youtube.com/@teamunknown', true);
+    const r = await pollSources(store, cfg); assert.equal(r.channels, 1); assert.equal(r.skipped, 2); assert.equal(r.error, undefined);
+    assert.equal(JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)!.v).skipped, 2);
+    assert.equal(store.all(`SELECT 1 FROM sources WHERE kind='youtube_video'`).length, 2);
+  } finally { process.env.PATH = old; }
+});

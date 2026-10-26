@@ -23,6 +23,7 @@ import { isPace } from '../edit/pace.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
 import { localReport } from '../localcheck.ts';
+import { pickLocal } from '../analysis/localStt.ts';
 import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
 import { dotEnvInfo } from '../env-boot.ts';
 import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor } from '../ai/autodetect.ts';
@@ -187,11 +188,11 @@ export function createApp(o: AppOptions = {}): App {
         const items = [
           { id: 'ffmpeg', ok: await which('ffmpeg') && await which('ffprobe'), label: 'ffmpeg + ffprobe', fix: 'Install ffmpeg (Termux: pkg install ffmpeg, Ubuntu: apt install ffmpeg)', required: true },
           { id: 'disk', ok: free >= cfg.resources.minFreeDiskMb, label: `Free disk ${free} MB`, fix: 'Free some space (clips are large)', required: true },
-          { id: 'stt', ok: !!sttCreds(cfg) || !!process.env.YT_CLIPS_STT_CMD || await which('whisper') || await which('whisper-cli'), label: 'Speech-to-text (captions + smart clipping)', fix: 'Settings -> AI: add a free Groq key, or point to a local faster-whisper server', required: false },
+          { id: 'stt', ok: !!sttCreds(cfg) || !!(await pickLocal(cfg)) || llmChain(cfg).some((x) => /generativelanguage/.test(x.baseUrl)), label: 'Speech-to-text (captions + smart clipping)', fix: 'Settings -> AI: add a free Groq key, or point to a local faster-whisper server', required: false },
           { id: 'llm', ok: llmChain(cfg).length > 0, label: 'AI titles / clip re-ranking', fix: 'Optional. Settings -> AI: Groq/Gemini key, or Ollama on this machine (no key). Without it the local engine writes titles.', required: false },
           { id: 'ytdlp', ok: dl, label: 'yt-dlp (channel watching)', fix: 'pip install yt-dlp (only needed to watch YouTube channels; file uploads work without it)', required: false },
           { id: 'youtube', ok: !!yt.connected, label: 'YouTube account connected', fix: 'Settings -> YouTube client, then Publish -> Connect', required: false },
-          { id: 'token', ok: !!token, label: 'Server token set', fix: 'Set YT_CLIPS_TOKEN before exposing the server publicly', required: false },
+          { id: 'token', ok: !!token || LOOPBACK.has(host), label: token ? 'Server token set' : 'Server token: zaroori nahi (sirf is device par chal raha hai)', fix: 'Set YT_CLIPS_TOKEN before exposing the server publicly', required: false },
         ];
         return json(res, 200, { items, ready: items.filter((i) => i.required).every((i) => i.ok) });
       }
@@ -229,7 +230,14 @@ export function createApp(o: AppOptions = {}): App {
         if ('pace' in b) { if (!isPace(b.pace)) return json(res, 400, { error: 'pace must be fast|medium|relaxed|off' }); patch.pace = b.pace; }
         updateOwnerConfig(cfg, { edit: patch }); Object.assign(cfg.edit, patch); return json(res, 200, { ok: true, edit: { captionPreset: cfg.edit.captionPreset, captionEmphasis: cfg.edit.captionEmphasis, reframe: cfg.edit.reframe, pace: cfg.edit.pace } });
       }
-      if (p === '/api/sources' && m === 'GET') return json(res, 200, { ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id ORDER BY s.id DESC LIMIT 200`) });
+      if (p === '/api/youtube/settings' && m === 'GET') return json(res, 200, cfg.youtube);
+      if (p === '/api/youtube/settings' && m === 'POST') {
+        const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as Record<string, unknown>; const lim: Record<string, [number, number]> = { pollMinutes: [5, 720], maxDurationMin: [10, 1440], maxPerPoll: [1, 10], maxHeight: [360, 1080] }; const patch: Record<string, number> = {};
+        for (const [k, [lo, hi]] of Object.entries(lim)) if (b[k] !== undefined) { const n = Number(b[k]); if (!Number.isInteger(n) || n < lo || n > hi) return json(res, 400, { error: `invalid: ${k} must be ${lo}-${hi}` }); patch[k] = n; }
+        updateOwnerConfig(cfg, { youtube: patch }); Object.assign(cfg.youtube, patch); return json(res, 200, cfg.youtube);
+      }
+      if (p === '/api/sources/poll' && m === 'POST') { if (!(await ytdlpAvailable())) return json(res, 200, { error: 'yt-dlp install nahi hai: pkg install python && pip install -U yt-dlp' }); return json(res, 200, await pollSources(store, cfg)); }
+      if (p === '/api/sources' && m === 'GET') return json(res, 200, { poll: (() => { try { return JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)?.v ?? 'null'); } catch { return null; } })(), ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id ORDER BY s.id DESC LIMIT 200`) });
       if (p === '/api/sources' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean; channel?: string };
         const r = addYoutubeSource(store, String(b.url ?? ''), b.authorized === true, b.channel ? getChannel(store, String(b.channel)).id : undefined); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, ...r, ytdlp: await ytdlpAvailable() });
@@ -353,6 +361,7 @@ export function createApp(o: AppOptions = {}): App {
         if (review) items.push({ level: 'warn', text: `${review} clip aapke review ka wait kar rahi hai`, go: 'clips' });
         if (manualDue) items.push({ level: 'warn', text: `${manualDue} manual post abhi karni hai (Instagram/TikTok etc.)`, go: 'publish' });
         for (const b of blocked.slice(0, 3)) items.push({ level: 'warn', text: `Upload #${b.id} (${b.platform}) ruka hai: ${(b.error ?? '').slice(0, 100)}`, go: 'publish' });
+        { const pl = store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`); if (pl) { try { const j = JSON.parse(pl.v) as { error?: string; channels?: number; discovered: number }; if (j.error) items.push({ level: 'bad', text: `Channel watching fail: ${j.error}`, go: 'home' }); else if (j.channels && !j.discovered) items.push({ level: 'info', text: 'Channel check hua: koi naya video nahi mila (ya sab pehle se list mein)', go: 'home' }); } catch { /* ignore */ } } }
         const conn = lastResults(store); for (const [k, v] of Object.entries(conn)) if (!v.ok) items.push({ level: 'bad', text: `${k} connect nahi: ${v.detail.slice(0, 260)}`, go: 'settings', ...(/^(llm:[1-6]|stt)$/.test(k) ? { fix: k } : {}) });
         if (!llmChain(cfg).length) items.push({ level: 'info', text: 'AI key nahi hai: titles/ranking local engine se hongi (Setup mein free key daalo)', go: 'settings' });
         if (!sttCreds(cfg)) items.push({ level: 'info', text: 'Speech-to-text nahi hai: captions generic honge (Setup → AI → speech-to-text)', go: 'settings' });

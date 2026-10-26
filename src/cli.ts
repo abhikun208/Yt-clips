@@ -58,7 +58,7 @@ async function main(): Promise<number> {
       const r = await ingestLocal(s, cfg, f, { authorized: rest.includes('--authorized') }); console.log(r); return 0;
     }
     if (cmd === 'watch') { const u = rest.find((a) => !a.startsWith('--')); if (!u) throw new Error('usage: watch <youtube-url> --authorized'); console.log(addYoutubeSource(s, u, rest.includes('--authorized'))); return 0; }
-    if (cmd === 'poll') { console.log(await pollSources(s, cfg)); return 0; }
+    if (cmd === 'poll') { const r = await pollSources(s, cfg); console.log(r); return r.error ? 1 : 0; }
     if (cmd === 'env-check') {
       console.log(dotEnvInfo.file ? `.env mila: ${dotEnvInfo.names.length} variables (values nahi dikhate)` : '.env nahi mila (project folder mein .env banao: cp .env.ai.example .env)');
       const { applyEnvKeys, envStatus } = await import('./ai/envkeys.ts'); const { testConnection } = await import('./connections.ts'); const { keyShape, CATALOG, fetchModels } = await import('./ai/autodetect.ts');

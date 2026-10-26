@@ -28,7 +28,10 @@ export function parseYoutubeUrl(raw: string): { kind: YtKind; url: string; video
 
 export const ytdlpAvailable = () => which('yt-dlp');
 /** Extra yt-dlp flags from the operator (e.g. `--js-runtimes node` when YouTube extraction needs a JS runtime). Whitespace-separated; never taken from API input. */
-const extra = (): string[] => (process.env.YT_DLP_EXTRA_ARGS ?? '').split(/\s+/).filter(Boolean);
+let jsRt: string[] | null = null;
+/** Newer yt-dlp needs a JS runtime for YouTube; we hand it node (already required by this project) when the installed yt-dlp supports the flag. Cookies file via YT_DLP_COOKIES (for "confirm you're not a bot"). */
+export async function prepareYtdlp(): Promise<void> { if (jsRt) return; jsRt = []; if (/--js-runtimes/.test(process.env.YT_DLP_EXTRA_ARGS ?? '')) return; const h = await run('yt-dlp', ['--help'], { timeoutMs: 20_000 }).catch(() => null); if (h && /--js-runtimes/.test(h.stdout)) jsRt = ['--js-runtimes', 'node']; }
+const extra = (): string[] => [...(jsRt ?? []), ...(process.env.YT_DLP_COOKIES ? ['--cookies', process.env.YT_DLP_COOKIES] : []), ...(process.env.YT_DLP_EXTRA_ARGS ?? '').split(/\s+/).filter(Boolean)];
 
 export interface Entry { id: string; title: string; duration: number | null }
 export function parseEntries(stdout: string): Entry[] {
@@ -73,13 +76,23 @@ export function addYoutubeSource(store: Store, rawUrl: string, authorized: boole
   return { id: r.lastId, kind: p.kind, duplicate: false };
 }
 
-export interface PollResult { discovered: number; downloaded: number; failed: number; skipped: number; error?: string }
+export interface PollResult { discovered: number; downloaded: number; failed: number; skipped: number; error?: string; channels?: number }
+/** Friendly cause for the usual yt-dlp failures (shown in the UI instead of a silent log line). */
+export function explainYtdlp(err: string): string {
+  if (/not a bot|sign in to confirm|cookies/i.test(err)) return 'YouTube bot-check maang raha hai: browser se cookies export karke file banao aur .env mein YT_DLP_COOKIES=/path/cookies.txt likho';
+  if (/JavaScript runtime|js.?runtime|n challenge|signature/i.test(err)) return 'yt-dlp purana hai ya JS runtime chahiye: `pip install -U yt-dlp` chalao';
+  if (/HTTP Error 404|does not exist|not found|unavailable/i.test(err)) return 'Channel link galat ya channel/videos tab nahi mila';
+  if (/Unable to download|getaddrinfo|Connection|timed out|Network/i.test(err)) return 'Internet/YouTube tak pahunch nahi paya';
+  return err.slice(-200);
+}
 
 /** One bounded polling pass: discover new videos on authorized channels (newest first => new uploads first, backlog drained gradually), then download+ingest up to maxPerPoll. */
 export async function pollSources(store: Store, cfg: Config): Promise<PollResult> {
   const res: PollResult = { discovered: 0, downloaded: 0, failed: 0, skipped: 0 };
   if (!(await ytdlpAvailable())) return { ...res, error: 'yt-dlp not installed' };
+  await prepareYtdlp();
   for (const ch of store.all<{ id: number; uri: string; channel_id: number | null }>(`SELECT id, uri, channel_id FROM sources WHERE kind='youtube_channel' AND status='active' AND authorized=1`)) {
+    res.channels = (res.channels ?? 0) + 1;
     try {
       for (const e of await listChannelVideos(ch.uri, 30)) {
         const url = `https://www.youtube.com/watch?v=${e.id}`;
@@ -88,7 +101,7 @@ export async function pollSources(store: Store, cfg: Config): Promise<PollResult
         store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', 'youtube_video', url, e.title, 1, tooLong ? 'skipped' : 'pending', JSON.stringify({ videoId: e.id, channelSource: ch.id, duration: e.duration, tries: 0, ...(tooLong ? { reason: 'longer than maxDurationMin' } : {}) }), ch.channel_id);
         if (tooLong) res.skipped++; else res.discovered++;
       }
-    } catch (e) { warn('channel listing failed', { channel: ch.uri, err: (e as Error).message }); res.error = (e as Error).message; }
+    } catch (e) { warn('channel listing failed', { channel: ch.uri, err: (e as Error).message }); res.error = explainYtdlp((e as Error).message); }
   }
   const pending = store.all<{ id: number; uri: string; title: string; meta_json: string }>(`SELECT id, uri, title, meta_json FROM sources WHERE kind='youtube_video' AND status='pending' AND authorized=1 ORDER BY id LIMIT ?`, cfg.youtube.maxPerPoll);
   for (const v of pending) {
@@ -101,9 +114,10 @@ export async function pollSources(store: Store, cfg: Config): Promise<PollResult
       store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
     } catch (e) {
       const tries = (meta.tries ?? 0) + 1; const dead = tries >= cfg.resources.jobMaxAttempts;
-      store.exec(`UPDATE sources SET status=?, meta_json=? WHERE id=?`, dead ? 'failed' : 'pending', JSON.stringify({ ...meta, tries, lastError: (e as Error).message.slice(0, 300) }), v.id);
+      store.exec(`UPDATE sources SET status=?, meta_json=? WHERE id=?`, dead ? 'failed' : 'pending', JSON.stringify({ ...meta, tries, lastError: explainYtdlp((e as Error).message) }), v.id);
       res.failed++; warn('download failed', { uri: v.uri, tries, err: (e as Error).message.slice(0, 150) });
     } finally { if (file) rmSync(file, { force: true }); }
   }
+  store.exec(`INSERT INTO kv(k,v) VALUES('poll:last',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, JSON.stringify({ at: new Date().toISOString(), ...res }));
   return res;
 }
