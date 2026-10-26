@@ -85,3 +85,12 @@ test('simple provider save: catalog model preferred, slots assigned, key-less Ol
   const o = await saveProviderKey(cfg, 'ollama', '', stubFetch({ goodKey: '', base: 'http://127.0.0.1:11434/v1', models: ['llama3.2'] })); assert.equal(o.ok, true, JSON.stringify(o)); assert.equal(o.llm!.slot, 2);
   assert.equal(slotFor(cfg, 'https://api.groq.com/openai/v1'), 1);
 });
+test('.env: loader (real env wins, blanks skipped) + applyEnvKeys saves/tests keys, skips unchanged, reports only names', async () => {
+  const { loadDotEnv } = await import('../src/env-boot.ts'); const { applyEnvKeys, envStatus } = await import('../src/ai/envkeys.ts'); const { writeFileSync: w } = await import('node:fs');
+  const d = tmpDir(); w(join(d, '.env'), 'ZZ_TEST_A="from-file"\nZZ_TEST_B=\nZZ_TEST_C=file # comment\n'); process.env.ZZ_TEST_C = 'real';
+  const r = loadDotEnv(d); assert.equal(process.env.ZZ_TEST_A, 'from-file'); assert.equal(process.env.ZZ_TEST_C, 'real'); assert.equal(process.env.ZZ_TEST_B, undefined); assert.ok(r.file);
+  const env = { GROQ_API_KEY: 'Bearer gsk_envkey1234567890', OLLAMA: '1' } as NodeJS.ProcessEnv; assert.deepEqual(envStatus(env).filter((x) => x.var).map((x) => x.provider), ['groq', 'ollama']);
+  const cfg = testConfig(); const f = (async (u: string | URL | Request, i?: RequestInit) => String(u).startsWith('http://127') ? stubFetch({ goodKey: '', base: 'http://127.0.0.1:11434/v1', models: ['llama3.2'] })(u, i) : stubFetch({ goodKey: 'gsk_envkey1234567890', base: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile'] })(u, i)) as typeof fetch;
+  const a = await applyEnvKeys(cfg, { env, fetchFn: f }); assert.ok(a.every((x) => x.report?.ok), JSON.stringify(a)); assert.equal(llmCreds(cfg)?.apiKey, 'gsk_envkey1234567890');
+  const b = await applyEnvKeys(cfg, { env, fetchFn: f }); assert.equal(b.find((x) => x.provider === 'groq')!.skipped, true);
+});

@@ -22,6 +22,8 @@ import { UI_HTML } from './ui.ts';
 import { isPace } from '../edit/pace.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
+import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
+import { dotEnvInfo } from '../env-boot.ts';
 import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor } from '../ai/autodetect.ts';
 import { detectLocalEngines, testLocal, cppModelPath, voiceStudioUrl, type LocalEngineId } from '../analysis/localStt.ts';
 import { listModels, testConnection, lastResults, knownTargets } from '../connections.ts';
@@ -34,7 +36,7 @@ import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPo
 import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ALLOWED_PLATFORMS } from '../channels.ts';
 
 export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown> }
-export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean }
+export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean; applyEnv?(force?: boolean): Promise<unknown> }
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 const VERSION = '0.2.0';
@@ -318,6 +320,8 @@ export function createApp(o: AppOptions = {}): App {
       }
       if (p === '/api/schedule' && m === 'GET') { const sch = url.searchParams.get('channel') ? getChannel(store, url.searchParams.get('channel')) : null; const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 3))), tz: cfg.timezone, cfg: sch ? scheduleFor(cfg, sch) : cfg.schedule, channelId: sch?.id }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
       if (p === '/api/ai/models' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { slot?: number }; return json(res, 200, await listModels(cfg, Number(b.slot ?? 1))); }
+      if (p === '/api/ai/env' && m === 'GET') return json(res, 200, { file: dotEnvInfo.file ? '.env' : null, detected: envStatus().filter((x) => x.var) });
+      if (p === '/api/ai/env' && m === 'POST') return json(res, 200, { results: await runEnvApply(true) });
       if (p === '/api/ai/providers' && m === 'GET') { const conn = lastResults(store); return json(res, 200, { providers: CATALOG.map((c) => { const n = [1, 2, 3].find((i) => llmSlot(cfg, i)?.baseUrl === c.base); const sl = n ? llmSlot(cfg, n) : null; const r = n ? conn[`llm:${n}`] : undefined; return { id: c.id, label: c.label, keyHint: c.keyHint, getKey: c.getKey, keyless: !c.keyHint, saved: !!sl, model: sl?.model ?? null, slot: n ?? null, status: !sl ? 'none' : r ? (r.ok ? 'ok' : 'error') : 'unknown', detail: r?.detail ?? '' }; }), stt: sttCreds(cfg) ? { base: sttCreds(cfg)!.baseUrl, model: sttCreds(cfg)!.model, result: conn.stt ?? null } : null }); }
       if (p === '/api/ai/provider' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { id?: string; apiKey?: string }; const c = CATALOG.find((x) => x.id === b.id); if (!c) return json(res, 400, { error: 'invalid: provider' }); const key = String(b.apiKey ?? '').trim(); if (!key && c.keyHint) return json(res, 400, { error: 'invalid: API key daalo' }); const rep = await saveProviderKey(cfg, c.id, key); let test = null; if (rep.llm) test = await testConnection(store, cfg, `llm:${rep.llm.slot}`); return json(res, 200, { ...rep, test }); }
       if (p === '/api/ai/fix' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { target?: string }; const tg = String(b.target ?? ''); if (!/^(llm:[123]|stt)$/.test(tg)) return json(res, 400, { error: 'invalid: target' }); const rep = await autoFix(cfg, tg); const test = await testConnection(store, cfg, tg); return json(res, 200, { ...rep, test }); }
@@ -392,10 +396,11 @@ export function createApp(o: AppOptions = {}): App {
     }
   };
 
+  const runEnvApply = async (force = false) => { const r = await applyEnvKeys(cfg, { force }); const out = []; for (const x of r) { const slot = x.report?.llm?.slot; const t = slot ? await testConnection(store, cfg, `llm:${slot}`) : null; out.push({ provider: x.provider, var: x.var, skipped: !!x.skipped, ok: x.skipped ? true : !!(x.report?.ok && (!t || t.ok)), model: x.report?.llm?.model ?? null, detail: x.skipped ? 'already saved' : (x.report?.steps.filter((y) => !y.ok).slice(-1)[0]?.text ?? t?.detail ?? '') }); } return out; };
   const server = createServer((req, res) => { void handler(req, res); });
   server.requestTimeout = 0; server.headersTimeout = 30_000;
   return {
-    server, cfg, store, runOnce, get running() { return running; },
+    server, cfg, store, runOnce, get running() { return running; }, applyEnv: async (force) => { try { const r = await runEnvApply(!!force); for (const x of r) info('env key', { provider: x.provider, var: x.var, ok: x.ok, model: x.model, detail: x.ok ? undefined : x.detail }); return r; } catch (e) { warn('env apply failed', { err: (e as Error).message }); return []; } },
     start: () => new Promise<number>((ok, bad) => {
       server.once('error', bad);
       server.listen(o.port ?? Number(process.env.PORT ?? 8080), host, () => {

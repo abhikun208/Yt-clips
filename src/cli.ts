@@ -1,3 +1,4 @@
+import { dotEnvInfo } from './env-boot.ts';
 import { loadConfig } from './config.ts';
 import { Store } from './db.ts';
 import { ingestLocal } from './sources/local.ts';
@@ -58,6 +59,7 @@ async function main(): Promise<number> {
     }
     if (cmd === 'watch') { const u = rest.find((a) => !a.startsWith('--')); if (!u) throw new Error('usage: watch <youtube-url> --authorized'); console.log(addYoutubeSource(s, u, rest.includes('--authorized'))); return 0; }
     if (cmd === 'poll') { console.log(await pollSources(s, cfg)); return 0; }
+    if (cmd === 'env-check') { console.log(dotEnvInfo.file ? `.env mila: ${dotEnvInfo.names.length} variables (values nahi dikhate)` : '.env nahi mila (project folder mein .env banao: cp .env.example .env)'); const { applyEnvKeys } = await import('./ai/envkeys.ts'); const { testConnection } = await import('./connections.ts'); const r = await applyEnvKeys(cfg, { force: true }); if (!r.length) console.log('Koi AI key env mein nahi mili (GROQ_API_KEY=... GEMINI_API_KEY=... OPENROUTER_API_KEY=... XAI_API_KEY=...)'); let bad = 0; for (const x of r) { const t = x.report?.llm ? await testConnection(s, cfg, `llm:${x.report.llm.slot}`) : null; const ok = !!x.report?.ok && (!t || t.ok); if (!ok) bad++; console.log(`${ok ? '✓' : '✕'} ${x.provider} (${x.var}) ${ok ? x.report?.llm?.model : (x.report?.steps.filter((y) => !y.ok).slice(-1)[0]?.text ?? t?.detail ?? '')}`); } return bad ? 1 : 0; }
     if (cmd === 'transcribe') { const v = s.get<{ path: string }>('SELECT path FROM videos WHERE id=?', Number(rest[0])); if (!v) throw new Error('unknown video id'); const r = await transcribeVideo(cfg, v.path); console.log({ status: r.status, cues: r.cues.length, engine: r.engine, error: r.error }); return r.status === 'ok' || r.status === 'no_speech' ? 0 : 1; }
     if (cmd === 'presets') { for (const p of PRESETS) console.log(`${p.presetId.padEnd(24)} ${p.mode.padEnd(10)} ${p.tags.join(',')}`); console.log(`${PRESETS.length} presets (+ 'none')`); return 0; }
     if (cmd === 'preset') { const id = rest[0]; if (id !== 'none' && !getPreset(id ?? '')) throw new Error('unknown preset (see: presets)'); updateOwnerConfig(cfg, { edit: { captionPreset: id } }); console.log('default caption preset =', id); return 0; }
