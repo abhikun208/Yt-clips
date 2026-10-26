@@ -82,7 +82,7 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
     ? { primary: pal.active, secondary: pal.base } : { primary: pal.base, secondary: pal.active };
   const borderStyle = p.box ? 3 : 1;
   const outColor = p.box ? assColor(pal.box, 0x30) : p.glow ? assColor(pal.active, 0x60) : assColor(pal.outline);
-  const style = `Style: Cap,${f.font},${size},${assColor(capStyle.primary)},${assColor(capStyle.secondary)},${outColor},${assColor('#000000', 0x70)},${bold},0,0,0,100,100,0,0,${borderStyle},${p.glow ? Math.round(outline * 1.8) : outline},${shadow},${align},60,60,${marginV},1`;
+  const style = `Style: Cap,${f.font},${size},${assColor(capStyle.primary)},${assColor(capStyle.secondary)},${outColor},${assColor('#000000', 0x70)},${bold},0,${p.underline ? -1 : 0},0,100,100,0,0,${borderStyle},${p.glow ? Math.round(outline * 1.8) : outline},${shadow},${align},60,60,${marginV},1`;
   const tSize = Math.round(H * 0.036);
   const head = `[Script Info]
 ScriptType: v4.00+

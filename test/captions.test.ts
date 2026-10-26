@@ -18,7 +18,7 @@ const events = (ass: string) => ass.split('\n').filter((l) => l.startsWith('Dial
 const textOf = (e: string) => e.replace(/\{[^}]*\}/g, '').split(',').slice(9).join(',').trim();
 const secs = (t: string) => { const [h, m, s] = t.split(':'); return Number(h) * 3600 + Number(m) * 60 + Number(s); };
 
-test('preset registry: 72 unique original presets, valid palettes, default exists', () => {
+test('preset registry: unique original presets, valid palettes, default exists', () => {
   assert.equal(PRESETS.length, BASES.length * PALETTES.length); assert.ok(PRESETS.length >= 72);
   assert.equal(new Set(PRESETS.map((p) => p.presetId)).size, PRESETS.length);
   assert.ok(getPreset(DEFAULT_PRESET)); assert.equal(getPreset('nope'), undefined);

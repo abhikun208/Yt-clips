@@ -55,7 +55,7 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
         if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'api', language: r.language };
         writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'api', model: api.model, cues: r.cues.length, language: r.language });
         return { status: 'ok', cues: r.cues, language: r.language, engine: 'api' };
-      } catch (e) { warn('api stt failed', { err: (e as Error).message.slice(0, 160) }); return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; }
+      } catch (e) { warn('api stt failed', { err: (e as Error).message.slice(0, 160) }); if (cfg.stt.engine === 'api') return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; /* auto: fall through to a local engine */ }
     }
   }
   if (cfg.stt.engine === 'api') return { status: 'unavailable', cues: [], error: 'stt.engine=api but no API key saved' };

@@ -1,4 +1,5 @@
 import { writeFileSync, existsSync, readdirSync, mkdirSync, statSync, renameSync, rmSync } from 'node:fs';
+import { transcribeVideo } from '../analysis/stt.ts';
 import { isInterlaced, hasBurnedSubs } from './sourcecheck.ts';
 import { ensureLocal } from '../storage/cloud.ts';
 import { join } from 'node:path';
@@ -77,6 +78,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     if (r.code !== 0) throw new Error(`raw clip extraction failed: ${r.stderr.slice(0, 300)}`);
     renameSync(tmp, rawPath);
   }
+  const chan0early = channelOfVideo(store, c.video_id);
   let m = await probe(rawPath);
   // 1a) optional jump cuts: dead-air (long silences) removed; captions re-timed. Verified by duration, else rendered without.
   let cuts: CutPlan | null = null; let srcPath = rawPath; let cutNote = 'disabled'; const tmpFiles: string[] = [];
@@ -108,7 +110,15 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   }
 
   // 2) edit
-  const cuesRaw = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, '')); const cues0 = cuts ? remapCuesCuts(cuesRaw, c.start_sec, cuts) : cuesRaw;
+  let cuesRaw = ro.captions === false ? [] : loadTranscript(v.path.replace(/\.[^.]+$/, ''));
+  if (ro.captions !== false && cfg.stt.mode !== 'off' && !cuesRaw.some((q) => q.end > c.start_sec && q.start < c.end_sec)) {
+    // The source was never transcribed (added before speech-to-text was available): transcribe just THIS clip (seconds, not hours) so captions are real, never invented.
+    try {
+      const sidecar = rawPath.replace(/\.[^.]+$/, ''); let rel = loadTranscript(sidecar);
+      if (!rel.length) { const tr = await transcribeVideo(cfg, rawPath, { language: chan0early.config.language }); rel = tr.cues; if (tr.status === 'failed') warn('clip transcription failed', { clip: outputId, err: tr.error }); }
+      cuesRaw = rel.map((q) => ({ ...q, start: q.start + c.start_sec, end: q.end + c.start_sec, ...(q.words ? { words: q.words.map((w) => ({ ...w, start: w.start + c.start_sec, end: w.end + c.start_sec })) } : {}) }));
+    } catch (e) { warn('clip transcription error', { err: (e as Error).message.slice(0, 120) }); }
+  } const cues0 = cuts ? remapCuesCuts(cuesRaw, c.start_sec, cuts) : cuesRaw;
   let cues = ramp ? remapCues(cues0, c.start_sec, ramp) : cues0; const effEnd = c.start_sec + m.duration;
   const chan0 = channelOfVideo(store, c.video_id); const toLang = ro.translateTo ?? chan0.config.translateTo; let translation: string | null = null;
   if (toLang && cues.length) { const tr = await translateCues(cues.filter((q) => q.end > c.start_sec && q.start < effEnd), toLang, llmChain(cfg)); if (tr.used) { cues = tr.cues; translation = `${toLang} via ${tr.used}`; } else if (tr.note) translation = `not translated: ${tr.note}`; }

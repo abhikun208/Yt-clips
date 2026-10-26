@@ -23,3 +23,12 @@ test('idet parsing: combed TV footage detected, progressive not', () => {
   assert.equal(parseIdet('Multi frame detection: TFF:     0 BFF:     0 Progressive:   150 Undetermined:     0'), false);
   assert.equal(parseIdet('nothing'), false);
 });
+import { buildStyledAss } from '../src/edit/captions.ts';
+import { PRESETS, getPreset } from '../src/edit/captionPresets.ts';
+test('caption templates: 280+ original presets render valid ASS; underline style sets the flag; amounts get the emphasis colour', () => {
+  assert.ok(PRESETS.length >= 280); assert.equal(new Set(PRESETS.map((p) => p.presetId)).size, PRESETS.length);
+  const cues = [{ start: 0, end: 3, text: 'quotation of Rs 16 lakh only', words: [{ start: 0, end: 0.6, text: 'quotation' }, { start: 0.6, end: 1, text: 'of' }, { start: 1, end: 1.4, text: 'Rs' }, { start: 1.4, end: 2, text: '16' }, { start: 2, end: 2.5, text: 'lakh' }, { start: 2.5, end: 3, text: 'only' }] }];
+  for (const p of PRESETS) { const r = buildStyledAss(cues, 0, 3, null, { width: 1080, height: 1920, preset: p.presetId }); assert.ok(r.ass.includes('[Events]') && /Dialogue:/.test(r.ass), p.presetId); }
+  const u = buildStyledAss(cues, 0, 3, null, { width: 1080, height: 1920, preset: 'underline-sun' }).ass; assert.match(u, /Style: Cap,[^,]*,\d+,[^,]*,[^,]*,[^,]*,[^,]*,-?1,0,-1,0,/);
+  const e = buildStyledAss(cues, 0, 3, null, { width: 1080, height: 1920, preset: 'classic-sun' }).ass; const emph = getPreset('classic-sun')!.palette.emphasis.replace('#', '').toUpperCase(); assert.ok(e.toUpperCase().includes(emph.slice(4, 6) + emph.slice(2, 4) + emph.slice(0, 2)), 'emphasis colour (BGR) used for amounts');
+});
