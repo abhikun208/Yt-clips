@@ -111,3 +111,13 @@ test('provider names the replacement model in its 404 -> tried next; router id n
   const f = (async (u: string | URL | Request, i?: RequestInit) => { if (String(u).endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'gemini-2.5-flash' }] })); const m = JSON.parse(String(i!.body)).model; return m === 'gemini-3.8' ? new Response(JSON.stringify({ choices: [{}] })) : new Response(JSON.stringify({ error: { message: 'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8' } }), { status: 404 }); }) as typeof fetch;
   const cfg = testConfig(); const r = await autoSetup(cfg, { apiKey: 'AQ.keykeykeykeykeykey', provider: 'gemini' }, f); assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(llmCreds(cfg)?.model, 'gemini-3.8');
 });
+test('multi-key env: GEMINI_API_KEY_2 gets its own fallback slot; failing keys take no slot; local hardware recommendation scales with RAM', async () => {
+  const { applyEnvKeys, envStatus } = await import('../src/ai/envkeys.ts'); const { recommend } = await import('../src/localcheck.ts');
+  const env = { GEMINI_API_KEY: 'AQ.firstkey1234567890', GEMINI_API_KEY_2: 'AQ.secondkey123456789', GROQ_API_KEY: 'gsk_bad1234567890' } as NodeJS.ProcessEnv;
+  assert.deepEqual(envStatus(env).filter((x) => x.var).map((x) => x.var), ['GROQ_API_KEY', 'GEMINI_API_KEY', 'GEMINI_API_KEY_2']);
+  const ok = (key: string, base: string) => stubFetch({ goodKey: key, base, models: ['gemini-3.8-flash', 'llama-3.3-70b-versatile'] });
+  const f = (async (u: string | URL | Request, i?: RequestInit) => String(u).includes('groq') ? new Response('{"error":{"message":"Invalid API Key"}}', { status: 401 }) : ok(String((i?.headers as Record<string, string>)?.authorization ?? '').slice(7), 'https://generativelanguage.googleapis.com/v1beta/openai')(u, i)) as typeof fetch;
+  const cfg = testConfig(); const r = await applyEnvKeys(cfg, { env, fetchFn: f }); assert.deepEqual(r.map((x) => !!x.report?.ok), [false, true, true]);
+  assert.equal(llmSlot(cfg, 1)?.apiKey, 'AQ.firstkey1234567890'); assert.equal(llmSlot(cfg, 2)?.apiKey, 'AQ.secondkey123456789'); assert.equal(llmSlot(cfg, 3), null);
+  assert.equal(recommend(2, true).whisper, 'tiny'); assert.equal(recommend(6, false).llm, 'llama3.2:3b'); assert.equal(recommend(2, true).llm, 'none');
+});

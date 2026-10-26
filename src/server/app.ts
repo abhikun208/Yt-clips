@@ -14,7 +14,7 @@ import { checkDisk, freeMb } from '../util/disk.ts';
 import { info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
-import { aiStatus, saveAi, sttCreds, llmChain, llmSlot } from '../ai/settings.ts';
+import { aiStatus, saveAi, sttCreds, llmChain, llmSlot, SLOT_LIST } from '../ai/settings.ts';
 import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
 import { enqueue } from '../db.ts';
@@ -22,6 +22,7 @@ import { UI_HTML } from './ui.ts';
 import { isPace } from '../edit/pace.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
+import { localReport } from '../localcheck.ts';
 import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
 import { dotEnvInfo } from '../env-boot.ts';
 import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor } from '../ai/autodetect.ts';
@@ -322,10 +323,11 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/ai/models' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { slot?: number }; return json(res, 200, await listModels(cfg, Number(b.slot ?? 1))); }
       if (p === '/api/ai/env' && m === 'GET') return json(res, 200, { file: dotEnvInfo.file ? '.env' : null, detected: envStatus().filter((x) => x.var) });
       if (p === '/api/ai/env' && m === 'POST') return json(res, 200, { results: await runEnvApply(true) });
-      if (p === '/api/ai/providers' && m === 'GET') { const conn = lastResults(store); return json(res, 200, { providers: CATALOG.map((c) => { const n = [1, 2, 3].find((i) => llmSlot(cfg, i)?.baseUrl === c.base); const sl = n ? llmSlot(cfg, n) : null; const r = n ? conn[`llm:${n}`] : undefined; return { id: c.id, label: c.label, keyHint: c.keyHint, getKey: c.getKey, keyless: !c.keyHint, saved: !!sl, model: sl?.model ?? null, slot: n ?? null, status: !sl ? 'none' : r ? (r.ok ? 'ok' : 'error') : 'unknown', detail: r?.detail ?? '' }; }), stt: sttCreds(cfg) ? { base: sttCreds(cfg)!.baseUrl, model: sttCreds(cfg)!.model, result: conn.stt ?? null } : null }); }
+      if (p === '/api/ai/providers' && m === 'GET') { const conn = lastResults(store); return json(res, 200, { providers: CATALOG.map((c) => { const n = SLOT_LIST.find((i) => llmSlot(cfg, i)?.baseUrl === c.base); const sl = n ? llmSlot(cfg, n) : null; const r = n ? conn[`llm:${n}`] : undefined; return { id: c.id, label: c.label, keyHint: c.keyHint, getKey: c.getKey, keyless: !c.keyHint, saved: !!sl, model: sl?.model ?? null, slot: n ?? null, status: !sl ? 'none' : r ? (r.ok ? 'ok' : 'error') : 'unknown', detail: r?.detail ?? '' }; }), stt: sttCreds(cfg) ? { base: sttCreds(cfg)!.baseUrl, model: sttCreds(cfg)!.model, result: conn.stt ?? null } : null }); }
       if (p === '/api/ai/provider' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { id?: string; apiKey?: string }; const c = CATALOG.find((x) => x.id === b.id); if (!c) return json(res, 400, { error: 'invalid: provider' }); const key = String(b.apiKey ?? '').trim(); if (!key && c.keyHint) return json(res, 400, { error: 'invalid: API key daalo' }); const rep = await saveProviderKey(cfg, c.id, key); let test = null; if (rep.llm) test = await testConnection(store, cfg, `llm:${rep.llm.slot}`); return json(res, 200, { ...rep, test }); }
-      if (p === '/api/ai/fix' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { target?: string }; const tg = String(b.target ?? ''); if (!/^(llm:[123]|stt)$/.test(tg)) return json(res, 400, { error: 'invalid: target' }); const rep = await autoFix(cfg, tg); const test = await testConnection(store, cfg, tg); return json(res, 200, { ...rep, test }); }
+      if (p === '/api/ai/fix' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { target?: string }; const tg = String(b.target ?? ''); if (!/^(llm:[1-6]|stt)$/.test(tg)) return json(res, 400, { error: 'invalid: target' }); const rep = await autoFix(cfg, tg); const test = await testConnection(store, cfg, tg); return json(res, 200, { ...rep, test }); }
       if (p === '/api/ai/auto' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { apiKey?: string; provider?: string; baseUrl?: string; slot?: number }; if (b.baseUrl && !/^https?:\/\/[^\s]+$/.test(b.baseUrl)) return json(res, 400, { error: 'invalid: baseUrl' }); const rep = await autoSetup(cfg, b); if (rep.llm) rep.steps.push({ ok: (await testConnection(store, cfg, `llm:${rep.llm.slot}`)).ok, text: 'Save ke baad dobara asli test' }); return json(res, 200, rep); }
+      if (p === '/api/local/report' && m === 'GET') return json(res, 200, await localReport(cfg));
       if (p === '/api/stt/local' && m === 'GET') { const engines = await detectLocalEngines(cfg); return json(res, 200, { engines, engine: cfg.stt.engine, localEngine: cfg.stt.localEngine ?? 'auto', model: cfg.stt.model, language: cfg.stt.language, cppModel: cppModelPath(cfg), voiceStudioUrl: voiceStudioUrl(cfg), apiSaved: !!sttCreds(cfg) }); }
       if (p === '/api/stt/local' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
@@ -351,7 +353,7 @@ export function createApp(o: AppOptions = {}): App {
         if (review) items.push({ level: 'warn', text: `${review} clip aapke review ka wait kar rahi hai`, go: 'clips' });
         if (manualDue) items.push({ level: 'warn', text: `${manualDue} manual post abhi karni hai (Instagram/TikTok etc.)`, go: 'publish' });
         for (const b of blocked.slice(0, 3)) items.push({ level: 'warn', text: `Upload #${b.id} (${b.platform}) ruka hai: ${(b.error ?? '').slice(0, 100)}`, go: 'publish' });
-        const conn = lastResults(store); for (const [k, v] of Object.entries(conn)) if (!v.ok) items.push({ level: 'bad', text: `${k} connect nahi: ${v.detail.slice(0, 260)}`, go: 'settings', ...(/^(llm:[123]|stt)$/.test(k) ? { fix: k } : {}) });
+        const conn = lastResults(store); for (const [k, v] of Object.entries(conn)) if (!v.ok) items.push({ level: 'bad', text: `${k} connect nahi: ${v.detail.slice(0, 260)}`, go: 'settings', ...(/^(llm:[1-6]|stt)$/.test(k) ? { fix: k } : {}) });
         if (!llmChain(cfg).length) items.push({ level: 'info', text: 'AI key nahi hai: titles/ranking local engine se hongi (Setup mein free key daalo)', go: 'settings' });
         if (!sttCreds(cfg)) items.push({ level: 'info', text: 'Speech-to-text nahi hai: captions generic honge (Setup → AI → speech-to-text)', go: 'settings' });
         if (!cfg.automation.autoQueue) items.push({ level: 'info', text: 'Autopilot OFF: clips ban jaayengi par upload khud queue nahi hoga', go: 'settings' });

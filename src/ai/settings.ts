@@ -38,7 +38,9 @@ export const sttCreds = (cfg: Config) => pick(cfg, 'stt');
 export const llmCreds = (cfg: Config) => pick(cfg, 'llm');
 export const llmSlot = (cfg: Config, slot: number) => pick(cfg, 'llm', slot);
 /** Ordered fallback chain: slot 1 (primary), then 2 and 3. Callers try each until one works. */
-export const llmChain = (cfg: Config): AiCreds[] => [1, 2, 3].map((n) => pick(cfg, 'llm', n)).filter((x): x is AiCreds => !!x);
+export const MAX_SLOTS = 6;
+export const SLOT_LIST = Array.from({ length: MAX_SLOTS }, (_, i) => i + 1);
+export const llmChain = (cfg: Config): AiCreds[] => SLOT_LIST.map((n) => pick(cfg, 'llm', n)).filter((x): x is AiCreds => !!x);
 
 export function saveAi(cfg: Config, kind: 'stt' | 'llm', v: { apiKey?: string; baseUrl?: string; model?: string; slot?: number }): void {
   const local = !!v.baseUrl && isLocalBase(v.baseUrl);
@@ -46,8 +48,8 @@ export function saveAi(cfg: Config, kind: 'stt' | 'llm', v: { apiKey?: string; b
   if (v.apiKey && (v.apiKey.length < 8 || v.apiKey.length > 512)) throw new Error('invalid: apiKey length');
   if (v.baseUrl && !/^https?:\/\/[^\s]+$/.test(v.baseUrl)) throw new Error('invalid: baseUrl must be http(s)://...');
   if (v.model && !/^[\w./:-]{1,80}$/.test(v.model)) throw new Error('invalid: model name');
-  const slot = v.slot ?? 1; if (!Number.isInteger(slot) || slot < 1 || slot > 3) throw new Error('invalid: slot 1-3');
+  const slot = v.slot ?? 1; if (!Number.isInteger(slot) || slot < 1 || slot > MAX_SLOTS) throw new Error(`invalid: slot 1-${MAX_SLOTS}`);
   store(cfg).write(slot === 1 ? `ai-${kind}` : `ai-${kind}-${slot}`, { ...(v.apiKey ? { api_key: v.apiKey } : {}), ...(v.baseUrl ? { base_url: v.baseUrl } : {}), ...(v.model ? { model: v.model } : {}) });
 }
 /** Status without secrets. */
-export function aiStatus(cfg: Config) { const s = sttCreds(cfg), l = llmCreds(cfg); return { stt: s ? { ready: true, base: s.baseUrl, model: s.model } : { ready: false }, llm: l ? { ready: true, base: l.baseUrl, model: l.model, keyless: !l.apiKey } : { ready: false }, slots: [1, 2, 3].map((n) => { const c = pick(cfg, 'llm', n); return c ? { slot: n, base: c.baseUrl, model: c.model, keyless: !c.apiKey } : null; }), chain: llmChain(cfg).map((c) => ({ base: c.baseUrl, model: c.model, keyless: !c.apiKey })), presets: PRESETS }; }
+export function aiStatus(cfg: Config) { const s = sttCreds(cfg), l = llmCreds(cfg); return { stt: s ? { ready: true, base: s.baseUrl, model: s.model } : { ready: false }, llm: l ? { ready: true, base: l.baseUrl, model: l.model, keyless: !l.apiKey } : { ready: false }, slots: SLOT_LIST.map((n) => { const c = pick(cfg, 'llm', n); return c ? { slot: n, base: c.baseUrl, model: c.model, keyless: !c.apiKey } : null; }), chain: llmChain(cfg).map((c) => ({ base: c.baseUrl, model: c.model, keyless: !c.apiKey })), presets: PRESETS }; }

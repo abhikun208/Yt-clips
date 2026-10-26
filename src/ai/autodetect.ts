@@ -1,6 +1,6 @@
 import type { Config } from '../config.ts';
 import { readFileSync } from 'node:fs';
-import { PRESETS, saveAi, isLocalBase, llmSlot } from './settings.ts';
+import { PRESETS, saveAi, isLocalBase, llmSlot, SLOT_LIST } from './settings.ts';
 
 export interface CatalogEntry { id: string; label: string; base: string; keyHint: string; getKey: string; models: string[]; stt: string[] }
 export const CATALOG: CatalogEntry[] = (JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8')) as { providers: CatalogEntry[] }).providers;
@@ -121,13 +121,15 @@ export async function autoFix(cfg: Config, target: string, fetchFn: typeof fetch
 }
 
 /** Simple path used by the UI: provider + key only. Picks/reuses a slot (existing slot for this provider, else the first empty, else slot 3). */
-export function slotFor(cfg: Config, base: string): number {
-  const b = base.replace(/\/+$/, ''); for (const n of [1, 2, 3]) if (llmSlot(cfg, n)?.baseUrl === b) return n;
-  for (const n of [1, 2, 3]) if (!llmSlot(cfg, n)) return n; return 3;
+export function slotFor(cfg: Config, base: string, key?: string): number {
+  const b = base.replace(/\/+$/, '');
+  if (key) { for (const n of SLOT_LIST) { const c = llmSlot(cfg, n); if (c?.baseUrl === b && c.apiKey === key) return n; } for (const n of SLOT_LIST) if (!llmSlot(cfg, n)) return n; return SLOT_LIST[SLOT_LIST.length - 1]!; } // extra key for the same provider (e.g. Gemini key 2): own slot
+  for (const n of SLOT_LIST) if (llmSlot(cfg, n)?.baseUrl === b) return n;
+  for (const n of SLOT_LIST) if (!llmSlot(cfg, n)) return n; return SLOT_LIST[SLOT_LIST.length - 1]!;
 }
-export async function saveProviderKey(cfg: Config, id: string, apiKey: string, fetchFn: typeof fetch = fetch): Promise<AutoReport> {
+export async function saveProviderKey(cfg: Config, id: string, apiKey: string, fetchFn: typeof fetch = fetch, extra = false): Promise<AutoReport> {
   const c = CATALOG.find((x) => x.id === id); if (!c) return { ok: false, provider: null, base: null, steps: [{ ok: false, text: 'unknown provider' }] };
-  return autoSetup(cfg, { apiKey, provider: id, baseUrl: c.base, slot: slotFor(cfg, c.base) }, fetchFn);
+  return autoSetup(cfg, { apiKey, provider: id, baseUrl: c.base, slot: slotFor(cfg, c.base, extra ? apiKey : undefined) }, fetchFn);
 }
 
 /** Safe key-shape report for debugging "key reject": never prints the key (only length, first 4 chars, and suspicious characters). */

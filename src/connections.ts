@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Store } from './db.ts';
 import type { Config } from './config.ts';
 import { run } from './util/proc.ts';
-import { llmSlot, sttCreds } from './ai/settings.ts';
+import { llmSlot, sttCreds, SLOT_LIST } from './ai/settings.ts';
 import { getChannel, listChannels } from './channels.ts';
 import { secretsFor, tokenFor } from './publish/service.ts';
 import { YouTubeAdapter } from './publish/youtube.ts';
@@ -118,7 +118,7 @@ export async function testConnection(store: Store, cfg: Config, target: string):
 /** Targets worth showing/testing right now (only things that have something saved). */
 export function knownTargets(store: Store, cfg: Config): string[] {
   const out: string[] = []; const s = secretsFor(cfg);
-  for (const n of [1, 2, 3]) if (llmSlot(cfg, n)) out.push(`llm:${n}`); if (sttCreds(cfg)) out.push('stt');
+  for (const n of SLOT_LIST) if (llmSlot(cfg, n)) out.push(`llm:${n}`); if (sttCreds(cfg)) out.push('stt');
   for (const n of ['telegram', 'discord', 'mastodon', 'notify']) { try { if (s.read(n)) out.push(n); } catch { /* ignore */ } }
   try { if (clientCreds(s)) out.push('google-client'); } catch { /* ignore */ }
   for (const c of listChannels(store)) { try { if (tokenFor(cfg, c).connected()) out.push(`youtube:${c.slug}`); } catch { /* ignore */ } }
