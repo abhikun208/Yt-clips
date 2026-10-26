@@ -90,12 +90,15 @@ export async function autoSetup(cfg: Config, o: { apiKey?: string; provider?: st
   }
   say(true, `${models.length} models mile`); if (!models.length) { say(false, provider === 'ollama' ? 'Ollama mein koi model installed nahi: pehle `ollama pull llama3.2` chalao' : 'Is key par koi model nahi mila'); return rep; }
   const cat = CATALOG.find((c) => c.id === provider); const live = new Set(models.map((m) => m.id));
-  const ranked = [...new Set([...(cat?.models ?? []).filter((m) => live.has(m)), ...rankChat(provider ?? 'custom', models)])]; if (!ranked.length) { say(false, 'Koi chat model nahi mila'); return rep; }
-  for (const id of ranked.slice(0, provider === 'openrouter' ? 8 : 5)) {
+  const ranked = [...new Set([...(cat?.models ?? []).filter((m) => live.has(m) && m !== 'openrouter/free'), ...rankChat(provider ?? 'custom', models), ...(live.has('openrouter/free') ? ['openrouter/free'] : [])])]; if (!ranked.length) { say(false, 'Koi chat model nahi mila'); return rep; }
+  const queue = ranked.slice(0, provider === 'openrouter' ? 8 : 5); let policyFails = 0;
+  for (let qi = 0; qi < queue.length; qi++) {
+    const id = queue[qi]!;
     const t = await chatOk(base, key, id, fetchFn);
     if (t.ok || t.status === 429 || t.status >= 500 || /rate.?limit|overload|high demand|try again/i.test(t.msg)) { say(true, `${id} ${t.ok ? 'ne jawab diya' : 'sahi hai (provider abhi busy/rate-limit, HTTP ' + t.status + ')'}`); saveAi(cfg, 'llm', { apiKey: key || undefined, baseUrl: base, model: id, slot }); rep.llm = { model: id, slot }; rep.ok = true; break; }
     say(false, `${id}: HTTP ${t.status || 'x'} ${t.msg}`.trim());
-    if (provider === 'openrouter' && /0 endpoints|data policy|privacy/i.test(t.msg)) { say(false, 'OpenRouter: free models ke liye openrouter.ai/settings/privacy mein free endpoints allow karne padte hain (ya account par kuch credit ho)'); break; }
+    const hint = /(?:use|try|update[^.]*to use)\s+models\/([\w.\-]+)/i.exec(t.msg)?.[1]; if (hint && !queue.includes(hint) && queue.length < 10) queue.splice(qi + 1, 0, hint); // provider told us the replacement model
+    if (provider === 'openrouter' && /0 endpoints|data policy|privacy|guardrail/i.test(t.msg) && ++policyFails >= 3) { say(false, 'OpenRouter: aapke account ki privacy/guardrail setting free models ko block kar rahi hai. openrouter.ai/settings/privacy mein free endpoints allow karo (ya account par kuch credit rakho). Tab tak Gemini/Groq use karo.'); break; }
   }
   if (!rep.ok) say(false, 'Top models ne jawab nahi diya. Models list se manually chuno ("Models dikhao").');
   const stt = rankStt(models)[0]; if (stt && key) { try { saveAi(cfg, 'stt', { apiKey: key, baseUrl: base, model: stt }); rep.stt = { model: stt }; say(true, `Speech-to-text bhi set: ${stt} (Test dabake pakka karo)`); } catch { /* optional */ } }

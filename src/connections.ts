@@ -44,7 +44,9 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
   if (kind === 'llm') {
     const c = llmSlot(cfg, Number(arg ?? 1));
     if (!c) return [false, 'is slot mein koi key/provider save nahi hai'];
-    const r = await fetch(`${c.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) }, body: JSON.stringify({ model: c.model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with: ok' }] }), signal: t(30_000) });
+    const call = () => fetch(`${c.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', ...(c.apiKey ? { authorization: `Bearer ${c.apiKey}` } : {}) }, body: JSON.stringify({ model: c.model, max_tokens: 5, messages: [{ role: 'user', content: 'Reply with: ok' }] }), signal: t(45_000) });
+    let r: Response; try { r = await call(); } catch { await new Promise((ok) => setTimeout(ok, 2000)); r = await call(); } // busy providers: one retry
+    if (r.status >= 500) { await new Promise((ok) => setTimeout(ok, 2000)); r = await call().catch(() => r); }
     const j = await r.json().catch(() => null) as { choices?: unknown[]; error?: { message?: string } } | null;
     const busy = String(j?.error?.message ?? '');
     if ((r.ok && !j?.choices?.length && /rate.?limit|overload|high demand|try again/i.test(busy)) || r.status >= 500) return [true, `key + model sahi, provider abhi busy hai (HTTP ${r.status}${busy ? ': ' + busy.slice(0, 80) : ''}); thodi der baad chalega, fallback slot bhi use hota hai`];

@@ -106,3 +106,8 @@ test('busy providers: 503 / 200-with-rate-limit-body accepted as "model exists";
   const f = (async (u: string | URL | Request) => String(u).endsWith('/models') ? new Response(JSON.stringify({ data: [{ id: 'gemini-2.5-flash' }, { id: 'gemini-3.8-flash' }] })) : new Response('{}', { status: 503 })) as typeof fetch;
   const r = await autoSetup(testConfig(), { apiKey: 'AQ.keykeykeykeykeykey', provider: 'gemini' }, f); assert.equal(r.ok, true, JSON.stringify(r));
 });
+
+test('provider names the replacement model in its 404 -> tried next; router id never goes first on OpenRouter', async () => {
+  const f = (async (u: string | URL | Request, i?: RequestInit) => { if (String(u).endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: 'gemini-2.5-flash' }] })); const m = JSON.parse(String(i!.body)).model; return m === 'gemini-3.8' ? new Response(JSON.stringify({ choices: [{}] })) : new Response(JSON.stringify({ error: { message: 'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8' } }), { status: 404 }); }) as typeof fetch;
+  const cfg = testConfig(); const r = await autoSetup(cfg, { apiKey: 'AQ.keykeykeykeykeykey', provider: 'gemini' }, f); assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(llmCreds(cfg)?.model, 'gemini-3.8');
+});
