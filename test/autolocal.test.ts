@@ -147,3 +147,17 @@ test('channel polling: new uploads discovered, result recorded for the UI, failu
     assert.equal(store.all(`SELECT 1 FROM sources WHERE kind='youtube_video'`).length, 2);
   } finally { process.env.PATH = old; }
 });
+test('cloud storage (rclone stand-in): finished source is copied + size-verified, local original deleted, restored on demand, purged after N days; unfinished sources untouched', async () => {
+  const { storageTick, ensureLocal, testRemote, finishedVideos } = await import('../src/storage/cloud.ts'); const { Store } = await import('../src/db.ts'); const { existsSync: ex, mkdirSync: mk, writeFileSync: wf, readFileSync: rf } = await import('node:fs');
+  const d = tmpDir(); const bin = join(d, 'bin'); const root = join(d, 'cloud'); mk(bin, { recursive: true }); mk(root, { recursive: true });
+  wf(join(bin, 'rclone'), `#!/bin/sh\nR="${root}"\nmap() { echo "$1" | sed "s#^fake:#$R/#"; }\ncase "$1" in\n listremotes) echo "fake:";;\n copyto) mkdir -p "$(dirname "$(map "$3")")"; cp "$(map "$2")" "$(map "$3")" 2>/dev/null || exit 1;;\n lsjson) f="$(map "$2")"; [ -f "$f" ] && echo "[{\\"Name\\":\\"$(basename "$f")\\",\\"Size\\":$(wc -c < "$f")}]" || echo "[]";;\n purge) rm -rf "$(map "$2")";;\nesac\n`); chmodSync(join(bin, 'rclone'), 0o755);
+  const old = process.env.PATH; process.env.PATH = `${bin}:${old}`;
+  try {
+    const cfg = testConfig({ storage: { remote: 'fake:studio', deleteLocal: true, purgeAfterDays: 1 } }); const store = new Store(join(cfg.dataDir, 'c.db')); assert.equal((await testRemote(cfg)).ok, true);
+    const mkVideo = (n: number, state: string) => { const p = join(d, `v${n}.mp4`); wf(p, 'x'.repeat(100 + n)); wf(join(d, `v${n}.json`), '[]'); const vid = store.exec('INSERT INTO videos(path,fingerprint,size) VALUES (?,?,?)', p, 'fp' + n, 1).lastId; const cand = store.exec(`INSERT INTO candidates(video_id,start_sec,end_sec,score,fingerprint) VALUES (?,?,?,?,?)`, vid, 0, 10, 1, 'c' + n).lastId; const clip = store.exec(`INSERT INTO clips(candidate_id,output_id) VALUES (?,?)`, cand, 'o' + n).lastId; store.exec(`INSERT INTO uploads(clip_id,platform,state,idempotency_key) VALUES (?,?,?,?)`, clip, 'youtube', state, 'k' + n); return { vid, p }; };
+    const done = mkVideo(1, 'PUBLISHED'), wip = mkVideo(2, 'UNLISTED_VERIFIED'); assert.deepEqual(finishedVideos(store).map((x) => x.id), [done.vid]);
+    const r = await storageTick(store, cfg); assert.equal(r.archived, 1, JSON.stringify(r)); assert.ok(!ex(done.p)); assert.ok(ex(wip.p)); assert.ok(ex(join(root, 'studio', 'raw', String(done.vid), 'v1.mp4')));
+    await ensureLocal(store, cfg, done.p); assert.equal(rf(done.p, 'utf8').length, 101);
+    store.exec(`UPDATE kv SET v=json_set(v,'$.doneAt','2000-01-01T00:00:00.000Z') WHERE k LIKE 'cloud:video:%'`); const r2 = await storageTick(store, cfg); assert.equal(r2.purged, 1); assert.ok(!ex(join(root, 'studio', 'raw', String(done.vid))));
+  } finally { process.env.PATH = old; }
+});

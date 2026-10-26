@@ -22,6 +22,7 @@ import { UI_HTML } from './ui.ts';
 import { isPace } from '../edit/pace.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
+import { storageTick, storageStatus, testRemote, listRemotes, rcloneAvailable, validRemote } from '../storage/cloud.ts';
 import { localReport } from '../localcheck.ts';
 import { pickLocal } from '../analysis/localStt.ts';
 import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
@@ -84,6 +85,7 @@ export function createApp(o: AppOptions = {}): App {
         if (cfg.automation.titleTest || cfg.automation.funnelComment) { if (Date.now() - lastTt >= 15 * 60_000) { lastTt = Date.now(); await titleTestTick(store, cfg).catch(() => null); await funnelTick(store, cfg).catch(() => null); } }
         if (cfg.comments.pollMinutes > 0 && Date.now() - lastComments >= cfg.comments.pollMinutes * 60_000) { lastComments = Date.now(); const cr = await collectYoutubeComments(store, cfg); if (cr.newComments || cr.error) info('comments collect', cr as unknown as Record<string, unknown>); }
         { const tr = await automationTick(store, cfg); if (tr.queued || tr.advanced || tr.errors.length) info('automation tick', tr as unknown as Record<string, unknown>); }
+        { const sr = await storageTick(store, cfg).catch(() => null); if (sr && (sr.archived || sr.purged)) info('storage tick', sr as unknown as Record<string, unknown>); }
         seedJobs(store, cfg); const r = await work(store, cfg, { shouldStop: () => stopping }); if (r.done || r.failed) info('worker cycle', r); }
       catch (e) { error('worker cycle crashed', { err: (e as Error).message }); }
       finally { running = false; }
@@ -230,6 +232,16 @@ export function createApp(o: AppOptions = {}): App {
         if ('pace' in b) { if (!isPace(b.pace)) return json(res, 400, { error: 'pace must be fast|medium|relaxed|off' }); patch.pace = b.pace; }
         updateOwnerConfig(cfg, { edit: patch }); Object.assign(cfg.edit, patch); return json(res, 200, { ok: true, edit: { captionPreset: cfg.edit.captionPreset, captionEmphasis: cfg.edit.captionEmphasis, reframe: cfg.edit.reframe, pace: cfg.edit.pace } });
       }
+      if (p === '/api/storage' && m === 'GET') return json(res, 200, { ...storageStatus(store, cfg), rclone: await rcloneAvailable(), remotes: await listRemotes() });
+      if (p === '/api/storage' && m === 'POST') {
+        const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
+        if (b.remote !== undefined) { const r = String(b.remote).trim(); if (r && !validRemote(r)) return json(res, 400, { error: 'invalid: remote (format name:folder, e.g. gdrive:yt-clips)' }); patch.remote = r; }
+        if (b.deleteLocal !== undefined) patch.deleteLocal = !!b.deleteLocal;
+        if (b.purgeAfterDays !== undefined) { const n = Number(b.purgeAfterDays); if (!Number.isInteger(n) || n < 0 || n > 3650) return json(res, 400, { error: 'invalid: purgeAfterDays 0-3650' }); patch.purgeAfterDays = n; }
+        updateOwnerConfig(cfg, { storage: patch }); Object.assign(cfg.storage, patch); return json(res, 200, storageStatus(store, cfg));
+      }
+      if (p === '/api/storage/test' && m === 'POST') return json(res, 200, await testRemote(cfg));
+      if (p === '/api/storage/run' && m === 'POST') return json(res, 200, await storageTick(store, cfg));
       if (p === '/api/youtube/settings' && m === 'GET') return json(res, 200, cfg.youtube);
       if (p === '/api/youtube/settings' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as Record<string, unknown>; const lim: Record<string, [number, number]> = { pollMinutes: [5, 720], maxDurationMin: [10, 1440], maxPerPoll: [1, 10], maxHeight: [360, 1080] }; const patch: Record<string, number> = {};

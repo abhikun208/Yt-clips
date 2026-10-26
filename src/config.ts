@@ -24,6 +24,7 @@ export interface Config {
   stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
+  storage: { remote: string; deleteLocal: boolean; purgeAfterDays: number };
   comments: { pollMinutes: number; maxRepliesPerDay: number };
   /** Autonomous publish loop. OFF by default; owner-only (data/config.json). autoApprove = owner pre-approves scheduling of QC-passed, verified-unlisted clips. */
   automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean; titleTest: boolean; titleTestHours: number; funnelComment: boolean };
@@ -53,6 +54,7 @@ const DEFAULTS = (rootDir: string): Config => {
     stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'auto' },
     youtube: { pollMinutes: 15, maxPerPoll: 3, maxDurationMin: 360, maxHeight: 720 },
     analytics: { pollMinutes: 360 },
+    storage: { remote: '', deleteLocal: false, purgeAfterDays: 0 },
     comments: { pollMinutes: 60, maxRepliesPerDay: 20 },
     automation: { autoQueue: false, platforms: ['youtube_shorts'], autoApprove: false, maxAdvancePerCycle: 20, requireReview: false, titleTest: false, titleTestHours: 24, funnelComment: false },
   };

@@ -1,4 +1,5 @@
 import { writeFileSync, existsSync, readdirSync, mkdirSync, statSync, renameSync, rmSync } from 'node:fs';
+import { ensureLocal } from '../storage/cloud.ts';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
@@ -56,6 +57,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const prior = ro.variant ? undefined : store.get<{ id: number; output_id: string; edited_path: string; qc_pass: number }>('SELECT id, output_id, edited_path, qc_pass FROM clips WHERE candidate_id=? AND variant=0', candidateId);
   if (prior && prior.edited_path && existsSync(prior.edited_path)) return { clipId: prior.id, outputId: prior.output_id, editedPath: prior.edited_path, qcPass: !!prior.qc_pass, reused: true };
   const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', c.video_id)!;
+  await ensureLocal(store, cfg, v.path); // original may live in the cloud archive
   checkDisk(cfg.dataDir, cfg.resources.minFreeDiskMb);
 
   const dur = c.end_sec - c.start_sec;
