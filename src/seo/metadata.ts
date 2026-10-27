@@ -14,16 +14,6 @@ export function extractKeywords(text: string, n = 8): string[] {
   return [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, n).map(([w]) => w);
 }
 
-const EMO_TITLE: Record<string, string[]> = {
-  funny: ['Ye Moment Dekh Ke Hasi Nahi Rukegi 😂', 'Itna Funny Moment! 😂'],
-  sad: ['Dil Chhoo Lene Wala Moment 💔', 'Ye Dekh Ke Aankhein Nam Ho Jayengi'],
-  happy: ['Khushi Ka Pal ❤️', 'Dil Khush Kar Dene Wala Moment'],
-  shock: ['Ye Kya Ho Gaya? 😱', 'Iski Umeed Nahi Thi! 😱'],
-  aggressive: ['Gussa Jab Hadd Paar Kar Gaya 🔥', 'Garma-Garmi Ka Full Scene 🔥'],
-  cute: ['Itna Cute Ki Dil Pighal Jaye 🥰', 'Cutest Moment Aaj Ka 🥰'],
-  high_energy: ['Full Josh Wala Moment 🔥', 'Ye Energy Dekhi Kya? 🔥'],
-};
-
 /**
  * Honest template metadata (works offline/free). Titles use transcript keywords when present; never invent facts, links or handles.
  * Links are included ONLY from `ownerLinks` (owner-verified config).
@@ -40,12 +30,10 @@ export function buildMetadata(i: MetaInput): Metadata {
     return { titles: lm.titles.map((t) => t.slice(0, 95)), title: `${lm.titles[0]!.slice(0, 90)} #Shorts`.slice(0, 100), description: lines.join('\n').slice(0, 4900), tags: lm.tags, hashtags: ht, keywords: lm.keyphrases, language: i.language, thumbnailText: lm.thumbnailText, source: 'template', warnings };
   }
   const kws = extractKeywords(i.transcript, 8);
-  const base = EMO_TITLE[i.category] ?? ['Ye Moment Miss Mat Karna ✨'];
-  const kw0 = kws[0];
-  const titles: string[] = [];
-  for (const b of base) titles.push(b);
-  if (kw0) titles.push(`${kw0[0]!.toUpperCase()}${kw0.slice(1)} Ka Sach — Poora Dekho 👀`);
-  if (i.sourceTitle) titles.push(`${i.sourceTitle.slice(0, 60)} | Best Moment`);
+  // No speech to work from: never invent a title. Use the source title (or channel name) and say so.
+  const kw0 = kws[0]; const titles: string[] = [];
+  if (i.sourceTitle) titles.push(`${i.sourceTitle.slice(0, 70)} | Best Moment`);
+  titles.push(`${i.channelName ? i.channelName + ' — ' : ''}Best Moment`);
   const clean = titles.map((t) => t.slice(0, 95)).filter((t, idx, a) => a.indexOf(t) === idx);
   const title = `${clean[0]!} #Shorts`.slice(0, 100);
   const hashtags = ['#Shorts', ...(i.hashtagsExtra ?? []), ...kws.slice(0, 3).map((k) => '#' + k.replace(/\s+/g, ''))].filter((h, idx, a) => a.indexOf(h) === idx).slice(0, 5);
@@ -69,4 +57,15 @@ export function validateMetadata(m: Metadata): string[] {
   if (m.tags.join(',').length > 480) errs.push('tags > 500 chars');
   if (m.hashtags.length > 15) errs.push('too many hashtags (YouTube ignores all if >15)');
   return errs;
+}
+
+/** Series clips: add "(Part n/N)" to the title and a line to the description. No-op for single clips. */
+export function withPart(md: Metadata, part?: { no: number; total: number } | null): Metadata {
+  if (!part?.no || !part.total) return md;
+  const tag = `(Part ${part.no}/${part.total})`;
+  const strip = (t: string) => t.replace(/\s*#Shorts\s*$/i, '');
+  const titles = md.titles.map((t) => `${t.slice(0, 80)} ${tag}`.slice(0, 95));
+  const title = `${strip(md.title).slice(0, 78)} ${tag} #Shorts`.slice(0, 100);
+  const note = part.no < part.total ? `Part ${part.no}/${part.total} — agla part dekhna mat bhoolna!` : `Part ${part.no}/${part.total} — series ka last part.`;
+  return { ...md, titles, title, description: `${note}\n\n${md.description}`.slice(0, 4900) };
 }

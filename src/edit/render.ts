@@ -1,4 +1,6 @@
 import { writeFileSync, existsSync, readdirSync, mkdirSync, statSync, renameSync, rmSync } from 'node:fs';
+import { guessLanguage } from '../analysis/transcript.ts';
+import { realHook } from '../seo/hook.ts';
 import { transcribeVideo } from '../analysis/stt.ts';
 import { isInterlaced, hasBurnedSubs } from './sourcecheck.ts';
 import { ensureLocal } from '../storage/cloud.ts';
@@ -123,6 +125,11 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const chan0 = channelOfVideo(store, c.video_id); const toLang = ro.translateTo ?? chan0.config.translateTo; let translation: string | null = null;
   if (toLang && cues.length) { const tr = await translateCues(cues.filter((q) => q.end > c.start_sec && q.start < effEnd), toLang, llmChain(cfg)); if (tr.used) { cues = tr.cues; translation = `${toLang} via ${tr.used}`; } else if (tr.note) translation = `not translated: ${tr.note}`; }
   let assPath: string | undefined; let cap: CaptionResult | undefined;
+  { const inClip = cues.filter((q) => q.end > c.start_sec && q.start < effEnd).map((q) => q.text).join(' ').trim();
+    if (inClip) store.exec(`UPDATE candidates SET transcript=?, language=COALESCE(NULLIF(language,''),?) WHERE id=? AND (transcript IS NULL OR transcript='')`, inClip, guessLanguage(inClip), c.id); // so the metadata step works from the real speech
+    if (ro.title === undefined && cfg.edit.hookTitle !== false) { const h = realHook(inClip); if (h) ro = { ...ro, title: h }; } }
+  { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; // visible series label
+    if (pn && pt) { const lbl = `PART ${pn}/${pt}`; ro = { ...ro, title: ro.title ? `${lbl} • ${ro.title}`.slice(0, 64) : lbl }; } }
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   if (presetId !== 'none' && (cues.length || ro.title)) {
     cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });

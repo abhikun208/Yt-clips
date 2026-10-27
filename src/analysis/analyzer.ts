@@ -9,7 +9,10 @@ import type { Config } from '../config.ts';
 import { probe } from '../media/probe.ts';
 import { detectSilence, detectScenes, audioEnergy, detectBlack, normalizeEnergy } from './signals.ts';
 import { detectBoundaries } from './boundaries.ts';
-import { loadTranscript } from './transcript.ts';
+import { loadTranscript, textInRange, guessLanguage } from './transcript.ts';
+import { sentencesFromCues, sentencesIn } from './textsignals.ts';
+import { planSeries } from './series.ts';
+import { shortHash } from '../util/hash.ts';
 import { selectCandidates, overlapRatio } from './select.ts';
 import { info, warn } from '../util/log.ts';
 import { transcribeVideo } from './stt.ts';
@@ -55,6 +58,20 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     if (external.length) info('external signals used', { videoId, series: external.map((x) => x.name) });
     let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming', categoryPrior: learnedCategoryPrior(store, chan.id) },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
+    type PartInfo = { no: number; total: number; key: string };
+    const partOf = new Map<string, PartInfo>();
+    if (cfg.clip.series?.enabled && cues.length) {
+      const sents = sentencesFromCues(cues); const occupied: [number, number][] = []; const out: typeof cands = [];
+      for (const c of [...cands].sort((x, y) => y.score - x.score)) {
+        if (occupied.some((o) => overlapRatio([c.start, c.end], o) > 0.2)) continue;
+        const spans = planSeries(c.start, c.end, sents, { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, partSec: cfg.clip.series.partSec, maxParts: cfg.clip.series.maxParts, hi: a.outroStart });
+        if (!spans) { out.push(c); occupied.push([c.start, c.end]); continue; }
+        const key = `s${videoId}_${Math.round(c.start)}`; occupied.push([spans[0]!.start, spans[spans.length - 1]!.end]);
+        spans.forEach((sp, i) => { const txt = textInRange(cues, sp.start, sp.end); const inS = sentencesIn(sents, sp.start, sp.end); const fp = shortHash(`${videoId}:${Math.round(sp.start)}:${Math.round(sp.end)}`, 16);
+          out.push({ ...c, start: sp.start, end: sp.end, duration: +(sp.end - sp.start).toFixed(2), score: +(c.score * (i === 0 ? 1 : 0.97)).toFixed(4), transcript: txt, language: guessLanguage(txt), hook: (inS[0]?.text ?? c.hook).slice(0, 140), reason: `${c.reason}; part ${i + 1}/${spans.length} of one story`, fingerprint: fp }); partOf.set(fp, { no: i + 1, total: spans.length, key }); });
+      }
+      cands = out.sort((x, y) => x.start - y.start);
+    }
     { const rr = await rerankCandidates(cands, llmChain(cfg)); cands = rr.cands; if (rr.used) info('llm rerank', { used: rr.used }); else if (rr.note) warn(rr.note); }
     let inserted = 0;
     store.tx(() => {
@@ -64,9 +81,9 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       for (const c of cands) {
         if (rendered.some((r) => overlapRatio([c.start, c.end], [r.start_sec, r.end_sec]) > 0.5)) continue;
         const r = store.exec(
-          `INSERT INTO candidates(video_id, start_sec, end_sec, score, category, reason, hook, transcript, language, confidence, signals_json, fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-           ON CONFLICT(fingerprint) DO UPDATE SET status=CASE WHEN candidates.status='superseded' THEN 'candidate' ELSE candidates.status END, score=excluded.score, reason=excluded.reason, hook=excluded.hook, transcript=excluded.transcript, language=excluded.language, signals_json=excluded.signals_json`,
-          videoId, c.start, c.end, c.score, c.category, c.reason, c.hook, c.transcript, c.language, c.confidence, JSON.stringify(c.signals), c.fingerprint!);
+          `INSERT INTO candidates(video_id, start_sec, end_sec, score, category, reason, hook, transcript, language, confidence, signals_json, fingerprint, part_no, part_total, series_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(fingerprint) DO UPDATE SET status=CASE WHEN candidates.status='superseded' THEN 'candidate' ELSE candidates.status END, score=excluded.score, reason=excluded.reason, hook=excluded.hook, transcript=excluded.transcript, language=excluded.language, signals_json=excluded.signals_json, part_no=excluded.part_no, part_total=excluded.part_total, series_key=excluded.series_key`,
+          videoId, c.start, c.end, c.score, c.category, c.reason, c.hook, c.transcript, c.language, c.confidence, JSON.stringify(c.signals), c.fingerprint!, partOf.get(c.fingerprint!)?.no ?? null, partOf.get(c.fingerprint!)?.total ?? null, partOf.get(c.fingerprint!)?.key ?? null);
         inserted += r.changes;
       }
       store.exec(`UPDATE videos SET state='ANALYZED', intro_end=?, outro_start=?, analysis_path=?, error=NULL, updated_at=datetime('now') WHERE id=?`, a.introEnd, a.outroStart, analysisPath, videoId);

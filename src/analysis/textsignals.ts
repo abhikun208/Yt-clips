@@ -17,10 +17,10 @@ export function sentencesFromCues(cues: Cue[]): Sentence[] {
 }
 
 /** Move a clip start to the nearest sentence start (within tol) and the end to the nearest sentence end, so clips don't open/close mid-thought. */
-export function snapToSentences(a: number, b: number, sents: Sentence[], o: { lo: number; hi: number; tol?: number; minLen: number }): [number, number] {
-  const tol = o.tol ?? 2.5; let A = a, B = b;
+export function snapToSentences(a: number, b: number, sents: Sentence[], o: { lo: number; hi: number; tol?: number; minLen: number; maxLen?: number }): [number, number] {
+  const tol = o.tol ?? 4; let A = a, B = b;
   let bd = tol; for (const s of sents) { const d = Math.abs(s.start - a); if (d < bd && s.start >= o.lo) { bd = d; A = Math.max(o.lo, s.start - 0.08); } }
-  bd = tol; for (const s of sents) { const d = Math.abs(s.end - b); if (d < bd && s.end <= o.hi) { bd = d; B = Math.min(o.hi, s.end + 0.15); } }
+  bd = tol; for (const s of sents) { const d = Math.abs(s.end - b); if (d < bd && s.end <= o.hi && (!o.maxLen || s.end + 0.15 - A <= o.maxLen)) { bd = d; B = Math.min(o.hi, s.end + 0.15); } }
   return B - A >= o.minLen ? [A, B] : [a, b];
 }
 

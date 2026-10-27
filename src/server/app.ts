@@ -7,6 +7,7 @@ import { Store } from '../db.ts';
 import { loadConfig, updateOwnerConfig, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
 import { seedJobs, work } from '../pipeline.ts';
+import { analyzeVideo } from '../analysis/analyzer.ts';
 import { addYoutubeSource, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
@@ -171,6 +172,7 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/login' && m === 'POST') return json(res, 200, { ok: true }, token ? { 'set-cookie': `ytc_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}` } : {});
       if (p === '/api/status') return json(res, 200, { running, version: VERSION, gates: cfg.gates, captionPreset: cfg.edit.captionPreset,
         videos: store.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: store.all('SELECT state, count(*) n FROM jobs GROUP BY state'), clips: store.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: store.all('SELECT state, count(*) n FROM uploads GROUP BY state') });
+      { const m = p.match(/^\/api\/videos\/(\d+)\/reanalyze$/); if (m && req.method === 'POST') { const r = await analyzeVideo(store, cfg, Number(m[1]), { force: true }); seedJobs(store, cfg); return json(res, 200, r); } }
       if (p === '/api/videos') return json(res, 200, { videos: store.all(`SELECT id, path, state FROM videos ORDER BY id DESC LIMIT 200`).map((v) => ({ ...(v as { id: number; path: string; state: string }), title: basename((v as { path: string }).path) })) });
       if (p === '/api/clips') return json(res, 200, { clips: clipRows() });
       const rv = /^\/api\/clips\/(\d+)\/(review|meta|thumbnail|rerender|export)$/.exec(p);

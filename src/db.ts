@@ -81,6 +81,8 @@ const MIGRATIONS: string[] = [
   CREATE TABLE IF NOT EXISTS title_tests (
     upload_id INTEGER PRIMARY KEY, remote_id TEXT NOT NULL, variants_json TEXT NOT NULL, idx INTEGER NOT NULL DEFAULT 0, window_start TEXT NOT NULL,
     views_start INTEGER, results_json TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL DEFAULT 'running', winner TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v8 (additive): multi-part series ("Part 1/3")
+  `ALTER TABLE candidates ADD COLUMN part_no INTEGER; ALTER TABLE candidates ADD COLUMN part_total INTEGER; ALTER TABLE candidates ADD COLUMN series_key TEXT;`,
 ];
 
 export type Row = Record<string, unknown>;

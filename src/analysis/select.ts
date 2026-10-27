@@ -65,7 +65,7 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
       if (b - a < p.minSec) continue;
       a = snap(a, inp.silence, 1.2, lo, b - p.minSec);
       b = snap(b, inp.silence, 1.2, a + p.minSec, hi);
-      if (hasText) [a, b] = snapToSentences(a, b, sents, { lo, hi, minLen: p.minSec });
+      if (hasText) [a, b] = snapToSentences(a, b, sents, { lo, hi, minLen: p.minSec, maxLen: p.maxSec });
       const dur = b - a;
       if (dur < p.minSec || dur > p.maxSec + 0.01) continue;
       const en = sliceEnergy(inp.energy, inp.energyStep, a, b);

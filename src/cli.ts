@@ -3,6 +3,7 @@ import { loadConfig } from './config.ts';
 import { Store } from './db.ts';
 import { ingestLocal } from './sources/local.ts';
 import { seedJobs, work } from './pipeline.ts';
+import { analyzeVideo } from './analysis/analyzer.ts';
 import { which, run } from './util/proc.ts';
 import { freeMb } from './util/disk.ts';
 import { ingestComment } from './comments/comments.ts';
@@ -71,6 +72,7 @@ async function main(): Promise<number> {
       return bad ? 1 : 0;
     }
     if (cmd === 'local-check') { const { localReport } = await import('./localcheck.ts'); const r = await localReport(cfg); console.log(`Machine: ${r.ramGb} GB RAM, ${r.cpuCores} cores, ${r.arch}${r.termux ? ' (Termux)' : ''}`); console.log(`Speech-to-text (local) recommend: whisper "${r.recommend.whisper}" — ${r.recommend.whisperNote}`); console.log(`Local LLM recommend: ${r.recommend.llm} — ${r.recommend.llmNote}`); for (const e of r.engines) console.log(`${e.available ? '✓' : '·'} ${e.id}: ${e.detail}`); console.log(r.ollama.running ? `✓ ollama chal raha hai, models: ${r.ollama.models.join(', ') || '(koi nahi)'}` : '· ollama nahi chal raha (optional)'); console.log(r.note); return 0; }
+    if (cmd === 'reanalyze') { const id = Number(rest[0]); if (!id) { console.log('Usage: npm run cli -- reanalyze <videoId>  (transcript se sentence-boundary + Part series ke saath naye clips)'); return 1; } const r = await analyzeVideo(s, cfg, id, { force: true }); console.log({ videoId: id, candidates: r.candidates }); return 0; }
     if (cmd === 'stt-test') { const f = rest[0]; if (!f) { console.log('Usage: npm run cli -- stt-test <video-ya-audio-file>'); return 1; } const t0 = Date.now(); const r = await transcribeVideo(cfg, f); console.log({ status: r.status, engine: r.engine, cues: r.cues.length, seconds: Math.round((Date.now() - t0) / 1000), error: r.error }); for (const c of r.cues.slice(0, 6)) console.log(`  ${c.start.toFixed(1)}-${c.end.toFixed(1)}s ${c.words ? '[' + c.words.length + ' words] ' : ''}${c.text}`); return r.status === 'ok' ? 0 : 1; }
     if (cmd === 'install-ytdlp') { const { run, which } = await import('./util/proc.ts'); if (!(await which('python3'))) { if (/termux/.test(process.env.PREFIX ?? '')) { console.log('python install ho raha hai (pkg)…'); await run('pkg', ['install', '-y', 'python'], { timeoutMs: 20 * 60_000 }); } else { console.log('python3 chahiye: apt install -y python3-pip'); return 1; } }
       for (const extra of [[], ['--break-system-packages']]) { const r = await run('python3', ['-m', 'pip', 'install', '-U', 'yt-dlp', ...extra], { timeoutMs: 15 * 60_000 }); if (r.code === 0) break; if (extra.length) { console.log(r.stderr.slice(-400)); return 1; } }

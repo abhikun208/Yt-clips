@@ -10,12 +10,13 @@ export interface Config {
   clip: {
     minSec: number; maxSec: number; targetSec: number; maxClipsPerVideo: number;
     minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number;
+    series?: { enabled: boolean; partSec: number; maxParts: number };
   };
   edit: {
     width: number; height: number; fps: number; crf: number; preset: string; encoder: 'auto' | 'libx264' | 'h264_nvenc' | 'h264_videotoolbox' | 'h264_mediacodec';
     reframe: 'crop' | 'fit_blur'; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
     vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean };
-    jumpCuts: boolean; emphasisZoom: boolean; pace: 'fast' | 'medium' | 'relaxed' | 'off';
+    jumpCuts: boolean; emphasisZoom: boolean; hookTitle?: boolean; pace: 'fast' | 'medium' | 'relaxed' | 'off';
   };
   schedule: { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number };
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
@@ -46,7 +47,7 @@ const DEFAULTS = (rootDir: string): Config => {
     },
     dbPath: join(dataDir, 'yt-clips.sqlite'),
     timezone: 'Asia/Kolkata',
-    clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30 },
+    clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30, series: { enabled: true, partSec: 45, maxParts: 4 } },
     edit: { pace: 'medium', width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', encoder: 'auto', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: true, particles: true, lightLeak: true, flash: true, progress: true }, jumpCuts: true, emphasisZoom: true },
     schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
