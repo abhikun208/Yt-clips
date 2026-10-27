@@ -519,3 +519,300 @@ complete be care full  and ek files or bana dena progress.md ya Brain.md jisme j
 
 and tum apne side se isko complete karna batter tarika se ache se baar baar wala system khayam hi kar dena 
 
+
+Yeh raha aapke `yt-clips` project ke liye complete, detailed, aur production-ready master prompt. Isme saari kamiya, missing features, logic improvements, aur step-by-step implementation guide shamil hai. Aap isse seedha copy karke AI ya developer ko de sakte hain.
+
+***
+
+#  YT-CLIPS: COMPLETE PRODUCTION UPGRADE & GAP ANALYSIS MASTER PROMPT
+
+**Project Context:** `yt-clips` ek self-hosted, free, Node.js + FFmpeg based automation server hai jo long videos se Shorts banata hai. Current state MVP hai. Goal ise **Production-Grade, 24/7 Autonomous, Hindi-Native SaaS** banana hai.
+
+Niche diye gaye har section ko **strictly follow karna hai**. Koi bhi step skip nahi karna. Har feature ka logic, code structure, aur testing criteria define kiya gaya hai.
+
+---
+
+## 🔴 PHASE 1: CRITICAL BUG FIXES & STABILITY (Priority: Immediate)
+
+### 1.1 Fix `words` Undefined Variable Error
+*   **Problem:** Caption generation/editing mein `words` variable undefined error aa raha hai.
+*   **Logic:** Transcript parsing mein word boundaries handle nahi ho rahe.
+*   **Fix Script:**
+    ```typescript
+    // src/edit/captions.ts - Safe Word Parser
+    export function parseTranscriptWords(transcript: string): Word[] {
+      if (!transcript || typeof transcript !== 'string') return [];
+      
+      // Regex for Hinglish/Hindi + English mixed content
+      const wordRegex = /[\p{L}\p{N}']+|[\u0900-\u097F]+/gu;
+      const matches = [...transcript.matchAll(wordRegex)];
+      
+      return matches.map((match, index) => ({
+        text: match[0],
+        start: match.index!,
+        end: match.index! + match[0].length,
+        id: `w_${index}`
+      }));
+    }
+    ```
+*   **Validation:** Unit test with empty string, null, pure Hindi, pure English, and mixed Hinglish transcripts.
+
+### 1.2 Groq API Key 401 Error Resolution
+*   **Problem:** Valid key ke baad bhi HTTP 401 errors.
+*   **Root Cause Analysis Loop:**
+    1.  Check if key starts with `gsk_` (Groq format).
+    2.  Verify model name matches available models (`whisper-large-v3-turbo`, `llama-3.3-70b-versatile`).
+    3.  Check rate limit headers in response.
+    4.  Validate timezone/timestamp sync (server time vs API time).
+*   **Fix:** Add pre-flight validation before saving key. Show specific error message ("Invalid Model", "Rate Limited", "Wrong Region") instead of generic 401.
+
+### 1.3 Command Injection Protection Audit
+*   **Current Risk:** User inputs (URLs, titles) directly passed to shell commands.
+*   **Mandatory Fix:** Replace ALL `child_process.exec()` with `execFile()`.
+*   **Sanitization Logic:**
+    ```typescript
+    import { execFile } from 'child_process';
+    
+    // SAFE: Arguments passed as array, never concatenated
+    await execFile('ffmpeg', [
+      '-i', inputPath,
+      '-vf', `drawtext=text='${safeTitle.replace(/'/g, "\\'")}'`,
+      outputPath
+    ]);
+    
+    // NEVER DO THIS:
+    // exec(`ffmpeg -i ${inputPath} -vf drawtext=text='${title}' ${output}`);
+    ```
+
+---
+
+## 🟠 PHASE 2: MISSING CORE FEATURES IMPLEMENTATION
+
+### 2.1 Hindi/Hinglish TTS Integration (Narration Engine)
+*   **Gap:** Sirf captions hain, natural voice narration missing hai.
+*   **Solution Stack:** Edge-TTS (Free, No API Key) + Coqui XTTS v2 (Local Fallback).
+*   **Implementation Steps:**
+    1.  Install `edge-tts` npm package.
+    2.  Create `src/tts/engine.ts` with provider fallback chain:
+        *   Primary: Edge-TTS (`hi-IN-SwaraNeural` for Hindi, `en-IN-NeerjaNeural` for Hinglish).
+        *   Fallback: Coqui XTTS v2 (if GPU available).
+        *   Last Resort: Google Translate TTS (unofficial, rate-limited).
+    3.  Add language detection auto-switch logic using `franc` library.
+    4.  Cache generated audio files by hash to avoid re-generation.
+*   **Config:** Add `tts.provider`, `tts.voice`, `tts.speed` to `data/config.json`.
+
+### 2.2 Smart Face-Center Dynamic Crop
+*   **Gap:** Static center-crop se moving subjects cut jaate hain.
+*   **Logic:** OpenCV Face Detection + Motion Tracking.
+*   **Algorithm:**
+    1.  Extract frames at 1fps during analysis phase.
+    2.  Run `cv2.CascadeClassifier` (haarcascade_frontalface) on each frame.
+    3.  Calculate face centroid (x, y) per frame.
+    4.  Apply LOW-PASS FILTER to smooth jittery movements.
+    5.  Generate dynamic crop coordinates for FFmpeg `crop` filter.
+*   **FFmpeg Filter Complex:**
+    ```bash
+    ffmpeg -i input.mp4 -vf "
+      detect_faces=fps=1:cache=100,
+      smooth_motion=window=5,
+      crop=w=ih*9/16:h=ih:x=center_x:y=center_y
+    " output_short.mp4
+    ```
+*   **Fallback:** If no face detected > 3 seconds, revert to salient object detection or safe center-crop.
+
+### 2.3 Duplicate Clip Detection System
+*   **Gap:** Autopilot same viral moment baar-baar clip kar sakta hai.
+*   **Detection Layers:**
+    1.  **Metadata Layer:** Check source video ID + timestamp range against DB.
+    2.  **Perceptual Hash Layer:** Generate pHash for every generated clip thumbnail/keyframe.
+    3.  **Audio Fingerprint:** Use Chromaprint to detect identical audio segments.
+*   **Threshold:** Similarity > 85% = Block. 70-85% = Flag for review. < 70% = Allow.
+*   **Storage:** Store hashes in SQLite table `clip_fingerprints(hash, clip_id, created_at)`.
+
+### 2.4 Cinematic Visual Fallback System
+*   **Gap:** AI video gen fail hone par blank/black screen aata hai.
+*   **Fallback Assets Library:** Pre-download 50+ royalty-free cinematic loops (abstract, neon, nature, tech) to `assets/fallbacks/`.
+*   **Trigger Logic:**
+    ```typescript
+    if (aiVideoGen.status === 'failed' || !aiVideoGen.output) {
+      const fallback = selectFallbackByMood(clip.sentiment); // e.g., 'high_energy' -> neon_loop.mp4
+      await composeWithFallback(originalClip, fallback, captionStyle);
+    }
+    ```
+*   **Composition:** Overlay original clip at 30% opacity + blend mode 'screen' + motion VFX (particles/light leak) on top of fallback.
+
+---
+
+## 🟡 PHASE 3: ARCHITECTURE & INFRASTRUCTURE UPGRADES
+
+### 3.1 Database Migration: SQLite → PostgreSQL + Drizzle ORM
+*   **Why:** SQLite locks on write, no concurrent access, risky for 24/7 server.
+*   **Migration Script:**
+    1.  Define schema in `src/db/schema.ts` using Drizzle.
+    2.  Tables: `videos`, `clips`, `jobs`, `channels`, `analytics`, `users`, `settings`.
+    3.  Write migration script to dump SQLite → JSON → PostgreSQL.
+    4.  Add connection pooling (max 10 connections).
+*   **Environment:** Add `DATABASE_URL=postgresql://user:pass@host:5432/ytclips` to `.env`.
+
+### 3.2 Job Queue System: Redis + BullMQ
+*   **Current Issue:** Polling every 30s is inefficient. No retry/backoff.
+*   **Implementation:**
+    1.  Install `bullmq`, `ioredis`.
+    2.  Define queues: `analyze`, `render`, `upload`, `notify`.
+    3.  Configure workers with concurrency limits (based on CPU cores).
+    4.  Add exponential backoff: `{ attempts: 3, backoff: { type: 'exponential', delay: 2000 } }`.
+    5.  Dead Letter Queue for permanently failed jobs.
+*   **Health Check:** Monitor queue length, active jobs, failed jobs via `/health/queues`.
+
+### 3.3 Production Docker Optimization
+*   **Current:** Basic single-stage build.
+*   **Optimized Multi-Stage Dockerfile:**
+    ```dockerfile
+    # Stage 1: Builder
+    FROM node:24-alpine AS builder
+    WORKDIR /app
+    COPY package*.json ./
+    RUN npm ci --only=production
+    COPY . .
+    RUN npm run build
+    
+    # Stage 2: Runtime
+    FROM node:24-alpine
+    RUN apk add --no-cache ffmpeg python3 py3-pip opencv && \
+        pip install faster-whisper yt-dlp
+    WORKDIR /app
+    COPY --from=builder /app/dist ./dist
+    COPY --from=builder /app/node_modules ./node_modules
+    COPY assets ./assets
+    
+    USER node
+    EXPOSE 8080
+    HEALTHCHECK --interval=30s CMD wget -qO- http://localhost:8080/health || exit 1
+    CMD ["node", "dist/server.js"]
+    ```
+*   **Security:** Non-root user, minimal base image, healthcheck enabled.
+
+### 3.4 Security Hardening
+*   **Auth:** Replace simple token with JWT + Refresh Token rotation.
+*   **Validation:** Add Zod schemas for ALL API endpoints.
+*   **HTTPS:** Add TLS termination support (via env vars or reverse proxy config).
+*   **Rate Limiting:** Implement `express-rate-limit` (100 req/min per IP).
+*   **Secrets:** Never log API keys. Mask in logs (`gsk_****xyz`).
+
+---
+
+## 🟢 PHASE 4: UI/UX PROFESSIONAL OVERHAUL
+
+### 4.1 Dark Glassmorphism Theme Implementation
+*   **Color Palette:**
+    *   BG: `#09090b` (Zinc 950)
+    *   Card: `rgba(24, 24, 27, 0.6)` + `backdrop-filter: blur(12px)`
+    *   Border: `rgba(255, 255, 255, 0.08)`
+    *   Primary Gradient: `linear-gradient(135deg, #8b5cf6, #ec4899)`
+    *   Success: `#10b981` | Warning: `#f59e0b` | Error: `#ef4444`
+*   **Typography:** Inter font, proper hierarchy (H1: 2rem/700, Body: 0.95rem/400).
+*   **Animations:** Smooth transitions (200ms ease), hover lift effects, loading skeletons.
+
+### 4.2 Visual Pipeline Viewer
+*   **Current:** Text list. **New:** Interactive Node Graph.
+*   **Tech:** React Flow or custom SVG renderer.
+*   **Nodes:** Source → Analyze → Clip → Edit → QC → Upload → Publish.
+*   **Real-time:** WebSocket updates for node status (running/pending/failed).
+*   **Click Action:** Click node to see logs/details.
+
+### 4.3 Caption Studio Real-Time Preview
+*   **Current:** Static text samples. **New:** Video overlay preview.
+*   **Implementation:**
+    1.  Load selected clip in HTML5 video player.
+    2.  Render captions as HTML overlay synced with video currentTime.
+    3.  Allow drag-drop positioning, font size slider, color picker.
+    4.  "Apply to All" button for batch processing.
+
+### 4.4 Mobile Responsive Bottom Nav Polish
+*   Active state indicator (glowing underline/dot).
+*   Badge counts for pending reviews/uploads.
+*   Swipe gestures between tabs (optional but premium feel).
+
+---
+
+## 🔵 PHASE 5: ADVANCED LOGIC & AUTOMATION ENHANCEMENTS
+
+### 5.1 Retention-Based Learning Loop
+*   **Logic:** After publish, fetch analytics (avg view %, retention curve).
+*   **Feedback Mechanism:**
+    *   If retention > 70% at 3s mark → Boost similar hooks in future.
+    *   If drop-off > 40% at specific timestamp → Flag that editing pattern as "weak".
+    *   Store patterns in `learning_model` table.
+*   **A/B Testing:** Auto-generate 2 title variants, rotate uploads, track CTR.
+
+### 5.2 Gaming-Specific Signal Detection
+*   **Triggers:** Live chat spike detection, "BOOYAH"/"CLUTCH" keyword audio detection, killfeed OCR.
+*   **Layout:** Auto-detect gamer stack (gameplay top, facecam bottom) → preserve layout in 9:16 crop.
+*   **Effects:** Add gaming-specific overlays (crosshair flash, combo counter) when triggers detected.
+
+### 5.3 Self-Healing Server Mechanism
+*   **Health Endpoints:** `/health` (basic), `/ready` (deps ok), `/live` (processing active).
+*   **Auto-Recovery:**
+    *   If FFmpeg crashes → restart worker, log error, retry job.
+    *   If disk space < 10% → auto-delete oldest rendered clips, alert admin.
+    *   If API quota exhausted → switch to fallback provider, pause non-critical jobs.
+*   **Monitoring:** Integrate Prometheus metrics exporter for CPU/RAM/Queue/Disk.
+
+### 5.4 Comment Funnel & Reply Automation
+*   **Draft Mode:** AI generates reply drafts based on comment sentiment.
+*   **Approval Gate:** Show drafts in UI → Admin approves/rejects/modifies.
+*   **Auto-Post:** Only if `commentsAutoPost=true` AND admin approved.
+*   **Pin Strategy:** Auto-pin high-engagement comments or studio-manual pins.
+
+---
+
+## ⚪ PHASE 6: TESTING, DOCUMENTATION & DEPLOYMENT CHECKLIST
+
+### 6.1 Comprehensive Test Suite
+*   **Unit Tests:** Jest for all utility functions (word parser, hash generator, sanitizers).
+*   **Integration Tests:** Supertest for API endpoints (auth, upload, queue).
+*   **E2E Tests:** Playwright for full pipeline (upload → process → verify output).
+*   **Load Tests:** Artillery.io for 100 concurrent job submissions.
+*   **Chaos Tests:** Randomly kill workers, disconnect DB, fill disk → verify recovery.
+
+### 6.2 Documentation Updates
+*   **API Docs:** Auto-generated OpenAPI/Swagger spec.
+*   **Setup Guide:** Step-by-step with screenshots for VPS/Docker/Termux.
+*   **Troubleshooting:** Common errors + solutions (401, EADDRINUSE, OOM).
+*   **Architecture Diagram:** Mermaid.js flowchart of entire system.
+
+### 6.3 Deployment Validation Checklist
+- [ ] Node 24 LTS confirmed
+- [ ] PostgreSQL running + migrations applied
+- [ ] Redis running + queues initialized
+- [ ] Docker build successful + healthcheck passing
+- [ ] HTTPS/TLS configured
+- [ ] Backup strategy tested (DB + media)
+- [ ] Monitoring alerts configured (disk, CPU, queue depth)
+- [ ] Smoke test passed (`npm run cli -- smoke`)
+- [ ] Real test passed (`npm run test:real` with actual keys)
+
+---
+
+##  EXECUTION INSTRUCTIONS FOR AI/DEVELOPER
+
+1.  **DO NOT** implement everything at once. Follow phases strictly: Phase 1 → 2 → 3 → 4 → 5 → 6.
+2.  **WRITE CODE FIRST**, then explain. Provide complete, runnable TypeScript files.
+3.  **INCLUDE ERROR HANDLING** in every function. No silent failures.
+4.  **ADD LOGGING** with structured format (JSON) for debugging.
+5.  **WRITE TESTS** alongside features. No untested code merges.
+6.  **UPDATE README.md** after each phase completion with new setup steps.
+7.  **ASK FOR CLARIFICATION** if any requirement is ambiguous. Do not assume.
+8.  **PRIORITIZE SAFETY GATES.** Never bypass publish/public/comment gates without explicit CLI flag.
+9.  **OPTIMIZE FOR HINDI CONTENT.** Test all features with Hindi/Hinglish inputs specifically.
+10. **DOCUMENT EVERY DECISION.** Why this library? Why this algorithm? Add comments in code.
+
+---
+
+**FINAL NOTE:** This prompt is your BIBLE. Every line matters. The difference between a hobby project and a production server is in the details — error handling, security, monitoring, and user experience. Build it right, build it once.
+
+ache se pad karke complete karna kuchh skip mat krna dont be try to skipp and complete properly every step and progress.md me likhte rahna jo actually work and complete huaa hai koi errors or skip wali chije mat likha dena 
+proper working likho and complete kar di ek baar me hi continue automatically bana karke complete kar dena jab tsk mat rukna jab tak ye complete na ho kaye or ye real production test krna just test nshi real or actually production test jise humr fukl trust ho jayega ki ye complete ho gya hai and internet se repo se 
+bhi chije le dskte ho complete karne ke liye ager koi chij nahi hai to uska chije copy kar sskte ho but copyright issue nahi hona chahiye uska code agera sab copy karo but logic ke dath ki uska same chjne humare me chale but koi problem na ho aisa and now statt ho jao sche se complete karne me and har chij yasd rakhna jk chjj nana rahe hk ye nshi ki baar baar start kar du ye galat hai isko aghe dr banai ssb ache se proficational tatike se 
+
+full automation loops me chslta rahe 24*7!
