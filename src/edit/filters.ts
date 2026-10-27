@@ -24,7 +24,7 @@ export function screenBlend(parts: string[], a: string, b: string, out: string, 
 }
 export interface VideoGraphOpts {
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
-  reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; cropXFrac?: number; // 0..1 center of subject horizontally (from face tracking), default .5
+  reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; cropXFrac?: number; cropTrack?: [number, number][]; // 0..1 center of subject horizontally (from face tracking), default .5
   deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[];
   vfx?: Omit<VfxOpts, 'w' | 'h' | 'fps' | 'duration' | 'mood'>;
 }
@@ -33,7 +33,7 @@ export interface VideoGraphOpts {
 export const escFilterPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 
 /** Reframe to 9:16 producing label [base]. Exported so the change-measurement baseline uses the identical crop. */
-export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'facecam' | 'fillIdx'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
+export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'cropTrack' | 'facecam' | 'fillIdx'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
   const parts: string[] = []; const t: Treatment[] = [];
   const aspectIn = o.inW / o.inH; const aspectOut = o.outW / o.outH;
   const alreadyVertical = Math.abs(aspectIn - aspectOut) < 0.02;
@@ -60,8 +60,9 @@ export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'o
     // Crop to 9:16 window around subject centre, then scale. Window width = inH*9/16.
     const cx = Math.min(0.95, Math.max(0.05, o.cropXFrac ?? 0.5));
     const cw = `trunc(ih*${o.outW}/${o.outH}/2)*2`;
-    parts.push(`[${inLabel}]crop=w=${cw}:h=ih:x='max(0,min(iw-ow,iw*${cx.toFixed(3)}-ow/2))':y=0,scale=${o.outW}:${o.outH}:flags=lanczos,setsar=1[base]`);
-    t.push({ dimension: 'reframe_9x16', applied: true, detail: `center-crop around x=${cx.toFixed(2)}${o.cropXFrac === undefined ? ' (no face tracking: centered)' : ' (face-tracked)'}` });
+    const xe = o.cropTrack && o.cropTrack.length >= 3 ? `(${trackExpr(o.cropTrack.map(([t, v]) => [t, Math.min(0.95, Math.max(0.05, v))] as [number, number]))})` : cx.toFixed(3);
+    parts.push(`[${inLabel}]crop=w=${cw}:h=ih:x='max(0,min(iw-ow,iw*${xe}-ow/2))':y=0,scale=${o.outW}:${o.outH}:flags=lanczos,setsar=1[base]`);
+    t.push({ dimension: 'reframe_9x16', applied: true, detail: o.cropTrack && o.cropTrack.length >= 3 ? `speaker-follow crop (${o.cropTrack.length} keyframes, active speaker by mouth motion)` : `center-crop around x=${cx.toFixed(2)}${o.cropXFrac === undefined ? ' (no face tracking: centered)' : ' (face-tracked)'}` });
   }
 
   return { parts, treatments: t };
@@ -151,4 +152,12 @@ export function treatmentCoverage(all: Treatment[]): { applied: number; total: n
   let applied = 0; const notApplied: string[] = [];
   for (const d of DIMENSIONS) { if (by.get(d)) applied++; else notApplied.push(d); }
   return { applied, total: DIMENSIONS.length, coverage: +(applied / DIMENSIONS.length).toFixed(3), notApplied };
+}
+
+/** ffmpeg expression for a piecewise-linear value over time t from [[t,v],...] keyframes (held flat before/after). Used for the speaker-follow crop. */
+export function trackExpr(track: [number, number][], key = 't'): string {
+  const pts = track.length > 40 ? track.filter((_, i) => i % Math.ceil(track.length / 40) === 0 || i === track.length - 1) : track;
+  let e = pts[pts.length - 1]![1].toFixed(3);
+  for (let i = pts.length - 2; i >= 0; i--) { const [t0, v0] = pts[i]!, [t1, v1] = pts[i + 1]!; const dt = Math.max(0.05, t1 - t0); e = `if(lt(${key},${t1.toFixed(2)}),${v0.toFixed(3)}+(${(v1 - v0).toFixed(4)})*(${key}-${t0.toFixed(2)})/${dt.toFixed(2)},${e})`; }
+  return `if(lt(${key},${pts[0]![0].toFixed(2)}),${pts[0]![1].toFixed(3)},${e})`;
 }

@@ -175,6 +175,11 @@ export function createApp(o: AppOptions = {}): App {
       { const m = p.match(/^\/api\/videos\/(\d+)\/reanalyze$/); if (m && req.method === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { from?: number; to?: number; length?: string; whole?: boolean }; if (b.length !== undefined && !isLengthBucket(b.length)) return json(res, 400, { error: 'length: u30, 30-60, 60-90 ya 90-180' }); const override = b.from !== undefined || b.to !== undefined ? { ...(b.from !== undefined ? { introEnd: Number(b.from) } : {}), ...(b.to !== undefined ? { outroStart: Number(b.to) } : {}) } : undefined; const r = await analyzeVideo(store, cfg, Number(m[1]), { force: true, override, length: b.length as LengthBucket | undefined, whole: b.whole === true }); seedJobs(store, cfg); return json(res, 200, r); } }
       if (p === '/api/assets' && req.method === 'GET') { const L = (d: string, re: RegExp) => { try { return readdirSync(join(cfg.dirs.assets, d)).filter((x) => re.test(x)).sort(); } catch { return []; } }; return json(res, 200, { music: L('music', /\.(mp3|m4a|wav|ogg)$/i), sfx: L('sfx', /\.(mp3|m4a|wav|ogg)$/i), gameplay: L('gameplay', /\.(mp4|mov|mkv|webm)$/i), overlays: L('vfx_overlays', /\.(mp4|mov|webm|png)$/i), fonts: L('fonts', /\.(ttf|otf)$/i), note: 'Apni files in folders mein rakho (assets/music, assets/gameplay …). Sirf apni ya licensed files.' }); }
       if (p === '/api/videos') return json(res, 200, { videos: store.all(`SELECT id, path, state FROM videos ORDER BY id DESC LIMIT 200`).map((v) => ({ ...(v as { id: number; path: string; state: string }), title: basename((v as { path: string }).path) })) });
+      { const dm = p.match(/^\/api\/clips\/(\d+)$/); if (dm && req.method === 'DELETE') { const id = Number(dm[1]); const c = store.get<{ id: number; edited_path: string | null; thumbnail_path: string | null; candidate_id: number }>('SELECT id, edited_path, thumbnail_path, candidate_id FROM clips WHERE id=?', id); if (!c) return json(res, 404, { error: 'unknown clip' });
+        if (store.get('SELECT 1 FROM uploads WHERE clip_id=? AND remote_id IS NOT NULL', id)) return json(res, 409, { error: 'Ye clip upload ho chuka hai: platform se khud hatao; yahan delete nahi hota' });
+        store.tx(() => { store.exec('DELETE FROM uploads WHERE clip_id=?', id); store.exec('DELETE FROM clips WHERE id=?', id); store.exec(`UPDATE candidates SET status='rejected' WHERE id=?`, c.candidate_id); });
+        for (const f of [c.edited_path, c.thumbnail_path]) if (f) { try { rmSync(f, { force: true }); } catch { /* already gone */ } }
+        return json(res, 200, { ok: true }); } }
       if (p === '/api/clips') return json(res, 200, { clips: clipRows() });
       const rv = /^\/api\/clips\/(\d+)\/(review|meta|thumbnail|rerender|export)$/.exec(p);
       if (rv && m === 'POST') {
@@ -321,7 +326,7 @@ export function createApp(o: AppOptions = {}): App {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown };
         return json(res, 200, { ok: true, channel: createChannel(store, { name: String(b.name ?? ''), profile: b.profile, config: b.config }, (id) => !!getPreset(id)) });
       }
-      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube\/web|youtube\/paste|youtube|plan))?$/.exec(p);
+      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube\/web|youtube\/paste|youtube|plan|optimize))?$/.exec(p);
       if (chm) {
         const ch = getChannel(store, chm[1]!);
         if (!chm[2] && m === 'POST') { const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown; archived?: boolean }; return json(res, 200, { ok: true, channel: updateChannel(store, ch.id, b, (id) => !!getPreset(id)) }); }
@@ -338,7 +343,9 @@ export function createApp(o: AppOptions = {}): App {
       if (srcCh && m === 'POST') {
         const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as { channel?: string }; const ch = getChannel(store, String(b.channel ?? ''));
         const r = store.exec('UPDATE sources SET channel_id=? WHERE id=?', ch.id, Number(srcCh[1])); if (!r.changes) return json(res, 404, { error: 'unknown source' });
-        return json(res, 200, { ok: true, channel: ch.slug }); // already-queued uploads keep the channel they were queued under
+        const kids = store.exec(`UPDATE sources SET channel_id=? WHERE json_extract(meta_json,'$.channelSource')=?`, ch.id, Number(srcCh[1])).changes; // videos found by a watched channel follow its mapping
+        const ups = store.exec(`UPDATE uploads SET channel_id=? WHERE remote_id IS NULL AND clip_id IN (SELECT c.id FROM clips c JOIN candidates cd ON cd.id=c.candidate_id JOIN videos v ON v.id=cd.video_id JOIN sources s ON s.id=v.source_id WHERE s.id=? OR json_extract(s.meta_json,'$.channelSource')=?)`, ch.id, Number(srcCh[1]), Number(srcCh[1])).changes;
+        return json(res, 200, { ok: true, channel: ch.slug, videosMoved: kids, uploadsMoved: ups }); // finished uploads keep their channel; unsent ones follow
       }
       if (p === '/api/calendar' && m === 'GET') {
         const rows = store.all<{ id: number; platform: string; state: string; scheduled_at: string; slug: string | null; name: string | null; output_id: string; metadata_json: string | null }>(`SELECT u.id, u.platform, u.state, u.scheduled_at, ch.slug, ch.name, c.output_id, c.metadata_json FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id WHERE u.scheduled_at IS NOT NULL AND u.state IN ('SCHEDULED_OR_APPROVED','PUBLISHED') AND u.scheduled_at >= datetime('now','-1 day') ORDER BY u.scheduled_at LIMIT 300`);

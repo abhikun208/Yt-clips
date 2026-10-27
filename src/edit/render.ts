@@ -44,6 +44,12 @@ async function faceCenter(path: string, root: string): Promise<number | undefine
   } catch { return undefined; }
 }
 
+/** Speaker-follow keyframes (tools/face_track.py). Empty when OpenCV/faces are missing: the caller keeps the static/centre crop. */
+async function faceTrack(path: string, root: string): Promise<[number, number][]> {
+  if (!(await which('python3'))) return [];
+  try { const r = await run('python3', ['-I', join(root, 'tools', 'face_track.py'), path, '5'], { timeoutMs: 4 * 60_000 }); const j = JSON.parse(r.stdout.trim() || '{}') as { track?: [number, number][]; faces?: number }; return (j.faces ?? 0) >= 8 && Array.isArray(j.track) && j.track.length >= 3 ? j.track : []; } catch { return []; }
+}
+
 function pickMusic(assetsDir: string): string | undefined {
   const d = join(assetsDir, 'music');
   if (!existsSync(d)) return undefined;
@@ -148,6 +154,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
   const deint = await isInterlaced(editSrc, 0, m.duration);
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
+  const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir) : [];
   let punch: number[] = [];
   if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); } catch { punch = []; } }
   let emph: string[] = [];
@@ -160,7 +167,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   }
   const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
   const music = pickMusic(cfg.dirs.assets);
-  const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
+  const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;

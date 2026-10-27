@@ -12,6 +12,11 @@ export interface YtOptions { chunkBytes?: number; dailyUnits?: number; dailyInse
 /** Quota day boundary = midnight America/Los_Angeles (Google resets quota in Pacific Time). */
 export const quotaDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
+/** YouTube accepts only real BCP-47 codes. Our internal labels ('hinglish', 'unknown', 'auto') made videos.insert fail with INVALID_REQUEST_METADATA → map or drop. */
+export function ytLang(l?: string | null): string | undefined {
+  const x = (l ?? '').trim(); if (!x) return undefined; if (x === 'hinglish') return 'hi';
+  return /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(x) && x !== 'unknown' && x !== 'auto' ? x : undefined;
+}
 export class YouTubeAdapter implements Adapter {
   readonly name = 'youtube';
   private o: Required<Omit<YtOptions, 'categoryId'>> & { categoryId: string };
@@ -88,7 +93,7 @@ export class YouTubeAdapter implements Adapter {
     for (let attempt = 0; attempt < 2; attempt++) {
       if (!session) {
         this.charge('insert');
-        const body = { snippet: { title: a.title, description: a.description, tags: a.tags, categoryId: a.categoryId ?? this.o.categoryId, ...(a.language ? { defaultLanguage: a.language, defaultAudioLanguage: a.language } : {}) }, status: { privacyStatus: a.visibility, selfDeclaredMadeForKids: false } };
+        const body = { snippet: { title: a.title, description: a.description, tags: a.tags, categoryId: a.categoryId ?? this.o.categoryId, ...(ytLang(a.language) ? { defaultLanguage: ytLang(a.language), defaultAudioLanguage: ytLang(a.language) } : {}) }, status: { privacyStatus: a.visibility, selfDeclaredMadeForKids: false } };
         const init = await this.req(`${API()}/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`, { method: 'POST', headers: { 'content-type': 'application/json; charset=UTF-8', 'x-upload-content-length': String(total), 'x-upload-content-type': 'video/mp4' }, body: JSON.stringify(body) });
         if (!init.ok) throw await this.apiError(init, 'videos.insert (init)');
         session = init.headers.get('location'); if (!session) throw new Error('videos.insert: no Location header');

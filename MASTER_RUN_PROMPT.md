@@ -12,19 +12,37 @@ Role: principal engineer on the EXISTING repo. Read this, then `PROGRESS.md` (le
 7. Only authorized sources. Owner confirms rights (`--authorized`); the "40% visual change" is an editing-quality target, never a copyright workaround. No guarantee of views.
 8. Links/handles in metadata only if owner-configured. Never invent facts or URLs.
 
-## Product flow (owner's requirements, mapped)
-1 Sources: local files (done), YouTube channel/new-upload polling + manual adds (TODO: needs yt-dlp/API).
-2 Analyze the whole video start→end, skip real intro/outro (done).
-3–4 Timecoded, ranked, de-duplicated clips with reasons (done). Emotional/funny/cute/etc. labels come from transcript cues only.
-5 Editing into a NEW folder: 9:16 reframe, grade, zoom, glow, vignette, captions+title, audio clean + -14 LUFS, manifest, QC (done). Speed ramp & beat effects (TODO).
-6–8 Reference research → `docs/FEATURE_MATRIX.md` (done; findings are honest, incl. what could not be reused).
-9 Hinglish title/description/tags/thumbnail (template-based done; LLM adapter TODO), comment replies in draft/approval mode (done).
-10 Scheduler from evidence, unlisted-verify-then-publish state machine (logic done; real platform adapters BLOCKED on owner OAuth).
-11 Manual sources anytime (`cli add`). 12–13 Automatic run via the persistent job queue (`cli run`); channel watching TODO.
-14 Owner delegated management to the AI: keep PROGRESS.md truthful; prefer small reversible changes.
+## Product flow (owner's requirements → current status; PROGRESS.md has the detailed ledger)
+1 Sources: local files, YouTube channel watching (poll) + manual adds via yt-dlp; per-source → channel mapping (children follow the parent). Real yt-dlp/YouTube run: owner-side verification pending.
+2 Analysis first: whole video, intro/outro skipped, transcript (local whisper.cpp / API / Gemini) → candidates snapped to sentence boundaries; long stories become "Part n/N" series (`clip.series`); `reanalyze <videoId> [--from --to --length --whole]` for old videos.
+3 Ranked, timecoded, de-duplicated clips with reasons + viral score.
+4 Editing (new folder, originals immutable): 9:16 reframe (crop + speaker-follow keyframes, fit_blur, gamer_stack, split_gameplay), grade, 288 caption presets, Hinglish captions per channel (`translateTo`/`edit.captionLanguage`), real-sentence hook title (never a template), PART label, CTA, audio chain, VFX, QC, manifest.
+5 Metadata (analysis-first): brief → title options, structured description (about, highlights, time map, search, related, links, hashtags), tags, thumbnail (best of 5 frames), CTR/SEO checklist score. LLM only fills validated fields; local fallback always works. No invented facts/links; no view guarantees.
+6 Account optimizer per channel (description, keywords, bio, playlists, pinned comment, checklist); YouTube apply is explicit + GET-then-merge.
+7 Publish: gated state machine (unlisted first, owner gates), schedule from evidence, all platform adapters share title/description (platform caption limits respected).
+8 Learn from analytics; comment replies in draft/approval mode.
+9 Automatic run via the persistent job queue (`cli run` / server loop).
+10 Owner delegated management to the AI: keep PROGRESS.md truthful; prefer small reversible changes.
+
+## Working rules for the AI (owner's standing instructions)
+- Reply to the owner in Hinglish; separate verified facts from stand-in-tested/unverified.
+- No skills/AGENTS.md/CLAUDE.md inside this repo. Commit trailers: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` + `Claude-Session: <session url>`; push with `git push -q origin HEAD:main`.
+- Never remove an existing feature. New work → tests; run the full suite in 4 batches (`node --test test/[a-d]*.test.ts`, `[e-l]`, `[m-r]`, `[s-z]`) + `tsc`.
+- The owner never shares passwords (OAuth only). Declined by design: copying third-party templates (autocap.in), automatic removal of third-party logos.
 
 ## Commands
 `npm test` · `npm run typecheck` · `npm run doctor` · `npm run cli -- add <file> --authorized` · `run` · `status` · `plan 5`
 
 ## Definition of done per phase
 Code + test passing + PROGRESS.md updated with real results + next step. Report verified facts separately from assumptions.
+
+
+## Pending work (copy of PROGRESS.md "PENDING WORK"; if a feature already exists, ignore it; otherwise build it)
+1. Server UI redesign (professional look, not beginner-style): owner said "after the functions are complete" → NOT started.
+2. Real-world verification (nothing below ran against real services): real YouTube upload incl. the INVALID_REQUEST_METADATA fix, account-optimizer apply (brandingSettings/playlists), real LLM SEO output, real whisper.cpp Hinglish captions on real footage, real speaker-follow (needs OpenCV with the Haar cascade; OpenCV 5 builds lack it → falls back to the static/centre crop), real rclone/cloud.
+3. Meme-hook prepend from assets/hooks (Ssemble-style): NOT built.
+4. Music volume setting + per-clip music choice UI: NOT built.
+5. Live trending-keyword data (YouTube suggest) — only the clip's own keywords are used; not available from the build sandbox.
+6. Banner/profile photo for the account optimizer — manual by design; bio text for non-YouTube platforms is copy-paste only.
+7. Full end-to-end pipeline audit on a real server run (owner run output pending); a static check that every UI /api path has a server route passed.
+8. Declined by design: third-party template copying (autocap.in) and automatic removal of third-party logos.

@@ -30,3 +30,14 @@ test('length buckets valid and ordered', () => {
   assert.ok(isLengthBucket('30-60') && !isLengthBucket('5-10'));
   for (const b of Object.values(LENGTHS)) assert.ok(b.minSec < b.targetSec && b.targetSec < b.maxSec);
 });
+import { trackExpr } from '../src/edit/filters.ts';
+test('speaker-follow crop: keyframe expression renders in real ffmpeg; face_track.py degrades gracefully', async () => {
+  const d = tmpDir(); const src = join(d, 's.mp4'); await makeFixture(src, 10);
+  const g = buildVideoGraph({ inW: 320, inH: 180, outW: 270, outH: 480, fps: 15, duration: 5, mood: 'happy', reframe: 'crop', cropTrack: [[0, 0.3], [2, 0.3], [3, 0.7], [5, 0.7]], zoom: false, glow: false, fade: false });
+  assert.ok(g.treatments.some((t) => /speaker-follow/.test(t.detail)));
+  const out = join(d, 'o.mp4'); const r = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', src, '-filter_complex', g.graph, '-map', '[vout]', '-an', '-t', '5', '-c:v', 'libx264', '-preset', 'ultrafast', out], { timeoutMs: 120_000 });
+  assert.equal(r.code, 0, r.stderr.slice(0, 400));
+  assert.match(trackExpr([[0, 0.3], [1, 0.5], [2, 0.5]]), /^if\(lt\(t,0\.00\)/);
+  const t = await run('python3', ['-I', join(process.cwd(), 'tools', 'face_track.py'), src, '5'], { timeoutMs: 120_000 });
+  const j = JSON.parse(t.stdout) as { track: unknown[]; faces: number }; assert.ok(Array.isArray(j.track)); assert.equal(j.faces, 0);
+});

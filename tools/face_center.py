@@ -14,7 +14,10 @@ total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 w = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0
 if total <= 0 or w <= 0:
     print(json.dumps({"cx": None, "faces": 0, "samples": 0, "error": "unreadable"})); sys.exit(0)
-casc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+try:
+    casc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+except Exception:  # e.g. OpenCV 5 builds without the legacy cascade API
+    print(json.dumps({"cx": None, "faces": 0, "samples": 0, "error": "no_cascade"})); sys.exit(0)
 xs = []
 for i in range(n):
     cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (i + 0.5) / n))
