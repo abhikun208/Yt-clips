@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
-import { createWriteStream, createReadStream, existsSync, statSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { createWriteStream, createReadStream, existsSync, statSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { timingSafeEqual, randomUUID, createHash } from 'node:crypto';
 import { join, basename, resolve, sep } from 'node:path';
@@ -7,7 +7,7 @@ import { Store } from '../db.ts';
 import { loadConfig, updateOwnerConfig, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
 import { seedJobs, work } from '../pipeline.ts';
-import { analyzeVideo } from '../analysis/analyzer.ts';
+import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
 import { addYoutubeSource, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
@@ -31,7 +31,7 @@ import { dotEnvInfo } from '../env-boot.ts';
 import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor } from '../ai/autodetect.ts';
 import { detectLocalEngines, testLocal, cppModelPath, voiceStudioUrl, type LocalEngineId } from '../analysis/localStt.ts';
 import { listModels, testConnection, lastResults, knownTargets } from '../connections.ts';
-import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
+import { optimizeAccount, storedAccountKit, advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
 import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
 import { collectAnalytics, analyticsSummary } from '../analytics/collect.ts';
@@ -110,7 +110,7 @@ export function createApp(o: AppOptions = {}): App {
       let mf: { treatments?: { dimension: string; applied: boolean; detail: string }[]; treatmentCoverage?: { applied: number; total: number }; captions?: { preset?: string; wordTiming?: string } | null } = {};
       try { const f = join(cfg.dirs.manifests, `${c.output_id}.json`); if (existsSync(f)) mf = JSON.parse(readFileSync(f, 'utf8')); } catch { /* manifest unreadable: show nothing rather than guess */ }
       const md = c.metadata_json ? JSON.parse(c.metadata_json) : {}; const cand = store.get<{ start_sec: number; end_sec: number; category: string }>('SELECT start_sec, end_sec, category FROM candidates WHERE id=?', c.candidate_id);
-      return { review: c.review, reviewNote: c.review_note, variant: c.variant, visualChange: (mf as { visualChange?: unknown }).visualChange ?? null, thumbText: md.thumbnailText ?? null, treatments: mf.treatments ?? [], coverage: mf.treatmentCoverage ?? null, captionInfo: mf.captions ?? null, id: c.id, outputId: c.output_id, title: md.title ?? null, description: md.description ?? null, tags: md.tags ?? [], qcPass: !!c.qc_pass, state: c.state, category: cand?.category ?? null, duration: cand ? cand.end_sec - cand.start_sec : 0,
+      return { review: c.review, reviewNote: c.review_note, variant: c.variant, visualChange: (mf as { visualChange?: unknown }).visualChange ?? null, thumbText: md.thumbnailText ?? null, seo: md.seo ?? null, viral: cand ? Math.round(((store.get<{ score: number }>('SELECT score FROM candidates WHERE id=?', c.candidate_id)?.score) ?? 0) * 100) : null, part: cand ? (store.get<{ part_no: number | null; part_total: number | null }>('SELECT part_no, part_total FROM candidates WHERE id=?', c.candidate_id) ?? null) : null, treatments: mf.treatments ?? [], coverage: mf.treatmentCoverage ?? null, captionInfo: mf.captions ?? null, id: c.id, outputId: c.output_id, title: md.title ?? null, description: md.description ?? null, tags: md.tags ?? [], qcPass: !!c.qc_pass, state: c.state, category: cand?.category ?? null, duration: cand ? cand.end_sec - cand.start_sec : 0,
         video: `/files/edited/${c.output_id}.mp4`, thumb: c.thumbnail_path ? `/files/thumb/${c.output_id}.jpg` : null, srt: existsSync(join(cfg.dataDir, 'captions', `${c.output_id}.srt`)) ? `/files/captions/${c.output_id}.srt` : null };
     });
   }
@@ -172,7 +172,8 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/login' && m === 'POST') return json(res, 200, { ok: true }, token ? { 'set-cookie': `ytc_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}` } : {});
       if (p === '/api/status') return json(res, 200, { running, version: VERSION, gates: cfg.gates, captionPreset: cfg.edit.captionPreset,
         videos: store.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: store.all('SELECT state, count(*) n FROM jobs GROUP BY state'), clips: store.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: store.all('SELECT state, count(*) n FROM uploads GROUP BY state') });
-      { const m = p.match(/^\/api\/videos\/(\d+)\/reanalyze$/); if (m && req.method === 'POST') { const r = await analyzeVideo(store, cfg, Number(m[1]), { force: true }); seedJobs(store, cfg); return json(res, 200, r); } }
+      { const m = p.match(/^\/api\/videos\/(\d+)\/reanalyze$/); if (m && req.method === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { from?: number; to?: number; length?: string; whole?: boolean }; if (b.length !== undefined && !isLengthBucket(b.length)) return json(res, 400, { error: 'length: u30, 30-60, 60-90 ya 90-180' }); const override = b.from !== undefined || b.to !== undefined ? { ...(b.from !== undefined ? { introEnd: Number(b.from) } : {}), ...(b.to !== undefined ? { outroStart: Number(b.to) } : {}) } : undefined; const r = await analyzeVideo(store, cfg, Number(m[1]), { force: true, override, length: b.length as LengthBucket | undefined, whole: b.whole === true }); seedJobs(store, cfg); return json(res, 200, r); } }
+      if (p === '/api/assets' && req.method === 'GET') { const L = (d: string, re: RegExp) => { try { return readdirSync(join(cfg.dirs.assets, d)).filter((x) => re.test(x)).sort(); } catch { return []; } }; return json(res, 200, { music: L('music', /\.(mp3|m4a|wav|ogg)$/i), sfx: L('sfx', /\.(mp3|m4a|wav|ogg)$/i), gameplay: L('gameplay', /\.(mp4|mov|mkv|webm)$/i), overlays: L('vfx_overlays', /\.(mp4|mov|webm|png)$/i), fonts: L('fonts', /\.(ttf|otf)$/i), note: 'Apni files in folders mein rakho (assets/music, assets/gameplay …). Sirf apni ya licensed files.' }); }
       if (p === '/api/videos') return json(res, 200, { videos: store.all(`SELECT id, path, state FROM videos ORDER BY id DESC LIMIT 200`).map((v) => ({ ...(v as { id: number; path: string; state: string }), title: basename((v as { path: string }).path) })) });
       if (p === '/api/clips') return json(res, 200, { clips: clipRows() });
       const rv = /^\/api\/clips\/(\d+)\/(review|meta|thumbnail|rerender|export)$/.exec(p);
@@ -327,6 +328,8 @@ export function createApp(o: AppOptions = {}): App {
         if (chm[2] === 'plan' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 7))), tz: cfg.timezone, cfg: scheduleFor(cfg, ch), channelId: ch.id, platform: url.searchParams.get('platform') ?? undefined }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
         if (chm[2] === 'youtube/web' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { share?: boolean; paste?: boolean }; const w = startWebAuth(store, cfg, ch, { base: publicBase(req), share: b.share === true, paste: b.paste === true }); return json(res, 200, w); }
         if (chm[2] === 'youtube/paste' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { url?: string }; try { const r = await finishPaste(store, cfg, ch.slug, String(b.url ?? '')); return json(res, 200, { ok: true, identity: r.identity }); } catch (e) { return json(res, 400, { error: String((e as Error).message).slice(0, 240) }); } }
+        if (chm[2] === 'optimize' && m === 'GET') return json(res, 200, storedAccountKit(store, ch.slug) ?? { kit: null });
+        if (chm[2] === 'optimize' && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { apply?: boolean; playlists?: boolean; confirm?: boolean }; if (b.apply && b.confirm !== true) return json(res, 400, { error: 'apply ke liye confirm:true bhejo' }); try { return json(res, 200, { ok: true, ...(await optimizeAccount(store, cfg, ch, { apply: b.apply === true, playlists: b.playlists === true })) }); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }
         if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, { ...youtubeStatus(store, cfg, ch), identity: identityOf(store, ch.slug) });
         if (chm[2] === 'youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg, ch); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
         if (chm[2] === 'youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg, ch));

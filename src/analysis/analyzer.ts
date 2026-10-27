@@ -25,7 +25,12 @@ export interface AnalysisFile {
 }
 
 /** Analyze ENTIRE video, persist signals (resumable: skips if analysis file exists), then rank candidates. */
-export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o: { force?: boolean; override?: { introEnd?: number; outroStart?: number } } = {}): Promise<{ candidates: number; analysisPath: string }> {
+/** Preferred clip length (Ssemble-style buckets). */
+export type LengthBucket = 'u30' | '30-60' | '60-90' | '90-180';
+export const LENGTHS: Record<LengthBucket, { minSec: number; maxSec: number; targetSec: number }> = { u30: { minSec: 12, maxSec: 30, targetSec: 22 }, '30-60': { minSec: 30, maxSec: 60, targetSec: 45 }, '60-90': { minSec: 60, maxSec: 90, targetSec: 75 }, '90-180': { minSec: 90, maxSec: 180, targetSec: 130 } };
+export function isLengthBucket(x: unknown): x is LengthBucket { return typeof x === 'string' && x in LENGTHS; }
+export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o: { force?: boolean; override?: { introEnd?: number; outroStart?: number }; length?: LengthBucket; whole?: boolean } = {}): Promise<{ candidates: number; analysisPath: string }> {
+  if (o.length) cfg = { ...cfg, clip: { ...cfg.clip, ...LENGTHS[o.length] } };
   const v = store.get<{ path: string; state: string; analysis_path: string | null }>('SELECT path, state, analysis_path FROM videos WHERE id=?', videoId);
   if (!v) throw new Error(`Unknown video ${videoId}`);
   const analysisPath = v.analysis_path ?? join(cfg.dirs.manifests, `analysis_${videoId}.json`);
@@ -58,9 +63,14 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     if (external.length) info('external signals used', { videoId, series: external.map((x) => x.name) });
     let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming', categoryPrior: learnedCategoryPrior(store, chan.id) },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
+    if (o.whole) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip
+      const t = cands[0]; if (!t) throw new Error('whole-range clip needs at least one scored moment in the range; analyse a longer range');
+      const st = a.introEnd, en = a.outroStart; const txt = textInRange(cues, st, en); const fp = shortHash(`${videoId}:whole:${Math.round(st)}:${Math.round(en)}`, 16);
+      cands = [{ ...t, start: st, end: en, duration: +(en - st).toFixed(2), transcript: txt, language: guessLanguage(txt), fingerprint: fp, reason: 'whole range as one clip', hook: sentencesFromCues(cues).find((s) => s.start >= st)?.text.slice(0, 140) ?? t.hook }];
+    }
     type PartInfo = { no: number; total: number; key: string };
     const partOf = new Map<string, PartInfo>();
-    if (cfg.clip.series?.enabled && cues.length) {
+    if (cfg.clip.series?.enabled && cues.length && !o.whole) {
       const sents = sentencesFromCues(cues); const occupied: [number, number][] = []; const out: typeof cands = [];
       for (const c of [...cands].sort((x, y) => y.score - x.score)) {
         if (occupied.some((o) => overlapRatio([c.start, c.end], o) > 0.2)) continue;

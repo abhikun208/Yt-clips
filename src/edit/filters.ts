@@ -24,7 +24,7 @@ export function screenBlend(parts: string[], a: string, b: string, out: string, 
 }
 export interface VideoGraphOpts {
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
-  reframe: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; cropXFrac?: number; // 0..1 center of subject horizontally (from face tracking), default .5
+  reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; cropXFrac?: number; // 0..1 center of subject horizontally (from face tracking), default .5
   deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[];
   vfx?: Omit<VfxOpts, 'w' | 'h' | 'fps' | 'duration' | 'mood'>;
 }
@@ -33,12 +33,17 @@ export interface VideoGraphOpts {
 export const escFilterPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 
 /** Reframe to 9:16 producing label [base]. Exported so the change-measurement baseline uses the identical crop. */
-export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'facecam'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
+export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'facecam' | 'fillIdx'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
   const parts: string[] = []; const t: Treatment[] = [];
   const aspectIn = o.inW / o.inH; const aspectOut = o.outW / o.outH;
   const alreadyVertical = Math.abs(aspectIn - aspectOut) < 0.02;
 
-  if (alreadyVertical) {
+  if (o.reframe === 'split_gameplay' && o.fillIdx !== undefined) {
+    // split screen: the clip on top, the owner's own looping gameplay/satisfying footage (muted) on the bottom — a retention layout
+    const topH = Math.round(o.outH * 0.56 / 2) * 2, botH = o.outH - topH;
+    parts.push(`[${inLabel}]scale=${o.outW}:${topH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${o.outW}:${topH}[gtop];[${o.fillIdx}:v]scale=${o.outW}:${botH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${o.outW}:${botH},setsar=1[fbot];[gtop][fbot]vstack=inputs=2,setsar=1[base]`);
+    t.push({ dimension: 'reframe_9x16', applied: true, detail: `split screen: clip top ${topH}px + gameplay filler bottom ${botH}px` });
+  } else if (alreadyVertical) {
     parts.push(`[${inLabel}]scale=${o.outW}:${o.outH}:flags=lanczos,setsar=1[base]`);
     t.push({ dimension: 'reframe_9x16', applied: false, detail: 'source already 9:16' });
   } else if (o.reframe === 'gamer_stack' && o.facecam) {

@@ -1,3 +1,4 @@
+import { buildAccountKit, type AccountKit } from '../seo/account.ts';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
@@ -182,3 +183,18 @@ export async function postComment(store: Store, cfg: Config, commentId: number):
     await new YouTubeAdapter(store, tokenFor(cfg, ch)).replyToComment(remoteId, text);
   });
 }
+
+/** Account optimizer: generate (and optionally apply to YouTube) the channel's profile kit. Applying is an explicit owner action; it only touches description/keywords and playlists that do not exist yet. */
+export async function optimizeAccount(store: Store, cfg: Config, ch: Channel, o: { apply?: boolean; playlists?: boolean } = {}): Promise<{ kit: AccountKit; applied: string[]; note?: string }> {
+  const tp = tokenFor(cfg, ch); const ad = new YouTubeAdapter(store, tp); const applied: string[] = []; let note: string | undefined; let yt: { description: string; keywords: string } | null = null;
+  if (tp.connected()) { try { yt = await ad.getBranding(); } catch (e) { note = `YouTube profile read failed: ${(e as Error).message.slice(0, 100)}`; } } else note = 'YouTube connect nahi hai: kit ban gaya, apply ke liye pehle connect karo';
+  const kit = buildAccountKit(store, ch, { youtube: yt });
+  if (o.apply) {
+    if (!tp.connected()) throw new Error('AUTH_NOT_CONNECTED: pehle is channel ka YouTube connect karo');
+    await ad.setBranding({ description: kit.description, keywords: kit.keywords }); applied.push('description', 'keywords');
+    if (o.playlists) { const have = new Set((await ad.listPlaylists()).map((t) => t.toLowerCase())); for (const p of kit.playlists) if (!have.has(p.title.toLowerCase())) { await ad.createPlaylist(p.title, p.description); applied.push(`playlist: ${p.title}`); } }
+  }
+  store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `account:kit:${ch.slug}`, JSON.stringify({ kit, applied, at: new Date().toISOString() }));
+  return { kit, applied, note };
+}
+export function storedAccountKit(store: Store, slug: string): { kit: AccountKit; applied: string[]; at: string } | null { const r = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `account:kit:${slug}`)?.v; return r ? JSON.parse(r) : null; }

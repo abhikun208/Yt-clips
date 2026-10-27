@@ -1,6 +1,9 @@
+import { buildBrief, composeDescription, type Brief, type DescParts } from './brief.ts';
+import { scoreMetadata, type SeoScore } from './score.ts';
+import type { Cue } from '../analysis/transcript.ts';
 import { localMetadata } from './local.ts';
-export interface MetaInput { transcript: string; category: string; language: string; sourceTitle?: string; channelName?: string; ownerLinks?: { label: string; url: string }[]; hashtagsExtra?: string[]; hook?: string }
-export interface Metadata { titles: string[]; title: string; description: string; tags: string[]; hashtags: string[]; keywords: string[]; language: string; thumbnailText: string; source: 'template' | 'llm'; warnings: string[] }
+export interface MetaInput { transcript: string; category: string; language: string; sourceTitle?: string; channelName?: string; ownerLinks?: { label: string; url: string }[]; hashtagsExtra?: string[]; hook?: string; cues?: Cue[]; clipStart?: number; duration?: number; part?: { no: number; total: number } | null; relatedExtra?: string[] }
+export interface Metadata { titles: string[]; title: string; description: string; tags: string[]; hashtags: string[]; keywords: string[]; language: string; thumbnailText: string; source: 'template' | 'llm'; warnings: string[]; seo?: SeoScore & { chapters: number }; parts?: DescParts }
 
 const STOP = new Set('the a an and or of to in on is are was were be this that it for with as at by from kya hai hain ka ki ke ko se me mein aur ye yeh woh wo nahi toh to bhi hi kar karo raha rahi tha the thi ek par pe hum tum aap mai main mera meri'.split(' '));
 
@@ -24,10 +27,13 @@ export function buildMetadata(i: MetaInput): Metadata {
     const lang = (['hi', 'hinglish', 'en'].includes(i.language) ? i.language : 'unknown') as 'hi' | 'hinglish' | 'en' | 'unknown';
     const kws0 = extractKeywords(i.transcript, 6); const hashtags = ['#Shorts', ...(i.hashtagsExtra ?? []), ...kws0.slice(0, 3).map((k) => '#' + k.replace(/\s+/g, ''))].filter((h, idx, a) => a.indexOf(h) === idx).slice(0, 5);
     const lm = localMetadata({ transcript: i.transcript, category: i.category, language: lang, hook: i.hook, channelName: i.channelName, sourceTitle: i.sourceTitle, hashtags });
-    const lines = [lm.description]; if (i.sourceTitle) lines.push('', `Poori video: ${i.sourceTitle}${i.channelName ? ` (${i.channelName})` : ''}`);
-    if (i.ownerLinks?.length) { lines.push(''); for (const l of i.ownerLinks) lines.push(`${l.label}: ${l.url}`); } else warnings.push('no owner links configured: none added (by design, never invented)');
+    const brief: Brief = buildBrief({ transcript: i.transcript, cues: i.cues, clipStart: i.clipStart, duration: i.duration });
+    if (!i.ownerLinks?.length) warnings.push('no owner links configured: none added (by design, never invented)');
     const tagKw = lm.keyphrases.map((k) => '#' + k.replace(/\s+/g, '')).slice(0, 3); const ht = [...new Set([...hashtags, ...tagKw])].slice(0, 5);
-    return { titles: lm.titles.map((t) => t.slice(0, 95)), title: `${lm.titles[0]!.slice(0, 90)} #Shorts`.slice(0, 100), description: lines.join('\n').slice(0, 4900), tags: lm.tags, hashtags: ht, keywords: lm.keyphrases, language: i.language, thumbnailText: lm.thumbnailText, source: 'template', warnings };
+    const kwAll = [...lm.keyphrases, ...brief.keyphrases].filter((k, x, arr) => arr.indexOf(k) === x);
+    const parts: DescParts = { about: brief.summary || lm.description.split('\n')[0]!, highlights: brief.highlights, chapters: brief.chapters, searches: kwAll.slice(0, 5), related: [...(i.relatedExtra ?? []), ...kwAll.slice(0, 6).map((k) => '#' + k.replace(/\s+/g, ''))].filter((x, y, arr) => arr.indexOf(x) === y).slice(0, 6), hashtags: ht, sourceTitle: i.sourceTitle, channelName: i.channelName, links: i.ownerLinks, lang, part: i.part ?? null };
+    const md0: Metadata = { titles: lm.titles.map((t) => t.slice(0, 95)), title: `${lm.titles[0]!.slice(0, 90)} #Shorts`.slice(0, 100), description: composeDescription(parts), tags: lm.tags, hashtags: ht, keywords: lm.keyphrases, language: i.language, thumbnailText: lm.thumbnailText, source: 'template', warnings, parts };
+    return { ...md0, seo: { ...scoreMetadata(md0, { keyphrases: kwAll, hasChapters: brief.chapters.length >= 3, durationSec: i.duration, transcriptWords: brief.words }), chapters: brief.chapters.length } };
   }
   const kws = extractKeywords(i.transcript, 8);
   // No speech to work from: never invent a title. Use the source title (or channel name) and say so.
@@ -67,5 +73,5 @@ export function withPart(md: Metadata, part?: { no: number; total: number } | nu
   const titles = md.titles.map((t) => `${t.slice(0, 80)} ${tag}`.slice(0, 95));
   const title = `${strip(md.title).slice(0, 78)} ${tag} #Shorts`.slice(0, 100);
   const note = part.no < part.total ? `Part ${part.no}/${part.total} — agla part dekhna mat bhoolna!` : `Part ${part.no}/${part.total} — series ka last part.`;
-  return { ...md, titles, title, description: `${note}\n\n${md.description}`.slice(0, 4900) };
+  return { ...md, titles, title, description: md.description.includes(`Part ${part.no}/${part.total} —`) ? md.description : `${note}\n\n${md.description}`.slice(0, 4900) };
 }

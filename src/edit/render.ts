@@ -13,7 +13,7 @@ import { loadTranscript } from '../analysis/transcript.ts';
 import { buildStyledAss, type CaptionResult } from './captions.ts';
 import { getPreset } from './captionPresets.ts';
 import { fillPace, isPace } from './pace.ts';
-import { translateCues } from '../ai/translate.ts';
+import { applyCaptionLanguage, type CaptionTarget } from '../ai/translate.ts';
 import { llmChain } from '../ai/settings.ts';
 import { channelOfVideo } from '../channels.ts';
 import { encodeArgs, withEncoderFallback } from '../media/encoder.ts';
@@ -27,13 +27,13 @@ import { planCuts, cutFilter, remapCuesCuts, type CutPlan } from './jumpcut.ts';
 import { detectSilence } from '../analysis/signals.ts';
 import { keyphrases } from '../seo/local.ts';
 import { measureVisualChange } from './change.ts';
-import { buildVideoGraph, buildAudioGraph, treatmentCoverage, type Treatment } from './filters.ts';
+import { buildVideoGraph, type VideoGraphOpts, buildAudioGraph, treatmentCoverage, type Treatment } from './filters.ts';
 import { qcClip } from './qc.ts';
 import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { checkDisk } from '../util/disk.ts';
 
-export interface RenderOptions { pace?: string; translateTo?: 'en' | 'hi'; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack'; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -122,8 +122,8 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     } catch (e) { warn('clip transcription error', { err: (e as Error).message.slice(0, 120) }); }
   } const cues0 = cuts ? remapCuesCuts(cuesRaw, c.start_sec, cuts) : cuesRaw;
   let cues = ramp ? remapCues(cues0, c.start_sec, ramp) : cues0; const effEnd = c.start_sec + m.duration;
-  const chan0 = channelOfVideo(store, c.video_id); const toLang = ro.translateTo ?? chan0.config.translateTo; let translation: string | null = null;
-  if (toLang && cues.length) { const tr = await translateCues(cues.filter((q) => q.end > c.start_sec && q.start < effEnd), toLang, llmChain(cfg)); if (tr.used) { cues = tr.cues; translation = `${toLang} via ${tr.used}`; } else if (tr.note) translation = `not translated: ${tr.note}`; }
+  const chan0 = channelOfVideo(store, c.video_id); const toLang = ro.translateTo ?? chan0.config.translateTo ?? cfg.edit.captionLanguage ?? 'auto'; let translation: string | null = null;
+  if (toLang && cues.length) { const tr = await applyCaptionLanguage(cues.filter((q) => q.end > c.start_sec && q.start < effEnd), toLang, chan0.config.language, llmChain(cfg)); if (tr.used) { cues = tr.cues; translation = `${toLang} via ${tr.used}`; } else if (tr.note) translation = `not translated: ${tr.note}`; }
   let assPath: string | undefined; let cap: CaptionResult | undefined;
   { const inClip = cues.filter((q) => q.end > c.start_sec && q.start < effEnd).map((q) => q.text).join(' ').trim();
     if (inClip) store.exec(`UPDATE candidates SET transcript=?, language=COALESCE(NULLIF(language,''),?) WHERE id=? AND (transcript IS NULL OR transcript='')`, inClip, guessLanguage(inClip), c.id); // so the metadata step works from the real speech
@@ -131,8 +131,9 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; // visible series label
     if (pn && pt) { const lbl = `PART ${pn}/${pt}`; ro = { ...ro, title: ro.title ? `${lbl} • ${ro.title}`.slice(0, 64) : lbl }; } }
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
-  if (presetId !== 'none' && (cues.length || ro.title)) {
-    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
+  const ctaText = ro.cta === undefined ? (((c as { part_no?: number | null }).part_no && (c as { part_no?: number | null; part_total?: number | null }).part_no! < ((c as { part_total?: number | null }).part_total ?? 0)) ? 'AGLA PART DEKHO ▶' : (chan0.config.cta ?? cfg.edit.cta ?? null)) : ro.cta;
+  if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
+    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
     writeFileSync(assPath, cap.ass, 'utf8');
   }
@@ -142,7 +143,8 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.vtt`), cuesToSubtitles(cues, 'vtt', c.start_sec, m.duration));
   }
   const chan = channelOfVideo(store, c.video_id); const facecam = ro.facecam ?? chan.config.facecam;
-  let reframe = ro.reframe ?? (chan.config.layout === 'gamer_stack' && facecam ? 'gamer_stack' : cfg.edit.reframe); let reframeNote = '';
+  let reframe: VideoGraphOpts['reframe'] = ro.reframe ?? (chan.config.layout === 'gamer_stack' && facecam ? 'gamer_stack' : chan.config.layout === 'split_gameplay' ? 'split_gameplay' : cfg.edit.reframe); let reframeNote = '';
+  const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
   if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
   const deint = await isInterlaced(editSrc, 0, m.duration);
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
@@ -157,12 +159,12 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     } catch { emph = []; }
   }
   const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
-  const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, facecam, cropXFrac: cx, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
-    vfx: { ...cfg.edit.vfx, ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const music = pickMusic(cfg.dirs.assets);
+  const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
+    vfx: { ...cfg.edit.vfx, ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
-  const argsFor = (enc: string) => ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),
+  const argsFor = (enc: string) => ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), ...(fill ? ['-stream_loop', '-1', '-i', fill] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),
     '-r', String(cfg.edit.fps), ...encodeArgs(enc, { crf: cfg.edit.crf, preset: cfg.edit.preset }), ...(ag.graph ? ['-c:a', 'aac', '-b:a', '160k', '-ar', '48000'] : []), '-movflags', '+faststart', '-t', m.duration.toFixed(3), finalPath + '.part.mp4'];
   const r = await withEncoderFallback(cfg, (enc) => run('ffmpeg', argsFor(enc), { timeoutMs: 40 * 60_000 }));
   if (r.code !== 0) { rmSync(finalPath + '.part.mp4', { force: true }); throw new Error(`edit render failed: ${r.stderr.slice(0, 500)}`); }
@@ -191,4 +193,10 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   store.logState('clip', row, null, qc.pass ? 'QC_PASSED' : 'QC_FAILED', `coverage ${cov.applied}/${cov.total}`);
   if (!qc.pass) warn('QC failed', { outputId, failures: qc.failures }); else info('rendered', { outputId, coverage: cov.coverage, size: statSync(finalPath).size });
   return { clipId: row, outputId, editedPath: finalPath, qcPass: qc.pass, reused: false };
+}
+
+/** Owner's own filler footage for the split-screen layout: assets/gameplay/*. Deterministic per candidate (same clip → same filler). */
+export function pickFiller(assetsDir: string, seed: number): string | null {
+  const d = join(assetsDir, 'gameplay'); if (!existsSync(d)) return null;
+  const fs = readdirSync(d).filter((x) => /\.(mp4|mov|mkv|webm)$/i.test(x)).sort(); return fs.length ? join(d, fs[seed % fs.length]!) : null;
 }

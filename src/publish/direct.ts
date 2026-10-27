@@ -1,3 +1,4 @@
+import { fitCaption } from '../seo/brief.ts';
 import { readFile, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import type { Store } from '../db.ts';
@@ -88,7 +89,7 @@ export class TelegramAdapter extends StagedAdapter {
   protected async send(s: { file: string; title: string; description: string }) {
     const base = process.env.TELEGRAM_API_BASE ?? 'https://api.telegram.org'; const fd = new FormData();
     fd.set('chat_id', this.cred.chatId!); fd.set('supports_streaming', 'true');
-    fd.set('caption', `${s.title}\n\n${s.description}`.slice(0, 1024)); fd.set('video', await fileBlob(s.file, 50 * 1024 * 1024), basename(s.file));
+    fd.set('caption', fitCaption(s.title, s.description, 1024)); fd.set('video', await fileBlob(s.file, 50 * 1024 * 1024), basename(s.file));
     const r = await http(`${base}/bot${this.cred.botToken}/sendVideo`, { method: 'POST', body: fd });
     if (r.status === 429) throw new Error(`NOT_READY: telegram rate limit (retry_after ${r.json?.parameters?.retry_after ?? '?'}s)`);
     if (r.status === 401 || r.status === 403) throw new Error('AUTH_TELEGRAM: bot token invalid or bot not allowed in this chat');
@@ -100,7 +101,7 @@ export class DiscordAdapter extends StagedAdapter {
   readonly name = 'discord';
   protected async send(s: { file: string; title: string; description: string }) {
     const u = safeHttp(this.cred.webhookUrl!, 'webhookUrl', /(^|\.)(discord|discordapp)\.com$/i); u.searchParams.set('wait', 'true'); const fd = new FormData();
-    fd.set('payload_json', JSON.stringify({ content: `**${s.title}**\n${s.description}`.slice(0, 2000), allowed_mentions: { parse: [] } })); fd.set('files[0]', await fileBlob(s.file, 25 * 1024 * 1024), basename(s.file));
+    fd.set('payload_json', JSON.stringify({ content: fitCaption(`**${s.title}**`, s.description, 2000), allowed_mentions: { parse: [] } })); fd.set('files[0]', await fileBlob(s.file, 25 * 1024 * 1024), basename(s.file));
     const r = await http(u.toString(), { method: 'POST', body: fd });
     if (r.status === 429) throw new Error(`NOT_READY: discord rate limit (retry_after ${r.json?.retry_after ?? '?'}s)`);
     if (r.status === 401 || r.status === 403 || r.status === 404) throw new Error('AUTH_DISCORD: webhook invalid or deleted');

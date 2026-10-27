@@ -1,3 +1,4 @@
+import { fitCaption } from '../seo/brief.ts';
 import { randomBytes } from 'node:crypto';
 import { stat, readFile } from 'node:fs/promises';
 import type { Store } from '../db.ts';
@@ -44,7 +45,7 @@ export function publicClipLink(store: Store, file: string, base: string): string
 export const isPublicBase = (b: string | undefined): b is string => !!b && /^https:\/\//.test(b) && !/\/\/(localhost|127\.|\[::1\]|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(b);
 
 type Staged = { file: string; title: string; description: string };
-const caption = (s: Staged) => `${s.title}\n\n${s.description}`.slice(0, 2200);
+const caption = (s: Staged) => fitCaption(s.title, s.description, 2200);
 
 export class FacebookReelsAdapter extends StagedAdapter {
   readonly name = 'facebook_reels';

@@ -5,6 +5,7 @@ import { enqueue, claim, completeJob, failJob } from './db.ts';
 import type { Config } from './config.ts';
 import { analyzeVideo } from './analysis/analyzer.ts';
 import { renderCandidate } from './edit/render.ts';
+import { loadTranscript, type Cue } from './analysis/transcript.ts';
 import { buildMetadata, validateMetadata, withPart } from './seo/metadata.ts';
 import { llmMetadata } from './seo/llm.ts';
 import { llmChain } from './ai/settings.ts';
@@ -41,9 +42,10 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
   if (job.kind === 'meta') {
     const row = store.get<{ id: number; candidate_id: number; edited_path: string; output_id: string }>('SELECT id, candidate_id, edited_path, output_id FROM clips WHERE id=?', id)!;
     const cand = store.get<{ category: string; transcript: string; language: string; start_sec: number; end_sec: number; hook: string | null }>('SELECT category, transcript, language, start_sec, end_sec, hook FROM candidates WHERE id=?', row.candidate_id)!;
-    let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined, ...chMeta(channelOfClip(store, row.id)) });
-    const pr = store.get<{ part_no: number | null; part_total: number | null }>('SELECT part_no, part_total FROM candidates WHERE id=?', row.candidate_id);
+    const pr = store.get<{ part_no: number | null; part_total: number | null; video_id: number }>('SELECT part_no, part_total, video_id FROM candidates WHERE id=?', row.candidate_id);
     const part = pr?.part_no && pr.part_total ? { no: pr.part_no, total: pr.part_total } : null;
+    let cues: Cue[] = []; try { const vp = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', pr!.video_id)?.path; if (vp) cues = loadTranscript(vp.replace(/\.[^.]+$/, '')); } catch { /* no sidecar: chapters simply omitted */ }
+    let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined, cues, clipStart: cand.start_sec, duration: cand.end_sec - cand.start_sec, part, ...chMeta(channelOfClip(store, row.id)) });
     if (cand.transcript) for (const llm of llmChain(cfg)) { const r = await llmMetadata(md, cand.transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }); if (r.source === 'llm') { md = r; break; } md = r; }
     md = withPart(md, part);
     const errs = validateMetadata(md);

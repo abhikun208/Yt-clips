@@ -19,7 +19,7 @@ const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').tri
 interface TWord { w: string; a: number; b: number }
 export interface CaptionResult { ass: string; timing: 'measured' | 'approximate' | 'none'; font: string; script: Script; presetId: string; warnings: string[] }
 export interface CaptionOpts {
-  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string;
+  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null;
 }
 
 /** Word timeline for the clip window. Uses real per-word timestamps when the cue has them; else splits by word length (approximate). */
@@ -100,6 +100,7 @@ Style: Title,${f.font},${tSize},${assColor(o.titleColor ?? pal.active)},${assCol
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
   const lines: string[] = [];
+  if (o.cta && dur >= 6) lines.push(`Dialogue: 1,${hms(Math.max(0.5, dur - 3))},${hms(dur)},Title,,0,0,0,,{\\fad(250,200)}${clean(o.cta)}`);
   if (title) lines.push(`Dialogue: 1,${hms(0.2)},${hms(Math.min(3.5, dur))},Title,,0,0,0,,{\\fad(200,300)\\fscx80\\fscy80\\t(0,200,\\fscx100\\fscy100)}${clean(title)}`);
 
   const emph = new Set([...HOOK_WORDS, ...(o.emphasis ?? [])].map((x) => x.toLowerCase()));

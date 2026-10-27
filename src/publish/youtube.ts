@@ -56,6 +56,29 @@ export class YouTubeAdapter implements Adapter {
     const j = await r.json() as { items?: { id: string; snippet: { title: string } }[] }; const c = j.items?.[0]; return c ? { id: c.id, title: c.snippet.title } : null;
   }
 
+  // ---- account optimizer (channel profile) ----
+  async getBranding(): Promise<{ id: string; title: string; brandingSettings: Record<string, unknown>; description: string; keywords: string } | null> {
+    this.charge('list'); const r = await this.req(`${API()}/youtube/v3/channels?part=snippet,brandingSettings&mine=true`); if (!r.ok) throw await this.apiError(r, 'channels.list');
+    const j = await r.json() as { items?: { id: string; snippet?: { title?: string }; brandingSettings?: Record<string, unknown> }[] }; const c = j.items?.[0]; if (!c) return null;
+    const ch = (c.brandingSettings?.channel ?? {}) as { description?: string; keywords?: string };
+    return { id: c.id, title: c.snippet?.title ?? '', brandingSettings: c.brandingSettings ?? {}, description: ch.description ?? '', keywords: ch.keywords ?? '' };
+  }
+  /** GET-then-merge: only description/keywords change; every other branding field (banner, trailer, country…) is sent back untouched. */
+  async setBranding(o: { description?: string; keywords?: string }): Promise<void> {
+    const cur = await this.getBranding(); if (!cur) throw new Error('no YouTube channel found for this login');
+    const chan = { ...((cur.brandingSettings.channel ?? {}) as Record<string, unknown>) }; if (o.description !== undefined) chan.description = o.description; if (o.keywords !== undefined) chan.keywords = o.keywords;
+    this.charge('update'); const r = await this.req(`${API()}/youtube/v3/channels?part=brandingSettings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: cur.id, brandingSettings: { ...cur.brandingSettings, channel: chan } }), retry: false });
+    if (!r.ok) throw await this.apiError(r, 'channels.update');
+  }
+  async listPlaylists(): Promise<string[]> {
+    this.charge('list'); const r = await this.req(`${API()}/youtube/v3/playlists?part=snippet&mine=true&maxResults=50`); if (!r.ok) throw await this.apiError(r, 'playlists.list');
+    return ((await r.json()) as { items?: { snippet?: { title?: string } }[] }).items?.map((x) => x.snippet?.title ?? '') ?? [];
+  }
+  async createPlaylist(title: string, description: string): Promise<string> {
+    this.charge('update'); const r = await this.req(`${API()}/youtube/v3/playlists?part=snippet,status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ snippet: { title: title.slice(0, 150), description: description.slice(0, 4900) }, status: { privacyStatus: 'public' } }), retry: false });
+    if (!r.ok) throw await this.apiError(r, 'playlists.insert'); return ((await r.json()) as { id: string }).id;
+  }
+
   // ---- upload (resumable, crash-safe) ----
   async upload(a: Parameters<Adapter['upload']>[0]): Promise<{ remoteId: string }> {
     const row = this.store.get<{ session_uri: string | null; total: number | null; remote_id: string | null }>('SELECT session_uri, total, remote_id FROM upload_sessions WHERE key=?', a.idempotencyKey);

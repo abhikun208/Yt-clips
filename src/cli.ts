@@ -3,7 +3,8 @@ import { loadConfig } from './config.ts';
 import { Store } from './db.ts';
 import { ingestLocal } from './sources/local.ts';
 import { seedJobs, work } from './pipeline.ts';
-import { analyzeVideo } from './analysis/analyzer.ts';
+import { getChannel } from './channels.ts';
+import { analyzeVideo, isLengthBucket } from './analysis/analyzer.ts';
 import { which, run } from './util/proc.ts';
 import { freeMb } from './util/disk.ts';
 import { ingestComment } from './comments/comments.ts';
@@ -12,7 +13,7 @@ import { transcribeVideo } from './analysis/stt.ts';
 import { PRESETS, getPreset } from './edit/captionPresets.ts';
 import { updateOwnerConfig } from './config.ts';
 import { sttCreds } from './ai/settings.ts';
-import { advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor } from './publish/service.ts';
+import { optimizeAccount, advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor } from './publish/service.ts';
 import { setCommentStatus } from './comments/comments.ts';
 import { startLoopbackFlow, clientCreds } from './publish/oauth.ts';
 import { collectAnalytics } from './analytics/collect.ts';
@@ -72,7 +73,8 @@ async function main(): Promise<number> {
       return bad ? 1 : 0;
     }
     if (cmd === 'local-check') { const { localReport } = await import('./localcheck.ts'); const r = await localReport(cfg); console.log(`Machine: ${r.ramGb} GB RAM, ${r.cpuCores} cores, ${r.arch}${r.termux ? ' (Termux)' : ''}`); console.log(`Speech-to-text (local) recommend: whisper "${r.recommend.whisper}" — ${r.recommend.whisperNote}`); console.log(`Local LLM recommend: ${r.recommend.llm} — ${r.recommend.llmNote}`); for (const e of r.engines) console.log(`${e.available ? '✓' : '·'} ${e.id}: ${e.detail}`); console.log(r.ollama.running ? `✓ ollama chal raha hai, models: ${r.ollama.models.join(', ') || '(koi nahi)'}` : '· ollama nahi chal raha (optional)'); console.log(r.note); return 0; }
-    if (cmd === 'reanalyze') { const id = Number(rest[0]); if (!id) { console.log('Usage: npm run cli -- reanalyze <videoId>  (transcript se sentence-boundary + Part series ke saath naye clips)'); return 1; } const r = await analyzeVideo(s, cfg, id, { force: true }); console.log({ videoId: id, candidates: r.candidates }); return 0; }
+    if (cmd === 'optimize') { const ch = getChannel(s, rest[0] ?? 'main'); const apply = rest.includes('--apply'); if (apply && !rest.includes('--yes')) { console.log('Apply ke liye --yes bhi do: npm run cli -- optimize <slug> --apply --yes [--playlists]'); return 1; } const r = await optimizeAccount(s, cfg, ch, { apply, playlists: rest.includes('--playlists') }); console.log(JSON.stringify(r.kit, null, 2)); if (r.note) console.log('note:', r.note); if (r.applied.length) console.log('applied:', r.applied.join(', ')); return 0; }
+    if (cmd === 'reanalyze') { const id = Number(rest[0]); if (!id) { console.log('Usage: npm run cli -- reanalyze <videoId> [--from SEC] [--to SEC] [--length u30|30-60|60-90|90-180] [--whole]'); return 1; } const fl = (k: string) => { const i = rest.indexOf(k); return i >= 0 ? rest[i + 1] : undefined; }; const len = fl('--length'); if (len !== undefined && !isLengthBucket(len)) { console.log('--length: u30, 30-60, 60-90 ya 90-180'); return 1; } const from = fl('--from'), to = fl('--to'); const r = await analyzeVideo(s, cfg, id, { force: true, length: len, whole: rest.includes('--whole'), override: from || to ? { ...(from ? { introEnd: Number(from) } : {}), ...(to ? { outroStart: Number(to) } : {}) } : undefined }); console.log({ videoId: id, candidates: r.candidates }); return 0; }
     if (cmd === 'stt-test') { const f = rest[0]; if (!f) { console.log('Usage: npm run cli -- stt-test <video-ya-audio-file>'); return 1; } const t0 = Date.now(); const r = await transcribeVideo(cfg, f); console.log({ status: r.status, engine: r.engine, cues: r.cues.length, seconds: Math.round((Date.now() - t0) / 1000), error: r.error }); for (const c of r.cues.slice(0, 6)) console.log(`  ${c.start.toFixed(1)}-${c.end.toFixed(1)}s ${c.words ? '[' + c.words.length + ' words] ' : ''}${c.text}`); return r.status === 'ok' ? 0 : 1; }
     if (cmd === 'install-ytdlp') { const { run, which } = await import('./util/proc.ts'); if (!(await which('python3'))) { if (/termux/.test(process.env.PREFIX ?? '')) { console.log('python install ho raha hai (pkg)…'); await run('pkg', ['install', '-y', 'python'], { timeoutMs: 20 * 60_000 }); } else { console.log('python3 chahiye: apt install -y python3-pip'); return 1; } }
       for (const extra of [[], ['--break-system-packages']]) { const r = await run('python3', ['-m', 'pip', 'install', '-U', 'yt-dlp', ...extra], { timeoutMs: 15 * 60_000 }); if (r.code === 0) break; if (extra.length) { console.log(r.stderr.slice(-400)); return 1; } }
