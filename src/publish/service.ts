@@ -61,7 +61,7 @@ export async function advance(store: Store, cfg: Config, uploadId: number, o: { 
   if (!u) throw new Error(`Unknown upload ${uploadId}`);
   const facts = await factsForClip(store, u.clip_id);
   try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId)), uploadId, { facts, ...o }) }; }
-  catch (e) { const m = (e as Error).message; if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
+  catch (e) { const m = (e as Error).message; if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
 }
 
 export { queueUpload };

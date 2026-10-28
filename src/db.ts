@@ -85,6 +85,8 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE candidates ADD COLUMN part_no INTEGER; ALTER TABLE candidates ADD COLUMN part_total INTEGER; ALTER TABLE candidates ADD COLUMN series_key TEXT;`,
   // v9 (additive): perceptual hashes for duplicate-clip detection
   `CREATE TABLE IF NOT EXISTS clip_fingerprints (clip_id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v10 (additive): owner-reported copyright claims (Studio is the only place Content ID shows) -> per-source counter
+  `CREATE TABLE IF NOT EXISTS claims (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, source_id INTEGER, kind TEXT NOT NULL, ranges_json TEXT NOT NULL DEFAULT '[]', note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
 ];
 
 export type Row = Record<string, unknown>;

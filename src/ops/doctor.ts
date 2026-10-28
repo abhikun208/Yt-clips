@@ -18,6 +18,7 @@ export const UPLOAD_RULES: { re: RegExp; kind: 'meta' | 'retry' | 'defer' | 'man
   { re: /uploadLimitExceeded|exceeded the number of videos/i, kind: 'defer', hours: 24, why: 'channel upload limit reached → retry tomorrow (verify the channel with a phone number in YouTube to raise it)' },
   { re: /AUTH_|invalid_grant|unauthorized|token.*(?:expired|revoked)|insufficientPermissions|forbidden|HTTP 40[13]\b/i, kind: 'manual', why: 'login/permission problem → reconnect this account (Schedule tab → Connect) — only the owner can approve a login' },
   { re: /network error|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|socket|HTTP 5\d\d|timeout|timed out/i, kind: 'retry', why: 'temporary network/platform error → retried with backoff' },
+  { re: /HELD_RESTRICTED/, kind: 'manual', why: 'YouTube itself reports a region block/rejection on the unlisted video → kept private for the owner (check Studio → Copyright; use ⚠️ Claim aaya on the clip)' },
   { re: /processingFailed|rejected|duplicate|copyright|claim/i, kind: 'manual', why: 'platform refused the video itself (processing/duplicate/copyright) → needs a human decision; nothing is bypassed' },
 ];
 

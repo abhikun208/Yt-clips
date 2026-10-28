@@ -214,6 +214,11 @@ export class YouTubeAdapter implements Adapter {
     this.charge('update'); const r = await this.req(`${API()}/youtube/v3/videos?part=snippet`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, snippet: keep }), retry: false });
     if (!r.ok) throw await this.apiError(r, 'videos.update(title)');
   }
+  async restrictions(id: string): Promise<{ blockedRegions: string[]; allowedOnly: string[] | null; rejectionReason: string | null }> {
+    this.charge('list'); const r = await this.req(`${API()}/youtube/v3/videos?part=status,contentDetails&id=${encodeURIComponent(id)}`); if (!r.ok) throw await this.apiError(r, 'videos.list');
+    const v = ((await r.json()) as { items?: { status?: { rejectionReason?: string }; contentDetails?: { regionRestriction?: { blocked?: string[]; allowed?: string[] } } }[] }).items?.[0];
+    return { blockedRegions: v?.contentDetails?.regionRestriction?.blocked ?? [], allowedOnly: v?.contentDetails?.regionRestriction?.allowed ?? null, rejectionReason: v?.status?.rejectionReason ?? null };
+  }
   /** The channel's latest uploads with their real status as YouTube reports it (3 quota units). NOTE: Content ID claims/"Partially blocked" are visible only in YouTube Studio; the Data API does not expose them. */
   async listMyVideos(max = 30): Promise<{ id: string; title: string; privacy: string; publishAt: string | null; uploadStatus: string; rejectionReason: string | null; failureReason: string | null; views: number | null; comments: number | null; likes: number | null; durationSec: number | null; madeForKids: boolean | null }[]> {
     this.charge('list'); const c = await this.req(`${API()}/youtube/v3/channels?part=contentDetails&mine=true`); if (!c.ok) throw await this.apiError(c, 'channels.list');

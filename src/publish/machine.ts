@@ -55,6 +55,8 @@ export interface Adapter {
   thumbnail?(remoteId: string, path: string): Promise<boolean>;
   /** May return the final remote id/URL. `local` adapters never touch the network (manual platforms) so the publish gates don't apply to them. */
   publish(remoteId: string, at: Date | null): Promise<void | { remoteId?: string }>;
+  /** Optional: what the platform itself reports about restrictions on an uploaded video (region blocks, rejection). Content ID claims are NOT part of YouTube's API. */
+  restrictions?(remoteId: string): Promise<{ blockedRegions: string[]; allowedOnly: string[] | null; rejectionReason: string | null }>;
   readonly local?: boolean;
 }
 
@@ -125,6 +127,11 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       }
       case 'UNLISTED_VERIFIED': {
         if (!o.approve && !o.scheduledAt) throw new Error('NEEDS_APPROVAL: pass approve or a scheduled time (owner decision)');
+        if (adapter.restrictions && u.remote_id) { // unlisted buffer + platform-reported restrictions: hold instead of going public when something is reported
+          if (!o.approve && (cfg.automation.unlistedBufferMin ?? 10) > 0) { const row = store.get<{ updated_at: string }>('SELECT updated_at FROM uploads WHERE id=?', u.id); const ageMin = row ? (Date.now() - Date.parse(row.updated_at.replace(' ', 'T') + 'Z')) / 60_000 : 999; if (ageMin < (cfg.automation.unlistedBufferMin ?? 10)) throw new Error(`UNLISTED_BUFFER: wait ${Math.ceil((cfg.automation.unlistedBufferMin ?? 10) - ageMin)} more min on unlisted before going public`); }
+          const rs = await adapter.restrictions(u.remote_id).catch(() => null);
+          if (rs && (rs.blockedRegions.length || rs.allowedOnly || rs.rejectionReason)) throw new Error(`HELD_RESTRICTED: platform reports ${rs.rejectionReason ? 'rejection ' + rs.rejectionReason : rs.blockedRegions.length ? 'blocked in ' + rs.blockedRegions.join(',') : 'region-limited to ' + (rs.allowedOnly ?? []).join(',')} — owner decides (Studio → Copyright)`);
+        }
         setState(store, u.id, from, 'SCHEDULED_OR_APPROVED', { at: o.scheduledAt?.toISOString() ?? null }); return 'SCHEDULED_OR_APPROVED';
       }
       case 'SCHEDULED_OR_APPROVED': {
@@ -139,7 +146,7 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
   } catch (e) {
     const msg = (e as Error).message;
     // Gate / approval / not-ready / quota / auth blocks are NOT failures: state stays so it resumes later.
-    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED)/.test(msg)) { store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; }
+    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(msg)) { store.exec(/^(UNLISTED_BUFFER|HELD_RESTRICTED)/.test(msg) ? `UPDATE uploads SET error=? WHERE id=?` : `UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; } // the buffer clock must not restart on each blocked attempt
     setState(store, u.id, from, 'FAILED', { err: msg.slice(0, 500) });
     // keep a retry pointer: FAILED re-enters via READY_FOR_QC which re-validates, upload key is idempotent
     throw e;

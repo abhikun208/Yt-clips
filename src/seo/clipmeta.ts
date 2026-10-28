@@ -38,6 +38,7 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   if (related.length) md = { ...md, warnings: [...md.warnings, `search suggestions used: ${related.slice(0, 3).join(' | ')}`] };
   if (transcript) for (const llm of llmChain(cfg)) { const r = await llmMetadata(md, transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }); if (r.source === 'llm') { md = r; break; } md = r; }
   md = withPart(md, part);
+  { const dis = (ch.config as { disclaimer?: string }).disclaimer?.trim(); if (dis && !md.description.includes(dis)) md = { ...md, description: `${md.description}\n\n${dis}`.slice(0, 4900) }; } // owner-written, per channel
   // never the same title twice on one channel
   const used = new Set(store.all<{ metadata_json: string | null }>(`SELECT c.metadata_json FROM clips c JOIN candidates cd ON cd.id=c.candidate_id WHERE c.id<>? AND c.metadata_json IS NOT NULL ORDER BY c.id DESC LIMIT 300`, clipId).map((r) => { try { return stripTitle((JSON.parse(r.metadata_json!) as { title?: string }).title ?? ''); } catch { return ''; } }).filter(Boolean));
   if (used.has(stripTitle(md.title))) {

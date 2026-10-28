@@ -8,6 +8,7 @@ import { loadConfig, updateOwnerConfig, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
 import { seedJobs, work } from '../pipeline.ts';
 import { whyReport } from '../diagnose.ts';
+import { recordClaim, claimSummary, type ClaimKind } from '../publish/claims.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
 import { addYoutubeSource, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
@@ -193,6 +194,8 @@ export function createApp(o: AppOptions = {}): App {
         store.tx(() => { store.exec('DELETE FROM uploads WHERE clip_id=?', id); store.exec('DELETE FROM clips WHERE id=?', id); store.exec(`UPDATE candidates SET status='rejected' WHERE id=?`, c.candidate_id); });
         for (const f of [c.edited_path, c.thumbnail_path]) if (f) { try { rmSync(f, { force: true }); } catch { /* already gone */ } }
         return json(res, 200, { ok: true }); } }
+      if (p === '/api/claims' && m === 'GET') return json(res, 200, claimSummary(store));
+      { const cm = p.match(/^\/api\/clips\/(\d+)\/claim$/); if (cm && req.method === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind: ClaimKind; ranges?: unknown; note?: string }; try { return json(res, 200, await recordClaim(store, Number(cm[1]), b)); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg }); } } }
       if (p === '/api/doctor' && m === 'GET') return json(res, 200, { report: lastDoctor_(store) });
       if (p === '/api/doctor' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { fix?: boolean }; return json(res, 200, { report: await runDoctor(store, cfg, { fix: b.fix !== false }) }); }
       if (p === '/api/why' && m === 'GET') return json(res, 200, { items: whyReport(store, cfg, { running, ytdlp: await ytdlpAvailable() }) });

@@ -24,7 +24,7 @@ test('automation loop: OFF by default and gates-off => zero platform traffic; ow
     const dataDir = tmpDir(); const file = join(tmpDir(), 'v.mp4'); await vertical(file);
     new SecretStore(join(dataDir, 'secrets'), undefined).write('youtube', { refresh_token: 'REFRESH-TOKEN-XYZ' });
     const store = new Store(':memory:'); seed(store, file);
-    const mk = (o: Record<string, unknown>) => loadConfig(process.cwd(), { dataDir, overrides: { ...o, automation: { ...((o.automation as object) ?? {}), blockGenericMetadata: false } } }); // fixture clips have no speech → generic metadata; the generic guard is tested in fixes.test.ts
+    const mk = (o: Record<string, unknown>) => loadConfig(process.cwd(), { dataDir, overrides: { ...o, automation: { ...((o.automation as object) ?? {}), blockGenericMetadata: false, unlistedBufferMin: 0 } } }); // fixture clips have no speech → generic metadata; the generic guard is tested in fixes.test.ts
     assert.deepEqual(await automationTick(store, mk({})), { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] }); assert.equal(store.get<{ n: number }>('SELECT count(*) n FROM uploads')!.n, 0, 'autoQueue off => nothing queued');
     const gatesOff = mk({ automation: { autoQueue: true } }); const t1 = await automationTick(store, gatesOff); assert.equal(t1.queued, 1); assert.ok((t1.blocked.PUBLISH_DISABLED ?? 0) >= 1); assert.equal(f.log.length, 0, 'gates off => ZERO network calls');
     const on = mk({ automation: { autoQueue: true }, gates: { publishEnabled: true } });
