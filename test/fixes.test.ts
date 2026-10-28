@@ -47,3 +47,12 @@ test('optimize endpoint: kit without YouTube connection, apply refused clearly',
     assert.ok(((await (await fetch(`${base}/api/channels/main/optimize`, { headers: auth })).json()) as { kit: unknown }).kit);
   } finally { await app.stop(); }
 });
+
+test('health: /live /ready open; /metrics needs token and is Prometheus text', async () => {
+  const app = createApp({ host: '127.0.0.1', port: 0, token: TOKEN, dataDir: tmpDir(), autoRun: false }); const port = await app.start(); const base = `http://127.0.0.1:${port}`;
+  try {
+    assert.equal((await fetch(`${base}/live`)).status, 200); assert.equal((await fetch(`${base}/ready`)).status, 200);
+    assert.equal((await fetch(`${base}/metrics`)).status, 401);
+    const t = await (await fetch(`${base}/metrics`, { headers: auth })).text(); assert.match(t, /# TYPE ytclips_free_disk_mb gauge/); assert.ok(!t.includes(TOKEN));
+  } finally { await app.stop(); }
+});

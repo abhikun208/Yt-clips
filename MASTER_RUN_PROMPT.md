@@ -37,12 +37,5 @@ Role: principal engineer on the EXISTING repo. Read this, then `PROGRESS.md` (le
 Code + test passing + PROGRESS.md updated with real results + next step. Report verified facts separately from assumptions.
 
 
-## Pending work (copy of PROGRESS.md "PENDING WORK"; if a feature already exists, ignore it; otherwise build it)
-1. Server UI redesign (professional look, not beginner-style): owner said "after the functions are complete" → NOT started.
-2. Real-world verification (nothing below ran against real services): real YouTube upload incl. the INVALID_REQUEST_METADATA fix, account-optimizer apply (brandingSettings/playlists), real LLM SEO output, real whisper.cpp Hinglish captions on real footage, real speaker-follow (needs OpenCV with the Haar cascade; OpenCV 5 builds lack it → falls back to the static/centre crop), real rclone/cloud.
-3. Meme-hook prepend from assets/hooks (Ssemble-style): NOT built.
-4. Music volume setting + per-clip music choice UI: NOT built.
-5. Live trending-keyword data (YouTube suggest) — only the clip's own keywords are used; not available from the build sandbox.
-6. Banner/profile photo for the account optimizer — manual by design; bio text for non-YouTube platforms is copy-paste only.
-7. Full end-to-end pipeline audit on a real server run (owner run output pending); a static check that every UI /api path has a server route passed.
-8. Declined by design: third-party template copying (autocap.in) and automatic removal of third-party logos.
+## Pending work
+See `PROGRESS.md` → "PENDING WORK" (single source of truth, includes the triage of the pasted production-upgrade prompt). If a feature already exists, ignore it; otherwise build it.

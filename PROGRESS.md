@@ -181,6 +181,13 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 6. Banner/profile photo for the account optimizer — manual by design; bio text for non-YouTube platforms is copy-paste only.
 7. Full end-to-end pipeline audit on a real server run (owner run output pending); a static check that every UI /api path has a server route passed.
 8. Declined by design: third-party template copying (autocap.in) and automatic removal of third-party logos.
+9. Triage of the owner's pasted "PRODUCTION UPGRADE" prompt (appended to `Prompt`, 2026-10-27):
+   - ALREADY EXISTS (ignore): key pre-flight + specific errors (autodetect/env-check), no shell injection surface (all ffmpeg/python calls use argument arrays via util/proc.ts; verified by grep, no `child_process.exec`), face-follow crop (5x), secret masking, token auth + brute-force rate limit, retention/analytics learning loop + title A/B (titletest), killfeed + keyword signals, comment draft/approval gates, disk check, Dockerfile (single-stage), /healthz.
+   - ADDED now: `/live`, `/ready` (db + free disk), `/metrics` (Prometheus text, token-protected).
+   - NOT REPRODUCED: "words undefined" in captions — no failing test found; caption tests (captions/edit/colorcast) pass. Send the exact error line if it still appears.
+   - DECLINED (conflicts with the owner's own rules: free, zero-runtime-dependency, runs on Termux, DB never reset): PostgreSQL+Drizzle, Redis+BullMQ, express/zod/jest/playwright/artillery/React Flow, JWT. node:sqlite + the built-in job queue stay; revisit only for a multi-server VPS setup.
+   - STILL PENDING (build when the owner says go): TTS narration (optional local/edge-tts python adapter), perceptual-hash/audio-fingerprint duplicate detection (only video+time-range fingerprint exists), cinematic fallback visuals (needs owner-provided assets/fallbacks), auto-delete oldest clips on low disk, OpenAPI doc, chaos/load tests, glass-theme UI + pipeline graph + caption live preview (= item 1 redesign).
+
 
 ## NEXT STEP (priority order)
 000. Owner: `npm run test:real` with your keys exported (see header of test/real/real.test.ts) = the first real-world verification of everything marked fake-tested.

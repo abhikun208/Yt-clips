@@ -142,6 +142,16 @@ export function createApp(o: AppOptions = {}): App {
         const q = store.all<{ state: string; n: number }>('SELECT state, count(*) n FROM jobs GROUP BY state');
         return json(res, 200, { ok: true, version: VERSION, running, freeDiskMb: freeMb(cfg.dataDir), queue: Object.fromEntries(q.map((x) => [x.state, x.n])) });
       }
+      if (p === '/live') return json(res, 200, { ok: true, processing: running });
+      if (p === '/ready') { let dbOk = false; try { dbOk = !!store.get('SELECT 1 AS x'); } catch { dbOk = false; } const mb = freeMb(cfg.dataDir); const ok = dbOk && mb > 200; return json(res, ok ? 200 : 503, { ok, db: dbOk, freeDiskMb: mb, minFreeMb: 200 }); }
+      if (p === '/metrics' && m === 'GET' && authed(req)) { // Prometheus text format, needs the token (unauthenticated requests fall through to the 401 below)
+        const L: string[] = []; const g = (name: string, help: string, rows: [string, number][]) => { L.push(`# HELP ${name} ${help}`, `# TYPE ${name} gauge`); for (const [lab, v] of rows) L.push(`${name}${lab} ${v}`); };
+        g('ytclips_jobs', 'jobs by state', store.all<{ state: string; n: number }>('SELECT state, count(*) n FROM jobs GROUP BY state').map((x) => [`{state="${x.state}"}`, x.n]));
+        g('ytclips_videos', 'videos by state', store.all<{ state: string; n: number }>('SELECT state, count(*) n FROM videos GROUP BY state').map((x) => [`{state="${x.state}"}`, x.n]));
+        g('ytclips_clips', 'rendered clips', [['', store.get<{ n: number }>('SELECT count(*) n FROM clips')?.n ?? 0]]);
+        g('ytclips_uploads', 'uploads by state', store.all<{ state: string; n: number }>('SELECT state, count(*) n FROM uploads GROUP BY state').map((x) => [`{state="${x.state}"}`, x.n]));
+        g('ytclips_free_disk_mb', 'free disk in MB', [['', freeMb(cfg.dataDir)]]); g('ytclips_running', 'worker loop active', [['', running ? 1 : 0]]);
+        res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' }); return void res.end(L.join('\n') + '\n'); }
       if (p === '/' && m === 'GET') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }); return void res.end(UI_HTML); }
       const cbm = /^\/api\/oauth\/(facebook|tiktok)\/callback$/.exec(p);
       if (cbm && m === 'GET') { // browser redirect from the provider: protected by the one-time server-side `state`, not by cookie (SameSite=Strict cookies are not sent on cross-site redirects)
