@@ -6,7 +6,7 @@ import type { Config } from './config.ts';
 import { analyzeVideo } from './analysis/analyzer.ts';
 import { renderCandidate } from './edit/render.ts';
 import { loadTranscript, type Cue } from './analysis/transcript.ts';
-import { buildMetadata, validateMetadata, withPart } from './seo/metadata.ts';
+import { metaForClip } from './seo/clipmeta.ts';
 import { llmMetadata } from './seo/llm.ts';
 import { llmChain } from './ai/settings.ts';
 import { makeThumbnail } from './seo/thumbnail.ts';
@@ -34,27 +34,11 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     const meta = store.get<{ category: string; transcript: string; language: string; video_id: number }>('SELECT category, transcript, language, video_id FROM candidates WHERE id=?', id)!;
     const hk = store.get<{ hook: string | null }>('SELECT hook FROM candidates WHERE id=?', id)?.hook ?? undefined;
     const ch = channelOfVideo(store, meta.video_id);
-    const md = buildMetadata({ transcript: meta.transcript ?? '', category: meta.category, language: meta.language ?? ch.config.language ?? 'unknown', hook: hk, ...chMeta(ch) });
     const hook = cfg.edit.hookTitle === false ? null : realHook(meta.transcript ?? '', hk); // null => render derives one from the clip's own speech, or burns nothing
     const r = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle === false ? { title: null } : hook ? { title: hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}) });
     enqueue(store, 'meta', `meta:${r.clipId}`); return;
   }
-  if (job.kind === 'meta') {
-    const row = store.get<{ id: number; candidate_id: number; edited_path: string; output_id: string }>('SELECT id, candidate_id, edited_path, output_id FROM clips WHERE id=?', id)!;
-    const cand = store.get<{ category: string; transcript: string; language: string; start_sec: number; end_sec: number; hook: string | null }>('SELECT category, transcript, language, start_sec, end_sec, hook FROM candidates WHERE id=?', row.candidate_id)!;
-    const pr = store.get<{ part_no: number | null; part_total: number | null; video_id: number }>('SELECT part_no, part_total, video_id FROM candidates WHERE id=?', row.candidate_id);
-    const part = pr?.part_no && pr.part_total ? { no: pr.part_no, total: pr.part_total } : null;
-    let cues: Cue[] = []; try { const vp = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', pr!.video_id)?.path; if (vp) cues = loadTranscript(vp.replace(/\.[^.]+$/, '')); } catch { /* no sidecar: chapters simply omitted */ }
-    let md = buildMetadata({ transcript: cand.transcript ?? '', category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined, cues, clipStart: cand.start_sec, duration: cand.end_sec - cand.start_sec, part, ...chMeta(channelOfClip(store, row.id)) });
-    if (cand.transcript) for (const llm of llmChain(cfg)) { const r = await llmMetadata(md, cand.transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }); if (r.source === 'llm') { md = r; break; } md = r; }
-    md = withPart(md, part);
-    const errs = validateMetadata(md);
-    if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);
-    const thumb = await makeThumbnail(row.edited_path, join(cfg.dirs.thumbnails, `${row.output_id}.jpg`), md.thumbnailText);
-    store.exec('UPDATE clips SET metadata_json=?, thumbnail_path=? WHERE id=?', JSON.stringify({ ...md, thumbnailOk: !!thumb }), thumb?.path ?? null, row.id);
-    void notify(store, cfg, `clip:${row.id}`, `Clip ready for review: ${md.titles[0] ?? row.output_id} (${channelOfClip(store, row.id).name}). Dashboard → Clips.`);
-    return;
-  }
+  if (job.kind === 'meta') { await metaForClip(store, cfg, id); return; }
   if (job.kind === 'rerender') { await rerenderClip(store, cfg, id, job.payload_json ? JSON.parse(job.payload_json) : {}); return; }
   throw new Error(`unknown job kind ${job.kind}`);
 }

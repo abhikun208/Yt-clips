@@ -214,6 +214,27 @@ export class YouTubeAdapter implements Adapter {
     this.charge('update'); const r = await this.req(`${API()}/youtube/v3/videos?part=snippet`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, snippet: keep }), retry: false });
     if (!r.ok) throw await this.apiError(r, 'videos.update(title)');
   }
+  /** The channel's latest uploads with their real status as YouTube reports it (3 quota units). NOTE: Content ID claims/"Partially blocked" are visible only in YouTube Studio; the Data API does not expose them. */
+  async listMyVideos(max = 30): Promise<{ id: string; title: string; privacy: string; publishAt: string | null; uploadStatus: string; rejectionReason: string | null; failureReason: string | null; views: number | null; comments: number | null; likes: number | null; durationSec: number | null; madeForKids: boolean | null }[]> {
+    this.charge('list'); const c = await this.req(`${API()}/youtube/v3/channels?part=contentDetails&mine=true`); if (!c.ok) throw await this.apiError(c, 'channels.list');
+    const up = ((await c.json()) as { items?: { contentDetails?: { relatedPlaylists?: { uploads?: string } } }[] }).items?.[0]?.contentDetails?.relatedPlaylists?.uploads; if (!up) return [];
+    this.charge('list'); const pl = await this.req(`${API()}/youtube/v3/playlistItems?part=contentDetails&maxResults=${Math.min(50, max)}&playlistId=${encodeURIComponent(up)}`); if (!pl.ok) throw await this.apiError(pl, 'playlistItems.list');
+    const ids = ((await pl.json()) as { items?: { contentDetails?: { videoId?: string } }[] }).items?.map((x) => x.contentDetails?.videoId).filter((x): x is string => !!x) ?? []; if (!ids.length) return [];
+    this.charge('list'); const r = await this.req(`${API()}/youtube/v3/videos?part=snippet,status,statistics,contentDetails&id=${ids.join(',')}`); if (!r.ok) throw await this.apiError(r, 'videos.list');
+    const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && v !== undefined ? n : null; };
+    return (((await r.json()) as { items?: { id: string; snippet?: { title?: string }; status?: { privacyStatus?: string; publishAt?: string; uploadStatus?: string; rejectionReason?: string; failureReason?: string; madeForKids?: boolean }; statistics?: { viewCount?: string; commentCount?: string; likeCount?: string }; contentDetails?: { duration?: string } }[] }).items ?? []).map((v) => {
+      const m = /^PT(?:(\d+)M)?(?:(\d+)S)?$/.exec(v.contentDetails?.duration ?? '');
+      return { id: v.id, title: v.snippet?.title ?? '', privacy: v.status?.privacyStatus ?? '', publishAt: v.status?.publishAt ?? null, uploadStatus: v.status?.uploadStatus ?? '', rejectionReason: v.status?.rejectionReason ?? null, failureReason: v.status?.failureReason ?? null, views: num(v.statistics?.viewCount), comments: num(v.statistics?.commentCount), likes: num(v.statistics?.likeCount), durationSec: m ? Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0) : null, madeForKids: v.status?.madeForKids ?? null };
+    });
+  }
+  /** Replace title/description/tags of an uploaded video. videos.update(part=snippet) resets omitted fields, so categoryId and language are read and re-sent. 50 units. */
+  async setSnippet(id: string, o: { title: string; description: string; tags: string[] }): Promise<void> {
+    this.charge('list'); const g = await this.req(`${API()}/youtube/v3/videos?part=snippet&id=${encodeURIComponent(id)}`); if (!g.ok) throw await this.apiError(g, 'videos.list');
+    const cur = ((await g.json()) as { items?: { snippet?: Record<string, unknown> }[] }).items?.[0]?.snippet; if (!cur) throw new Error(`remote video ${id} not found`);
+    const keep: Record<string, unknown> = { title: o.title.slice(0, 100), description: o.description.slice(0, 5000), tags: o.tags, categoryId: cur.categoryId }; for (const k of ['defaultLanguage', 'defaultAudioLanguage']) if (cur[k] !== undefined) keep[k] = cur[k];
+    this.charge('update'); const r = await this.req(`${API()}/youtube/v3/videos?part=snippet`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, snippet: keep }), retry: false });
+    if (!r.ok) throw await this.apiError(r, 'videos.update(snippet)');
+  }
   async thumbnail(id: string, path: string): Promise<boolean> {
     try {
       this.charge('thumbnail'); const r = await this.req(`${API()}/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(id)}`, { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: readFileSync(path), retry: false });

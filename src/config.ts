@@ -28,7 +28,7 @@ export interface Config {
   storage: { remote: string; deleteLocal: boolean; purgeAfterDays: number };
   comments: { pollMinutes: number; maxRepliesPerDay: number };
   /** Autonomous publish loop. OFF by default; owner-only (data/config.json). autoApprove = owner pre-approves scheduling of QC-passed, verified-unlisted clips. */
-  automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean; titleTest: boolean; titleTestHours: number; funnelComment: boolean };
+  automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean; titleTest: boolean; titleTestHours: number; funnelComment: boolean; blockGenericMetadata?: boolean };
 }
 
 const DEFAULTS = (rootDir: string): Config => {

@@ -49,7 +49,7 @@ test('review workflow: approve/reject, edit metadata (validated), thumbnail fram
 
 test('automation honours review: rejected never auto-queued; with requireReview only approved clips are queued', { timeout: 280_000 }, async () => {
   const { cfg, s, out } = await setup(); s.exec('UPDATE clips SET qc_pass=1 WHERE id=?', out.clipId);
-  cfg.automation.autoQueue = true; cfg.automation.platforms = ['youtube_shorts'];
+  cfg.automation.blockGenericMetadata = false; cfg.automation.autoQueue = true; cfg.automation.platforms = ['youtube_shorts'];
   reviewClip(s, out.clipId, 'reject'); let r = await automationTick(s, cfg); assert.equal(r.queued, 0, 'rejected clip not queued');
   reviewClip(s, out.clipId, 'reset'); cfg.automation.requireReview = true; r = await automationTick(s, cfg); assert.equal(r.queued, 0, 'pending clip waits for review');
   reviewClip(s, out.clipId, 'approve'); r = await automationTick(s, cfg); assert.equal(r.queued, 1, 'approved clip queued (still gated by publish gates)');

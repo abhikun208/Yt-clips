@@ -3,7 +3,7 @@ import { scoreMetadata, type SeoScore } from './score.ts';
 import type { Cue } from '../analysis/transcript.ts';
 import { localMetadata } from './local.ts';
 export interface MetaInput { transcript: string; category: string; language: string; sourceTitle?: string; channelName?: string; ownerLinks?: { label: string; url: string }[]; hashtagsExtra?: string[]; hook?: string; cues?: Cue[]; clipStart?: number; duration?: number; part?: { no: number; total: number } | null; relatedExtra?: string[] }
-export interface Metadata { titles: string[]; title: string; description: string; tags: string[]; hashtags: string[]; keywords: string[]; language: string; thumbnailText: string; source: 'template' | 'llm'; warnings: string[]; seo?: SeoScore & { chapters: number }; parts?: DescParts }
+export interface Metadata { titles: string[]; title: string; description: string; tags: string[]; hashtags: string[]; keywords: string[]; language: string; thumbnailText: string; source: 'template' | 'llm'; warnings: string[]; seo?: SeoScore & { chapters: number }; parts?: DescParts; generic?: boolean }
 
 const STOP = new Set('the a an and or of to in on is are was were be this that it for with as at by from kya hai hain ka ki ke ko se me mein aur ye yeh woh wo nahi toh to bhi hi kar karo raha rahi tha the thi ek par pe hum tum aap mai main mera meri'.split(' '));
 
@@ -53,7 +53,7 @@ export function buildMetadata(i: MetaInput): Metadata {
   if (!i.transcript) warnings.push('no transcript: description/keywords are generic');
   if (!i.ownerLinks?.length) warnings.push('no owner links configured: none added (by design, never invented)');
   const thumbnailText = (kw0 ? kw0.toUpperCase() : (clean[0] ?? 'WATCH').replace(/[^\p{L}\p{N} ]/gu, '').split(' ').slice(0, 3).join(' ')).slice(0, 18);
-  return { titles: clean, title, description: lines.join('\n').slice(0, 4900), tags, hashtags, keywords: kws, language: i.language, thumbnailText, source: 'template', warnings };
+  return { titles: clean, title, description: lines.join('\n').slice(0, 4900), tags, hashtags, keywords: kws, language: i.language, thumbnailText, source: 'template', warnings, generic: true };
 }
 
 export function validateMetadata(m: Metadata): string[] {

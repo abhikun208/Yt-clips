@@ -56,3 +56,43 @@ test('health: /live /ready open; /metrics needs token and is Prometheus text', a
     const t = await (await fetch(`${base}/metrics`, { headers: auth })).text(); assert.match(t, /# TYPE ytclips_free_disk_mb gauge/); assert.ok(!t.includes(TOKEN));
   } finally { await app.stop(); }
 });
+
+import { metaForClip } from '../src/seo/clipmeta.ts';
+import { suggestKeywords } from '../src/seo/suggest.ts';
+import { whyReport } from '../src/diagnose.ts';
+import { Store } from '../src/db.ts';
+import { testConfig } from './helpers.ts';
+import { remetaClips, isGenericSql } from '../src/publish/service.ts';
+
+test('suggestKeywords: parses YouTube autocomplete, caches, fails soft', async () => {
+  const st = new Store(':memory:'); let calls = 0;
+  const f = (async () => { calls++; return new Response(JSON.stringify(['free fire', ['free fire clutch', 'free fire booyah', 'free fire']])); }) as unknown as typeof fetch;
+  assert.deepEqual(await suggestKeywords(st, 'free fire', { fetchFn: f }), ['free fire clutch', 'free fire booyah']);
+  await suggestKeywords(st, 'free fire', { fetchFn: f }); assert.equal(calls, 1, 'second call served from cache');
+  assert.deepEqual(await suggestKeywords(null, 'x y z', { fetchFn: (async () => { throw new Error('offline'); }) as unknown as typeof fetch }), []);
+});
+
+test('remeta: old generic clip gets real metadata from its own speech; unique titles; why-report explains', async () => {
+  const cfg = testConfig(); const st = new Store(':memory:'); const speech = 'Bhai yeh clutch dekho kitna zabardast tha. Maine akele pura squad khatam kar diya aur booyah mara. Sab log hairan reh gaye ki ye kaise hua.';
+  st.exec(`INSERT INTO videos(path,fingerprint) VALUES ('/nope.mp4','f')`);
+  for (const i of [1, 2]) {
+    st.exec(`INSERT INTO candidates(video_id,start_sec,end_sec,score,fingerprint,category,transcript,language) VALUES (1,?,?,?,?,?,?,?)`, i * 30, i * 30 + 20, 0.5, `c${i}`, 'high_energy', speech, 'hinglish');
+    st.exec(`INSERT INTO clips(candidate_id,output_id,edited_path,metadata_json) VALUES (?,?,?,?)`, i, `o${i}`, '/nope.mp4', JSON.stringify({ title: 'Full Josh Wala Moment 🔥 #Shorts', description: 'Is video ka sabse khaas moment. #Shorts', warnings: ['no transcript'] }));
+  }
+  assert.equal(st.all(`SELECT id FROM clips c WHERE ${isGenericSql('c')}`).length, 2);
+  const r = await remetaClips(st, cfg, {}); assert.equal(r.done, 2, r.errors.join(';'));
+  const t = st.all<{ metadata_json: string }>('SELECT metadata_json FROM clips ORDER BY id').map((x) => JSON.parse(x.metadata_json) as { title: string; description: string; generic: boolean });
+  for (const m of t) { assert.ok(!/Josh Wala/.test(m.title)); assert.ok(!/sabse khaas moment/.test(m.description)); assert.equal(m.generic, false); assert.match(m.description, /clutch|squad|booyah/i); }
+  assert.notEqual(t[0]!.title.replace(/#Shorts/, '').trim(), t[1]!.title.replace(/#Shorts/, '').trim(), 'same channel never gets the same title twice');
+  assert.equal(st.all(`SELECT id FROM clips c WHERE ${isGenericSql('c')}`).length, 0);
+  const w = whyReport(st, cfg, {}); assert.ok(w.some((x) => /nahi mila|Video #1.*gayab/.test(x.text)));
+});
+
+import { automationTick } from '../src/publish/service.ts';
+test('autopilot never queues a generic-metadata clip (and does when the guard is off)', async () => {
+  const cfg = testConfig({ automation: { autoQueue: true } }); const st = new Store(':memory:');
+  st.exec(`INSERT INTO videos(path,fingerprint) VALUES ('/nope.mp4','f')`); st.exec(`INSERT INTO candidates(video_id,start_sec,end_sec,score,fingerprint) VALUES (1,0,20,.5,'c')`);
+  st.exec(`INSERT INTO clips(candidate_id,output_id,edited_path,qc_pass,metadata_json) VALUES (1,'o','/nope.mp4',1,?)`, JSON.stringify({ title: 'Full Josh Wala Moment 🔥 #Shorts', description: 'Is video ka sabse khaas moment.' }));
+  assert.equal((await automationTick(st, cfg)).queued, 0);
+  const off = testConfig({ automation: { autoQueue: true, blockGenericMetadata: false } }); assert.equal((await automationTick(st, off)).queued, 1);
+});

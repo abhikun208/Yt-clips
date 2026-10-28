@@ -1,3 +1,4 @@
+import { metaForClip } from '../seo/clipmeta.ts';
 import { buildAccountKit, type AccountKit } from '../seo/account.ts';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
@@ -133,9 +134,10 @@ export interface TickResult { queued: number; advanced: number; published: numbe
 export async function automationTick(store: Store, cfg: Config, now = new Date()): Promise<TickResult> {
   const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
   if (!cfg.automation.autoQueue) return r;
+  if (cfg.automation.blockGenericMetadata !== false) await healGenericMetadata(store, cfg); // a clip whose title/description had no real speech to work from is re-analysed (max 2 tries) instead of being published generic
   for (const ch of listChannels(store)) for (const platform of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
     if (!cfg.automation.platforms.includes(platform)) continue; // the global list is the owner's master switch
-    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, platform, cfg.automation.maxAdvancePerCycle);
+    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, platform, cfg.automation.maxAdvancePerCycle);
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
   }
   const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"}) ORDER BY id LIMIT ?`, ...cfg.automation.platforms, cfg.automation.maxAdvancePerCycle);
@@ -198,3 +200,41 @@ export async function optimizeAccount(store: Store, cfg: Config, ch: Channel, o:
   return { kit, applied, note };
 }
 export function storedAccountKit(store: Store, slug: string): { kit: AccountKit; applied: string[]; at: string } | null { const r = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `account:kit:${slug}`)?.v; return r ? JSON.parse(r) : null; }
+
+/** Re-run the metadata engine for clips that were written without real speech (generic) and are not uploaded yet. Max 2 tries per clip. */
+export async function healGenericMetadata(store: Store, cfg: Config, limit = 3): Promise<number> {
+  let n = 0;
+  for (const c of store.all<{ id: number }>(`SELECT c.id FROM clips c WHERE c.metadata_json IS NOT NULL AND (${isGenericSql('c')}) AND c.edited_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.remote_id IS NOT NULL) ORDER BY c.id DESC LIMIT 20`)) {
+    if (n >= limit) break; const k = `remeta:tries:${c.id}`; const tries = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', k)?.v ?? 0); if (tries >= 2) continue;
+    store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, k, String(tries + 1));
+    try { await metaForClip(store, cfg, c.id, { notifyOwner: false }); n++; } catch { /* next tick */ }
+  }
+  return n;
+}
+
+/** Rebuild metadata for chosen clips (or every clip that is generic / not yet uploaded) and optionally push it to the already-uploaded YouTube videos. */
+export async function remetaClips(store: Store, cfg: Config, o: { clipIds?: number[]; all?: boolean; push?: boolean } = {}): Promise<{ done: number; pushed: number; errors: string[] }> {
+  const ids = o.clipIds?.length ? o.clipIds : store.all<{ id: number }>(`SELECT id FROM clips WHERE edited_path IS NOT NULL ${o.all ? '' : `AND (metadata_json IS NULL OR ${isGenericSql('clips')})`} ORDER BY id`).map((x) => x.id);
+  const res = { done: 0, pushed: 0, errors: [] as string[] };
+  for (const id of ids) {
+    try {
+      const md = await metaForClip(store, cfg, id, { notifyOwner: false }); res.done++;
+      if (o.push) for (const u of store.all<{ id: number; remote_id: string; platform: string }>(`SELECT id, remote_id, platform FROM uploads WHERE clip_id=? AND remote_id IS NOT NULL AND platform='youtube_shorts'`, id)) {
+        const ch = channelByUpload(store, u.id); const ad = new YouTubeAdapter(store, tokenFor(cfg, ch));
+        await ad.setSnippet(u.remote_id, { title: md.title, description: md.description, tags: md.tags }); res.pushed++;
+        const th = store.get<{ thumbnail_path: string | null }>('SELECT thumbnail_path FROM clips WHERE id=?', id)?.thumbnail_path; if (th) await ad.thumbnail(u.remote_id, th).catch(() => false);
+      }
+    } catch (e) { res.errors.push(`clip ${id}: ${(e as Error).message.slice(0, 120)}`); }
+  }
+  return res;
+}
+
+/** SQL test for 'this clip's metadata was written without real speech' — includes metadata written by older versions (placeholder description / template title / no-transcript warning). */
+export const isGenericSql = (a: string) => `(json_extract(${a}.metadata_json,'$.generic')=1 OR ${a}.metadata_json LIKE '%sabse khaas moment%' OR ${a}.metadata_json LIKE '%Josh Wala Moment%' OR ${a}.metadata_json LIKE '%no transcript%')`;
+
+/** Live status of the channel's own uploads straight from YouTube (so the owner never has to copy it from Studio). */
+export async function channelVideos(store: Store, cfg: Config, ch: Channel) {
+  const tp = tokenFor(cfg, ch); if (!tp.connected()) throw new Error('Is channel ka YouTube connect nahi hai');
+  const vids = await new YouTubeAdapter(store, tp).listMyVideos(30);
+  return { videos: vids.map((v) => ({ ...v, genericTitle: /Josh Wala Moment/i.test(v.title) })), note: 'Content ID claim / "Partially blocked" sirf YouTube Studio mein dikhta hai; YouTube ka API ye nahi deta. rejectionReason/failureReason yahan dikhte hain.' };
+}
