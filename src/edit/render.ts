@@ -31,9 +31,12 @@ import { buildVideoGraph, type VideoGraphOpts, buildAudioGraph, treatmentCoverag
 import { qcClip } from './qc.ts';
 import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
-import { checkDisk } from '../util/disk.ts';
+import { pickHook, prependHook } from './hookintro.ts';
+import { clipHash, hashSimilarity } from '../media/phash.ts';
+import { checkDisk, freeMb } from '../util/disk.ts';
+import { freeUpSpace } from '../util/cleanup.ts';
 
-export interface RenderOptions { pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -68,6 +71,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   if (prior && prior.edited_path && existsSync(prior.edited_path)) return { clipId: prior.id, outputId: prior.output_id, editedPath: prior.edited_path, qcPass: !!prior.qc_pass, reused: true };
   const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', c.video_id)!;
   await ensureLocal(store, cfg, v.path); // original may live in the cloud archive
+  if (freeMb(cfg.dataDir) < cfg.resources.minFreeDiskMb) { const fr = freeUpSpace(store, cfg, cfg.resources.minFreeDiskMb + 200); if (fr.actions.length) warn('low disk: freed space', { freedMb: fr.freedMb, n: fr.actions.length }); }
   checkDisk(cfg.dataDir, cfg.resources.minFreeDiskMb);
 
   const dur = c.end_sec - c.start_sec;
@@ -169,7 +173,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const music = pickMusic(cfg.dirs.assets);
   const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
-  const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, duration: m.duration });
+  const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: cfg.edit.musicVolume, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
   const argsFor = (enc: string) => ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), ...(fill ? ['-stream_loop', '-1', '-i', fill] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),
     '-r', String(cfg.edit.fps), ...encodeArgs(enc, { crf: cfg.edit.crf, preset: cfg.edit.preset }), ...(ag.graph ? ['-c:a', 'aac', '-b:a', '160k', '-ar', '48000'] : []), '-movflags', '+faststart', '-t', m.duration.toFixed(3), finalPath + '.part.mp4'];
@@ -178,7 +182,8 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   renameSync(finalPath + '.part.mp4', finalPath);
 
   // 3) QC (measured)
-  const qc = await qcClip(finalPath, { width: cfg.edit.width, height: cfg.edit.height, duration: m.duration, targetLufs: cfg.edit.targetLufs, requireAudio: m.hasAudio });
+  let hookLen = 0; { const hk = (ro.memeHook ?? cfg.edit.memeHook) ? pickHook(cfg.dirs.assets, c.id) : null; if (hk && m.hasAudio) { try { hookLen = await prependHook(finalPath, hk, { width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps }); info('meme hook prepended', { hook: hk.split('/').pop(), sec: hookLen }); } catch (e) { warn('meme hook skipped', { err: (e as Error).message.slice(0, 120) }); } } }
+  const qc = await qcClip(finalPath, { width: cfg.edit.width, height: cfg.edit.height, duration: m.duration + hookLen, targetLufs: cfg.edit.targetLufs, requireAudio: m.hasAudio });
   const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, cuts ? { dimension: 'jump_cuts', applied: true, detail: `${cuts.removed.length} dead-air gaps removed, ${cuts.saved.toFixed(1)}s saved; captions re-timed` } : { dimension: 'jump_cuts', applied: false, detail: cutNote }, { dimension: 'emphasis_zoom', applied: emph.length > 0, detail: emph.length ? `punch-zoom on keyword(s): ${emph.join(', ')}` : 'no keyword with measured word timing in this clip (or disabled)' }, ramp ? { dimension: 'speed_ramp', applied: true, detail: `slow-motion ${ramp.rate}x from ${ramp.a.toFixed(1)}s to ${ramp.b.toFixed(1)}s (audio atempo, captions re-timed); clip ${(m.duration).toFixed(1)}s` } : { dimension: 'speed_ramp', applied: false, detail: rampNote }];
   const cov = treatmentCoverage(treatments);
   let visualChange = null as Awaited<ReturnType<typeof measureVisualChange>>;
@@ -196,6 +201,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   rmSync(assPath ?? '', { force: true });
   const row = prior ? prior.id : store.exec('INSERT INTO clips(candidate_id, output_id, variant) VALUES (?,?,?)', candidateId, outputId, ro.variant ?? 0).lastId;
   store.exec(`UPDATE clips SET raw_path=?, edited_path=?, manifest_path=?, qc_json=?, qc_pass=?, state=? WHERE id=?`, rawPath, finalPath, manifestPath, JSON.stringify(qc), qc.pass ? 1 : 0, qc.pass ? 'QC_PASSED' : 'QC_FAILED', row);
+  try { await dupCheck(store, cfg, row, c.id, finalPath, m.duration); } catch (e) { warn('duplicate check skipped', { err: (e as Error).message.slice(0, 80) }); }
   store.exec(`UPDATE candidates SET status='rendered' WHERE id=?`, candidateId);
   store.logState('clip', row, null, qc.pass ? 'QC_PASSED' : 'QC_FAILED', `coverage ${cov.applied}/${cov.total}`);
   if (!qc.pass) warn('QC failed', { outputId, failures: qc.failures }); else info('rendered', { outputId, coverage: cov.coverage, size: statSync(finalPath).size });
@@ -206,4 +212,20 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
 export function pickFiller(assetsDir: string, seed: number): string | null {
   const d = join(assetsDir, 'gameplay'); if (!existsSync(d)) return null;
   const fs = readdirSync(d).filter((x) => /\.(mp4|mov|mkv|webm)$/i.test(x)).sort(); return fs.length ? join(d, fs[seed % fs.length]!) : null;
+}
+
+/** Perceptual duplicate guard. ≥ dupBlock (default 0.93) similar to an earlier clip of another story → auto-rejected with a note (Restore undoes it); ≥ dupFlag (0.85) → note only. Parts of the same series are never compared with each other. */
+export async function dupCheck(store: Store, cfg: Config, clipId: number, candidateId: number, file: string, duration: number): Promise<{ similarTo: number | null; sim: number }> {
+  const h = await clipHash(file, duration); if (!h) return { similarTo: null, sim: 0 };
+  store.exec('INSERT INTO clip_fingerprints(clip_id, hash) VALUES (?,?) ON CONFLICT(clip_id) DO UPDATE SET hash=excluded.hash', clipId, h);
+  const me = store.get<{ series_key: string | null }>('SELECT series_key FROM candidates WHERE id=?', candidateId);
+  let best = { id: 0, sim: 0 };
+  for (const o of store.all<{ clip_id: number; hash: string; series_key: string | null; review: string }>(`SELECT f.clip_id, f.hash, cd.series_key, c.review FROM clip_fingerprints f JOIN clips c ON c.id=f.clip_id JOIN candidates cd ON cd.id=c.candidate_id WHERE f.clip_id<>? ORDER BY f.clip_id DESC LIMIT 400`, clipId)) {
+    if (me?.series_key && o.series_key === me.series_key) continue;
+    const sim = hashSimilarity(h, o.hash); if (sim > best.sim) best = { id: o.clip_id, sim };
+  }
+  const block = cfg.clip.dupBlock ?? 0.93, flag = cfg.clip.dupFlag ?? 0.85;
+  if (best.sim >= block) store.exec(`UPDATE clips SET review='rejected', review_note=? WHERE id=? AND review='pending'`, `duplicate of clip #${best.id} (${Math.round(best.sim * 100)}% similar) — Restore karke rakh sakte ho`, clipId);
+  else if (best.sim >= flag) store.exec(`UPDATE clips SET review_note=? WHERE id=? AND review_note IS NULL`, `possible duplicate of clip #${best.id} (${Math.round(best.sim * 100)}%)`, clipId);
+  return { similarTo: best.sim >= flag ? best.id : null, sim: best.sim };
 }

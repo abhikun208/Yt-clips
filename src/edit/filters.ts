@@ -122,7 +122,7 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
   return { graph: parts.join(';') + `;[${cur}]null[vout]`, treatments: t };
 }
 
-export interface AudioGraphOpts { hasAudio: boolean; targetLufs: number; music?: boolean; duration: number }
+export interface AudioGraphOpts { hasAudio: boolean; targetLufs: number; music?: boolean; musicVolume?: number; duration: number }
 
 export function buildAudioGraph(o: AudioGraphOpts): { graph: string | null; treatments: Treatment[] } {
   const t: Treatment[] = [];
@@ -136,7 +136,7 @@ export function buildAudioGraph(o: AudioGraphOpts): { graph: string | null; trea
   const fade = `afade=t=in:st=0:d=0.1,afade=t=out:st=${Math.max(0, o.duration - 0.3).toFixed(2)}:d=0.3`;
   let g: string;
   if (o.music) {
-    g = `${voice},asplit=2[vo][sc];[1:a]volume=0.18,aloop=loop=-1:size=2e9,atrim=0:${o.duration.toFixed(2)}[m];[m][sc]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[md];[vo][md]amix=inputs=2:duration=first:normalize=0,loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
+    g = `${voice},asplit=2[vo][sc];[1:a]volume=${Math.min(1, Math.max(0.02, o.musicVolume ?? 0.18)).toFixed(2)},aloop=loop=-1:size=2e9,atrim=0:${o.duration.toFixed(2)}[m];[m][sc]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[md];[vo][md]amix=inputs=2:duration=first:normalize=0,loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
     t.push({ dimension: 'music_ducking', applied: true, detail: 'authorized BGM ducked under voice (sidechain)' });
   } else {
     g = `${voice},loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;

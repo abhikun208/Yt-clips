@@ -83,6 +83,8 @@ const MIGRATIONS: string[] = [
     views_start INTEGER, results_json TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL DEFAULT 'running', winner TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')));`,
   // v8 (additive): multi-part series ("Part 1/3")
   `ALTER TABLE candidates ADD COLUMN part_no INTEGER; ALTER TABLE candidates ADD COLUMN part_total INTEGER; ALTER TABLE candidates ADD COLUMN series_key TEXT;`,
+  // v9 (additive): perceptual hashes for duplicate-clip detection
+  `CREATE TABLE IF NOT EXISTS clip_fingerprints (clip_id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
 ];
 
 export type Row = Record<string, unknown>;

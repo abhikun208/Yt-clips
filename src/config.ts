@@ -10,13 +10,13 @@ export interface Config {
   clip: {
     minSec: number; maxSec: number; targetSec: number; maxClipsPerVideo: number;
     minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number;
-    series?: { enabled: boolean; partSec: number; maxParts: number };
+    series?: { enabled: boolean; partSec: number; maxParts: number }; dupBlock?: number; dupFlag?: number;
   };
   edit: {
     width: number; height: number; fps: number; crf: number; preset: string; encoder: 'auto' | 'libx264' | 'h264_nvenc' | 'h264_videotoolbox' | 'h264_mediacodec';
     reframe: 'crop' | 'fit_blur'; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
     vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean };
-    jumpCuts: boolean; emphasisZoom: boolean; hookTitle?: boolean; speakerFollow?: boolean; cta?: string; captionLanguage?: 'auto' | 'hinglish' | 'hi' | 'en' | 'original'; pace: 'fast' | 'medium' | 'relaxed' | 'off';
+    jumpCuts: boolean; emphasisZoom: boolean; hookTitle?: boolean; memeHook?: boolean; musicVolume?: number; speakerFollow?: boolean; cta?: string; captionLanguage?: 'auto' | 'hinglish' | 'hi' | 'en' | 'original'; pace: 'fast' | 'medium' | 'relaxed' | 'off';
   };
   schedule: { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number };
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
