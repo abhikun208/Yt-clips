@@ -70,7 +70,7 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
   }
 
   // 4) dead jobs with a transient cause → one more go (after the disk/network fix above)
-  for (const j of store.all<{ id: number; kind: string; key: string; last_error: string | null }>(`SELECT id, kind, key, last_error FROM jobs WHERE state='DEAD' ORDER BY id DESC LIMIT 20`)) {
+  for (const j of store.all<{ id: number; kind: string; key: string; last_error: string | null }>(`SELECT id, kind, key, last_error FROM jobs WHERE state='DEAD' OR (state='RETRY' AND kind='render' AND last_error LIKE '%AV1%') ORDER BY id DESC LIMIT 20`)) {
     const e = j.last_error ?? '';
     if (j.kind === 'meta' && /unknown clip/.test(e)) { if (fix) { store.exec(`UPDATE jobs SET state='DONE', last_error=NULL, updated_at=datetime('now') WHERE id=?`, j.id); add('job meta', e.slice(0, 60), 'the clip was deleted → job closed', 'fixed'); } continue; }
     if (j.kind === 'render' && DECODE_ERR.test(e)) { // the stored source cannot be decoded: fetch the same video again as H.264 (once a day per video)

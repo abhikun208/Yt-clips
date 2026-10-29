@@ -57,7 +57,7 @@ test('doctor: closes meta jobs of deleted clips, closes uploads whose video is g
   const vp = join(d, 'v.mp4'); await makeFixture(vp, 6); const vid = store.exec(`INSERT INTO videos(source_id, path, fingerprint, duration) VALUES (?,?,'fp',14)`, src, vp).lastId;
   const cand = store.exec(`INSERT INTO candidates(video_id, start_sec, end_sec, score, fingerprint) VALUES (?,0,10,1,'c')`, vid).lastId;
   store.exec(`INSERT INTO jobs(kind, key, state, last_error) VALUES ('meta','meta:99','DEAD','unknown clip 99')`);
-  store.exec(`INSERT INTO jobs(kind, key, state, last_error) VALUES ('render', ?, 'DEAD', 'raw clip extraction failed (video may be AV1/corrupt — re-download it): [libdav1d] obu')`, `render:${cand}`);
+  store.exec(`INSERT INTO jobs(kind, key, state, last_error) VALUES ('render', ?, 'RETRY', 'raw clip extraction failed (video may be AV1/corrupt — re-download it): [libdav1d] obu')`, `render:${cand}`);
   const clip = store.exec(`INSERT INTO clips(candidate_id, output_id) VALUES (?, 'o')`, cand).lastId;
   store.exec(`INSERT INTO uploads(clip_id, platform, state, idempotency_key, remote_id, error) VALUES (?, 'youtube_shorts', 'UPLOAD_VERIFYING', 'k', 'abc', 'remote video abc not found')`, clip);
   const good = join(d, 'good.mp4'); await makeFixture(good, 6);
