@@ -33,3 +33,18 @@ test('engine=api + unreachable cloud STT falls back to local whisper.cpp (and tr
     assert.equal(r.status, 'ok', JSON.stringify(r)); assert.match(r.cues[0]!.text, /yeh ek test/); assert.equal(r.engine, 'whisper-cpp');
   } finally { process.env.PATH = env.PATH; for (const [k, e] of [['STT_API_KEY', env.K], ['STT_API_BASE', env.B], ['YT_CLIPS_WHISPER_CPP_MODEL', env.M], ['YT_CLIPS_STT_CMD', env.C]] as const) { if (e === undefined) delete process.env[k]; else process.env[k] = e; } }
 });
+
+test('whisper.cpp + model are found in ~/whisper.cpp without PATH/.env edits', async () => {
+  const { detectLocalEngines } = await import('../src/analysis/localStt.ts'); const d = tmpDir(); mkdirSync(join(d, 'whisper.cpp', 'build', 'bin'), { recursive: true }); mkdirSync(join(d, 'whisper.cpp', 'models'));
+  writeFileSync(join(d, 'whisper.cpp', 'build', 'bin', 'whisper-cli'), '#!/bin/sh\n'); chmodSync(join(d, 'whisper.cpp', 'build', 'bin', 'whisper-cli'), 0o755); writeFileSync(join(d, 'whisper.cpp', 'models', 'ggml-base.bin'), 'x');
+  const old = { H: process.env.HOME, P: process.env.PATH, M: process.env.YT_CLIPS_WHISPER_CPP_MODEL, W: process.env.WHISPER_CPP_DIR }; process.env.HOME = d; process.env.PATH = '/usr/bin:/bin'; delete process.env.YT_CLIPS_WHISPER_CPP_MODEL; delete process.env.WHISPER_CPP_DIR;
+  try { const e = (await detectLocalEngines(testConfig())).find((x) => x.id === 'whisper-cpp')!; assert.equal(e.available, true, e.detail); } finally { process.env.HOME = old.H; process.env.PATH = old.P; if (old.M) process.env.YT_CLIPS_WHISPER_CPP_MODEL = old.M; if (old.W) process.env.WHISPER_CPP_DIR = old.W; }
+});
+
+test('doctor starts the free whisper.cpp install once a day when no engine exists', async () => {
+  const cfg = testConfig(); const store = new Store(':memory:'); let calls = 0; const old = { H: process.env.HOME, P: process.env.PATH }; process.env.HOME = tmpDir(); process.env.PATH = '/usr/bin:/bin';
+  try {
+    const r1 = await runDoctor(store, cfg, { spawnInstall: () => { calls++; } }); const it = r1.items.find((i) => i.area === 'speech-to-text'); assert.equal(calls, 1); assert.equal(it?.result, 'fixed');
+    await runDoctor(store, cfg, { spawnInstall: () => { calls++; } }); assert.equal(calls, 1, 'not again within 24 h');
+  } finally { process.env.HOME = old.H; process.env.PATH = old.P; }
+});

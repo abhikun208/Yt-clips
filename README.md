@@ -34,6 +34,14 @@ Safety: publish, public visibility aur comment-posting teeno **default OFF** hai
 
 Chahiye: **Node ≥ 22.18** aur **ffmpeg** (libass wala, normal build mein hota hai). Optional: `yt-dlp` (YouTube se download), `faster-whisper` (transcript), python3+opencv (face tracking), Noto fonts (Hindi captions).
 
+**Sabse aasan (Termux / VPS / Mac): ek command sab install kar deta hai** — ffmpeg, yt-dlp, edge-tts, OpenCV, whisper.cpp + speech model, `.env` (login token). Baad mein sirf dashboard mein API key daalna hai.
+```bash
+git clone https://github.com/abhikun208/Yt-clips && cd Yt-clips && sh setup.sh
+npm start
+```
+Zip download kiya ho to bhi: unzip → `cd` → `sh setup.sh`. Dobara chalane se kuch nahi bigadta (jo installed hai wo skip). Agar speech engine na ho to auto-doctor khud background mein whisper.cpp install karta hai.
+
+Manual tareeka:
 ```bash
 git clone https://github.com/abhikun208/yt-clips && cd yt-clips
 npm test            # "fail 0" aana chahiye

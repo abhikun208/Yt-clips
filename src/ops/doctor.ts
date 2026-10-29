@@ -1,3 +1,6 @@
+import { existsSync, openSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { freeMb } from '../util/disk.ts';
@@ -29,7 +32,7 @@ const kvSet = (s: Store, k: string, v: string) => s.exec(`INSERT INTO kv(k,v) VA
  * Auto-doctor: finds what is broken across every channel/platform + the pipeline and fixes what code CAN fix, and says plainly what only the
  * owner can (logins, copyright decisions). It never touches the publish/public/comment gates and never bypasses a platform decision.
  */
-export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; now?: number } = {}): Promise<DoctorReport> {
+export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; now?: number; spawnInstall?: (script: string, log: string) => void } = {}): Promise<DoctorReport> {
   const fix = o.fix !== false; const now = o.now ?? Date.now(); const items: DoctorItem[] = [];
   const add = (area: string, problem: string, action: string, result: DoctorItem['result']) => items.push({ area, problem, action, result });
 
@@ -77,7 +80,10 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
 
   // 5b) speech-to-text availability: without it every clip gets generic metadata and no real captions
   { const st = await import('../analysis/stt.ts'); const { pickLocal } = await import('../analysis/localStt.ts'); const local = await pickLocal(cfg).catch(() => null);
-    if (!local && st.lastApiSttError && Date.now() - st.lastApiSttError.at < 6 * 3600_000) add('speech-to-text', `cloud STT failed (${st.lastApiSttError.err}) and no local engine is installed → clips get generic title/description and plain captions`, 'install the free offline engine: sh tools/install-whisper-cpp.sh base   (then: npm run cli -- local-check), or fix the server\'s access to the STT API (check key + internet/DNS), then run Home → Generic title/description theek karo', 'manual'); }
+    if (!local && fix && existsSync(join(cfg.rootDir, 'tools', 'install-whisper-cpp.sh')) && now - Number(kvGet(store, 'doctor:whisper-install') ?? 0) > 24 * 3600_000) { // no speech engine at all → build the free offline one once a day, in the background
+      kvSet(store, 'doctor:whisper-install', String(now)); const log = join(cfg.dataDir, 'setup-whisper.log');
+      try { (o.spawnInstall ?? ((s, l) => { const out = openSync(l, 'a'); spawn('sh', [s, 'base'], { cwd: cfg.rootDir, detached: true, stdio: ['ignore', out, out] }).unref(); }))(join(cfg.rootDir, 'tools', 'install-whisper-cpp.sh'), log); add('speech-to-text', 'no speech-to-text engine installed', `started the free whisper.cpp install in the background (log: ${log}); captions/titles use real speech once it finishes`, 'fixed'); } catch (e) { add('speech-to-text', 'no speech-to-text engine installed', `auto-install could not start: ${(e as Error).message.slice(0, 80)} → run: sh setup.sh`, 'manual'); }
+    } else if (!local && st.lastApiSttError && Date.now() - st.lastApiSttError.at < 6 * 3600_000) add('speech-to-text', `cloud STT failed (${st.lastApiSttError.err}) and no local engine is installed → clips get generic title/description and plain captions`, 'install the free offline engine: sh tools/install-whisper-cpp.sh base   (then: npm run cli -- local-check), or fix the server\'s access to the STT API (check key + internet/DNS), then run Home → Generic title/description theek karo', 'manual'); }
 
   // 6) generic metadata
   const healed = fix ? await healGenericMetadata(store, cfg, 5) : 0; if (healed) add('metadata', 'clips had placeholder title/description', `rebuilt ${healed} from real speech`, 'fixed');

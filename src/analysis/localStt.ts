@@ -16,8 +16,18 @@ export const VOICESTUDIO_DEFAULT = 'http://127.0.0.1:3900';
 export const CPP_BINS = ['whisper-cli', 'whisper-cpp', 'whisper.cpp'];
 
 export const voiceStudioUrl = (cfg: Config) => (process.env.YT_CLIPS_VOICESTUDIO_URL || cfg.stt.voiceStudioUrl || VOICESTUDIO_DEFAULT).replace(/\/+$/, '');
-export const cppModelPath = (cfg: Config) => process.env.YT_CLIPS_WHISPER_CPP_MODEL || cfg.stt.cppModel || '';
-async function cppBin(): Promise<string | null> { for (const b of CPP_BINS) if (await which(b)) return b; return null; }
+/** Where `tools/install-whisper-cpp.sh` / `setup.sh` put whisper.cpp (so nothing has to be written to .env or PATH by hand). */
+const cppDirs = (): string[] => [process.env.WHISPER_CPP_DIR, join(process.env.HOME ?? '', 'whisper.cpp'), join(process.cwd(), 'vendor', 'whisper.cpp')].filter((x): x is string => !!x);
+export const cppModelPath = (cfg: Config) => {
+  const set = process.env.YT_CLIPS_WHISPER_CPP_MODEL || cfg.stt.cppModel || ''; if (set && existsSync(set)) return set;
+  for (const d of cppDirs()) for (const m of ['small', 'base', 'tiny', 'medium']) { const f = join(d, 'models', `ggml-${m}.bin`); if (existsSync(f)) return f; }
+  return set;
+};
+async function cppBin(): Promise<string | null> {
+  for (const b of CPP_BINS) if (await which(b)) return b;
+  for (const d of cppDirs()) for (const rel of ['build/bin/whisper-cli', 'build/bin/main', 'bin/whisper-cli']) { const f = join(d, rel); if (existsSync(f)) return f; }
+  return null;
+}
 
 /** GET a few cheap URLs on the VoiceStudio server; any HTTP answer (<500) means something is listening. */
 export async function probeVoiceStudio(base: string, fetchFn: typeof fetch = fetch): Promise<{ up: boolean; route?: string }> {
@@ -45,7 +55,7 @@ export async function detectLocalEngines(cfg: Config, fetchFn: typeof fetch = fe
 /** First available local engine in preference order (explicit cfg.stt.localEngine wins). */
 export async function pickLocal(cfg: Config, fetchFn: typeof fetch = fetch): Promise<EngineInfo | null> {
   const all = await detectLocalEngines(cfg, fetchFn); const want = cfg.stt.localEngine;
-  if (want && want !== 'auto') return all.find((e) => e.id === want && e.available) ?? null;
+  if (want && want !== 'auto') { const w = all.find((e) => e.id === want && e.available); if (w) return w; /* the chosen engine is not usable here: fall back to whatever IS installed instead of giving up */ }
   const order: LocalEngineId[] = ['custom', 'faster-whisper', 'whisper-cpp', 'whisper-cli', 'voicestudio'];
   for (const id of order) { const e = all.find((x) => x.id === id && x.available); if (e) return e; } return null;
 }
