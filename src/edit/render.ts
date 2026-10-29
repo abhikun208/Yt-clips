@@ -32,6 +32,7 @@ import { qcClip } from './qc.ts';
 import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { pickHook, prependHook } from './hookintro.ts';
+import { narrate } from './narrate.ts';
 import { clipHash, hashSimilarity } from '../media/phash.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
@@ -181,6 +182,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   if (r.code !== 0) { rmSync(finalPath + '.part.mp4', { force: true }); throw new Error(`edit render failed: ${r.stderr.slice(0, 500)}`); }
   renameSync(finalPath + '.part.mp4', finalPath);
 
+  let narrated = false; if ((chan0.config.narration ?? cfg.edit.narration) && ro.title && m.hasAudio) narrated = await narrate(finalPath, ro.title.replace(/#\w+/g, ''), cfg.dirs.tmp, { lang: (cfg.edit.captionLanguage === 'en' ? 'en' : 'hinglish') });
   // 3) QC (measured)
   let hookLen = 0; { const hk = (ro.memeHook ?? cfg.edit.memeHook) ? pickHook(cfg.dirs.assets, c.id) : null; if (hk && m.hasAudio) { try { hookLen = await prependHook(finalPath, hk, { width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps }); info('meme hook prepended', { hook: hk.split('/').pop(), sec: hookLen }); } catch (e) { warn('meme hook skipped', { err: (e as Error).message.slice(0, 120) }); } } }
   const qc = await qcClip(finalPath, { width: cfg.edit.width, height: cfg.edit.height, duration: m.duration + hookLen, targetLufs: cfg.edit.targetLufs, requireAudio: m.hasAudio });
@@ -193,7 +195,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
     captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,
-    render: { width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? 'owner-supplied file' : null },
+    render: { narration: narrated, width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? 'owner-supplied file' : null },
     treatments, treatmentCoverage: cov, treatmentTarget: { target: cfg.edit.treatmentTarget, met: targetMet }, visualChange, translation, qc, createdAt: new Date().toISOString(),
   };
   const manifestPath = join(cfg.dirs.manifests, `${outputId}.json`);

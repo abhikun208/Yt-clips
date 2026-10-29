@@ -5,7 +5,7 @@ import type { SchedConfig } from './schedule/scheduler.ts';
 /** A channel = one brand/account you publish for (e.g. "Team Unknown", "Decider Gaming"). Each has its own schedule policy, caption style, links and platforms. */
 export interface ChannelConfig {
   captionPreset?: string; schedule?: Partial<SchedConfig>; platforms?: string[]; links?: { label: string; url: string }[]; hashtags?: string[]; liveUrl?: string; language?: string;
-  facecam?: { x: number; y: number; w: number; h: number }; killfeed?: true | { x: number; y: number; w: number; h: number }; translateTo?: 'en' | 'hi' | 'hinglish' | 'auto' | 'original'; cta?: string; disclaimer?: string; layout?: 'auto' | 'gamer_stack' | 'split_gameplay';
+  facecam?: { x: number; y: number; w: number; h: number }; killfeed?: true | { x: number; y: number; w: number; h: number }; translateTo?: 'en' | 'hi' | 'hinglish' | 'auto' | 'original'; cta?: string; disclaimer?: string; narration?: boolean; layout?: 'auto' | 'gamer_stack' | 'split_gameplay';
 }
 export interface Channel { id: number; slug: string; name: string; profile: 'general' | 'gaming'; config: ChannelConfig; archived: boolean }
 export const MAIN_SLUG = 'main';
@@ -27,7 +27,7 @@ const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\w\s
 export function cleanConfig(c: unknown, presetOk: (id: string) => boolean): ChannelConfig {
   if (c === undefined || c === null) return {}; if (typeof c !== 'object' || Array.isArray(c)) throw new Error('invalid: config must be an object');
   const i = c as Record<string, unknown>; const o: ChannelConfig = {};
-  const known = new Set(['captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
+  const known = new Set(['captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer', 'narration']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
   if (i.captionPreset !== undefined) { if (typeof i.captionPreset !== 'string' || (i.captionPreset !== 'none' && !presetOk(i.captionPreset))) throw new Error('invalid: unknown caption preset'); o.captionPreset = i.captionPreset; }
   if (i.platforms !== undefined) { const ok = ALLOWED_PLATFORMS as readonly string[]; if (!Array.isArray(i.platforms) || i.platforms.some((p) => !ok.includes(String(p)))) throw new Error('invalid: platforms'); o.platforms = i.platforms.map(String); }
   if (i.links !== undefined) { if (!Array.isArray(i.links) || i.links.length > 8) throw new Error('invalid: links (max 8)'); o.links = i.links.map((l) => { const x = l as { label?: unknown; url?: unknown }; if (typeof x.label !== 'string' || typeof x.url !== 'string' || !/^https:\/\/[^\s]{3,300}$/.test(x.url) || x.label.length > 40) throw new Error('invalid: link needs label and https url'); return { label: x.label, url: x.url }; }); }
@@ -35,6 +35,7 @@ export function cleanConfig(c: unknown, presetOk: (id: string) => boolean): Chan
   if (i.liveUrl !== undefined) { if (typeof i.liveUrl !== 'string' || !/^https:\/\/[^\s]{3,300}$/.test(i.liveUrl)) throw new Error('invalid: liveUrl must be https'); o.liveUrl = i.liveUrl; }
   if (i.language !== undefined) { if (typeof i.language !== 'string' || !/^[a-z]{2,3}$/.test(i.language)) throw new Error('invalid: language code'); o.language = i.language; }
   if (i.disclaimer !== undefined) { if (typeof i.disclaimer !== 'string' || i.disclaimer.length > 300) throw new Error('invalid: disclaimer must be text up to 300 chars'); o.disclaimer = i.disclaimer; }
+  if (i.narration !== undefined) { if (typeof i.narration !== 'boolean') throw new Error('invalid: narration must be true/false'); o.narration = i.narration; }
   if (i.cta !== undefined) { if (typeof i.cta !== 'string' || i.cta.length > 40) throw new Error('invalid: cta must be text up to 40 chars'); o.cta = i.cta; }
   if (i.layout !== undefined) { if (i.layout !== 'auto' && i.layout !== 'gamer_stack' && i.layout !== 'split_gameplay') throw new Error('invalid: layout'); o.layout = i.layout; }
   if (i.facecam !== undefined) { const f = i.facecam as Record<string, unknown>; const n = ['x', 'y', 'w', 'h'].map((k) => Number(f?.[k])); if (n.some((v) => !(v >= 0 && v <= 1)) || n[0]! + n[2]! > 1.001 || n[1]! + n[3]! > 1.001 || n[2]! < 0.05 || n[3]! < 0.05) throw new Error('invalid: facecam must be fractions {x,y,w,h} inside the frame'); o.facecam = { x: n[0]!, y: n[1]!, w: n[2]!, h: n[3]! }; }
