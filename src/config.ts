@@ -48,7 +48,7 @@ const DEFAULTS = (rootDir: string): Config => {
     dbPath: join(dataDir, 'yt-clips.sqlite'),
     timezone: 'Asia/Kolkata',
     clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30, series: { enabled: true, partSec: 45, maxParts: 4 } },
-    edit: { pace: 'medium', width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', encoder: 'auto', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: true, particles: true, lightLeak: true, flash: true, progress: true }, jumpCuts: true, emphasisZoom: true },
+    edit: { pace: 'medium', width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', encoder: 'auto', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: true, particles: true, lightLeak: true, flash: true, progress: true }, jumpCuts: true, emphasisZoom: true, hookTitle: true, cta: 'SUBSCRIBE KARO 🔔' },
     schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4, renderConcurrency: 1 },
