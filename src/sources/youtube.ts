@@ -56,9 +56,10 @@ export async function fetchSignals(url: string, base: string): Promise<{ chat: b
   } catch { /* optional */ }
   return res;
 }
-export async function downloadVideo(url: string, dir: string, maxHeight: number): Promise<string> {
+export async function downloadVideo(url: string, dir: string, maxHeight: number, o: { strictH264?: boolean; name?: string } = {}): Promise<string> {
   mkdirSync(dir, { recursive: true });
-  const r = await run('yt-dlp', [...extra(), '--no-playlist', '--no-warnings', '-f', `bv*[height<=${maxHeight}][vcodec!^=av01]+ba/bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`, '--merge-output-format', 'mp4', '-o', join(dir, '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
+  const fmt = o.strictH264 ? `bv*[height<=${maxHeight}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=${maxHeight}][vcodec!^=av01][vcodec!^=vp09]+ba/b[height<=${maxHeight}][vcodec^=avc1]` : `bv*[height<=${maxHeight}][vcodec!^=av01]+ba/bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`;
+  const r = await run('yt-dlp', [...extra(), '--no-playlist', '--no-warnings', '-f', fmt, '--merge-output-format', 'mp4', '-o', join(dir, o.name ?? '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
   const path = r.stdout.trim().split('\n').filter(Boolean).pop();
   if (r.code !== 0 || !path || !existsSync(path)) throw new Error(`yt-dlp download failed: ${r.stderr.trim().slice(-200)}`);
   return path;

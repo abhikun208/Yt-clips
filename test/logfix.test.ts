@@ -48,3 +48,24 @@ test('doctor starts the free whisper.cpp install once a day when no engine exist
     await runDoctor(store, cfg, { spawnInstall: () => { calls++; } }); assert.equal(calls, 1, 'not again within 24 h');
   } finally { process.env.HOME = old.H; process.env.PATH = old.P; }
 });
+
+import { repairVideo } from '../src/ops/repair.ts';
+import { sttCreds } from '../src/ai/settings.ts';
+test('doctor: closes meta jobs of deleted clips, closes uploads whose video is gone, repairs undecodable source via H.264 re-download', async () => {
+  const cfg = testConfig(); const store = new Store(':memory:'); const d = tmpDir();
+  const src = store.exec(`INSERT INTO sources(kind, uri, title, authorized) VALUES ('youtube_video','https://youtu.be/abc12345678','t',1)`).lastId;
+  const vp = join(d, 'v.mp4'); await makeFixture(vp, 6); const vid = store.exec(`INSERT INTO videos(source_id, path, fingerprint, duration) VALUES (?,?,'fp',14)`, src, vp).lastId;
+  const cand = store.exec(`INSERT INTO candidates(video_id, start_sec, end_sec, score, fingerprint) VALUES (?,0,10,1,'c')`, vid).lastId;
+  store.exec(`INSERT INTO jobs(kind, key, state, last_error) VALUES ('meta','meta:99','DEAD','unknown clip 99')`);
+  store.exec(`INSERT INTO jobs(kind, key, state, last_error) VALUES ('render', ?, 'DEAD', 'raw clip extraction failed (video may be AV1/corrupt — re-download it): [libdav1d] obu')`, `render:${cand}`);
+  const clip = store.exec(`INSERT INTO clips(candidate_id, output_id) VALUES (?, 'o')`, cand).lastId;
+  store.exec(`INSERT INTO uploads(clip_id, platform, state, idempotency_key, remote_id, error) VALUES (?, 'youtube_shorts', 'UPLOAD_VERIFYING', 'k', 'abc', 'remote video abc not found')`, clip);
+  const good = join(d, 'good.mp4'); await makeFixture(good, 6);
+  const rep = await runDoctor(store, cfg, { repair: (s, c, id) => repairVideo(s, c, id, { download: async () => { const p = join(d, 'dl.mp4'); (await import('node:fs')).copyFileSync(good, p); return p; } }) });
+  assert.equal(store.get<{ state: string }>(`SELECT state FROM jobs WHERE key='meta:99'`)!.state, 'DONE');
+  assert.equal(store.get<{ state: string }>(`SELECT state FROM uploads WHERE idempotency_key='k'`)!.state, 'QC_FAILED');
+  assert.ok(rep.items.some((i) => i.area === `video ${vid}` && i.result === 'fixed'), JSON.stringify(rep.items));
+  assert.match(store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', vid)!.path, /\.h264\.mp4$/);
+  assert.equal(store.get<{ state: string }>(`SELECT state FROM jobs WHERE key=?`, `render:${cand}`)!.state, 'PENDING');
+});
+test('a saved Ollama URL in the STT slot is ignored', () => { const old = process.env.STT_API_BASE; process.env.STT_API_BASE = 'http://127.0.0.1:11434/v1'; try { assert.equal(sttCreds(testConfig()), null); } finally { if (old === undefined) delete process.env.STT_API_BASE; else process.env.STT_API_BASE = old; } });

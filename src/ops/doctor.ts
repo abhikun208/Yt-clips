@@ -8,6 +8,7 @@ import { freeUpSpace } from '../util/cleanup.ts';
 import { which } from '../util/proc.ts';
 import { listChannels } from '../channels.ts';
 import { advance, rescanPublished, remetaClips, healGenericMetadata, youtubeStatus, platformStatus } from '../publish/service.ts';
+import { repairVideo, DECODE_ERR } from './repair.ts';
 import { notify } from '../notify.ts';
 import { info } from '../util/log.ts';
 
@@ -32,7 +33,7 @@ const kvSet = (s: Store, k: string, v: string) => s.exec(`INSERT INTO kv(k,v) VA
  * Auto-doctor: finds what is broken across every channel/platform + the pipeline and fixes what code CAN fix, and says plainly what only the
  * owner can (logins, copyright decisions). It never touches the publish/public/comment gates and never bypasses a platform decision.
  */
-export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; now?: number; spawnInstall?: (script: string, log: string) => void } = {}): Promise<DoctorReport> {
+export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; now?: number; spawnInstall?: (script: string, log: string) => void; repair?: typeof repairVideo } = {}): Promise<DoctorReport> {
   const fix = o.fix !== false; const now = o.now ?? Date.now(); const items: DoctorItem[] = [];
   const add = (area: string, problem: string, action: string, result: DoctorItem['result']) => items.push({ area, problem, action, result });
 
@@ -62,9 +63,24 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
     } catch (e) { add(area, msg, `retry failed: ${(e as Error).message.slice(0, 100)}`, 'manual'); }
   }
 
+  // 3b) the owner deleted the video on the platform: stop trying (terminal), say so
+  for (const u of store.all<{ id: number; platform: string; state: string; error: string | null }>(`SELECT id, platform, state, error FROM uploads WHERE remote_id IS NOT NULL AND error LIKE 'remote video % not found%' AND state NOT IN ('QC_FAILED','PUBLISHED')`)) {
+    if (fix) { store.exec(`UPDATE uploads SET state='QC_FAILED', error='deleted on the platform (by the owner) — upload cancelled', updated_at=datetime('now') WHERE id=?`, u.id); store.logState('upload', u.id, u.state, 'QC_FAILED', 'remote video deleted'); }
+    add(`upload #${u.id} (${u.platform})`, (u.error ?? '').slice(0, 100), fix ? 'video no longer exists on the platform → upload closed (queue the clip again if you want it re-posted)' : 'would close the upload', fix ? 'fixed' : 'manual');
+  }
+
   // 4) dead jobs with a transient cause → one more go (after the disk/network fix above)
   for (const j of store.all<{ id: number; kind: string; key: string; last_error: string | null }>(`SELECT id, kind, key, last_error FROM jobs WHERE state='DEAD' ORDER BY id DESC LIMIT 20`)) {
-    const e = j.last_error ?? ''; const k = `doctor:job:${j.id}`; if (Number(kvGet(store, k) ?? 0) >= 2) continue;
+    const e = j.last_error ?? '';
+    if (j.kind === 'meta' && /unknown clip/.test(e)) { if (fix) { store.exec(`UPDATE jobs SET state='DONE', last_error=NULL, updated_at=datetime('now') WHERE id=?`, j.id); add('job meta', e.slice(0, 60), 'the clip was deleted → job closed', 'fixed'); } continue; }
+    if (j.kind === 'render' && DECODE_ERR.test(e)) { // the stored source cannot be decoded: fetch the same video again as H.264 (once a day per video)
+      const cand = store.get<{ video_id: number }>('SELECT video_id FROM candidates WHERE id=?', Number(j.key.split(':')[1])); const rk = `doctor:repair:${cand?.video_id}`;
+      if (!cand) { if (fix) store.exec(`UPDATE jobs SET state='DONE', last_error=NULL WHERE id=?`, j.id); continue; }
+      if (now - Number(kvGet(store, rk) ?? 0) < 24 * 3600_000) { continue; }
+      if (fix) { kvSet(store, rk, String(now)); const rp = await (o.repair ?? repairVideo)(store, cfg, cand.video_id); add(`video ${cand.video_id}`, 'source cannot be decoded (AV1/corrupt)', rp.note, rp.ok ? 'fixed' : 'manual'); } else add(`video ${cand.video_id}`, 'source cannot be decoded (AV1/corrupt)', 'would re-download as H.264', 'manual');
+      continue;
+    }
+    const k = `doctor:job:${j.id}`; if (Number(kvGet(store, k) ?? 0) >= 2) continue;
     if (/LOW_DISK|ENOSPC|ETIMEDOUT|ECONNRESET|fetch failed|network|timed out|SIGKILL|spawn|rate limit|HTTP 429|HTTP 5\d\d/i.test(e)) {
       if (fix) { store.exec(`UPDATE jobs SET state='PENDING', attempts=0, run_after=0, last_error=NULL, updated_at=datetime('now') WHERE id=?`, j.id); kvSet(store, k, String(Number(kvGet(store, k) ?? 0) + 1)); }
       add(`job ${j.kind}`, e.slice(0, 100), fix ? 'transient cause → job re-queued' : 'would re-queue', fix ? 'fixed' : 'manual');

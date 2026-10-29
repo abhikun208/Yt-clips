@@ -31,6 +31,7 @@ function pick(cfg: Config, kind: 'stt' | 'llm', slot = 1): AiCreds | null {
   const apiKey = (envOk && E[`${up}_API_KEY`]) || raw?.api_key || '';
   const baseUrl = ((envOk && (E[`${up}_API_BASE`] || (kind === 'llm' && E.LLM_BASE_URL))) || raw?.base_url || (apiKey ? DEFAULT_BASE : '')).replace(/\/+$/, '');
   if (!baseUrl) return null;
+  if (kind === 'stt' && /:11434(\/|$)/.test(baseUrl)) return null; // Ollama has no speech-to-text endpoint: a saved Ollama URL in the STT slot is a misconfiguration, never used
   if (!apiKey && !isLocalBase(baseUrl)) return null; // remote endpoints need a key; local ones do not
   return { apiKey, baseUrl, model: (envOk && (E[`${up}_API_MODEL`] || (kind === 'llm' ? E.LLM_MODEL : ''))) || raw?.model || (kind === 'stt' ? DEFAULT_STT_MODEL : DEFAULT_LLM_MODEL) };
 }
