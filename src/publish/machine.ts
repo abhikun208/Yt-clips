@@ -128,9 +128,11 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UNLISTED_VERIFIED': {
         if (!o.approve && !o.scheduledAt) throw new Error('NEEDS_APPROVAL: pass approve or a scheduled time (owner decision)');
         if (adapter.restrictions && u.remote_id) { // unlisted buffer + platform-reported restrictions: hold instead of going public when something is reported
-          if (!o.approve && (cfg.automation.unlistedBufferMin ?? 10) > 0) { const row = store.get<{ updated_at: string }>('SELECT updated_at FROM uploads WHERE id=?', u.id); const ageMin = row ? (Date.now() - Date.parse(row.updated_at.replace(' ', 'T') + 'Z')) / 60_000 : 999; if (ageMin < (cfg.automation.unlistedBufferMin ?? 10)) throw new Error(`UNLISTED_BUFFER: wait ${Math.ceil((cfg.automation.unlistedBufferMin ?? 10) - ageMin)} more min on unlisted before going public`); }
-          const rs = await adapter.restrictions(u.remote_id).catch(() => null);
-          if (rs && (rs.blockedRegions.length || rs.allowedOnly || rs.rejectionReason)) throw new Error(`HELD_RESTRICTED: platform reports ${rs.rejectionReason ? 'rejection ' + rs.rejectionReason : rs.blockedRegions.length ? 'blocked in ' + rs.blockedRegions.join(',') : 'region-limited to ' + (rs.allowedOnly ?? []).join(',')} — owner decides (Studio → Copyright)`);
+          const base = cfg.automation.unlistedBufferMin ?? 10; const buf = base * (o.facts.duration < 30 ? 0.5 : o.facts.duration > 60 ? 1.5 : 1); // dynamic: short clips process faster
+          if (!o.approve && buf > 0) { const row = store.get<{ updated_at: string }>('SELECT updated_at FROM uploads WHERE id=?', u.id); const ageMin = row ? (Date.now() - Date.parse(row.updated_at.replace(' ', 'T') + 'Z')) / 60_000 : 999; if (ageMin < buf) throw new Error(`UNLISTED_BUFFER: wait ${Math.ceil(buf - ageMin)} more min on unlisted before going public`); }
+          let rs; try { rs = await adapter.restrictions(u.remote_id); } catch (e) { throw new Error(`UNLISTED_BUFFER: platform restriction check unavailable (${(e as Error).message.slice(0, 60)}) — retrying later, NOT publishing blind`); }
+          const maxB = cfg.automation.maxBlockedRegions ?? 0;
+          if (rs.rejectionReason || rs.allowedOnly || rs.blockedRegions.length > maxB) throw new Error(`HELD_RESTRICTED: platform reports ${rs.rejectionReason ? 'rejection ' + rs.rejectionReason : rs.blockedRegions.length ? 'blocked in ' + rs.blockedRegions.join(',') : 'region-limited to ' + (rs.allowedOnly ?? []).join(',')} — owner decides (clip → ⚠️ Claim aaya)`);
         }
         setState(store, u.id, from, 'SCHEDULED_OR_APPROVED', { at: o.scheduledAt?.toISOString() ?? null }); return 'SCHEDULED_OR_APPROVED';
       }

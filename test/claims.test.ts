@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../src/db.ts';
-import { cleanRanges, fixArgs, recordClaim, claimSummary } from '../src/publish/claims.ts';
+import { cleanRanges, fixArgs, recordClaim, claimSummary, reliability } from '../src/publish/claims.ts';
 
 function seed(store: Store, n = 1) {
   const src = store.exec(`INSERT INTO sources(kind, uri, title, authorized) VALUES ('youtube_video','u1','Serial',1)`).lastId;
@@ -64,4 +64,35 @@ test('audio claim: real ffmpeg mutes only the claimed seconds and keeps duration
   assert.equal(r.code, 0, r.stderr);
   const vol = async (s: number, t: number) => { const x = await run('ffmpeg', ['-ss', String(s), '-t', String(t), '-i', dst, '-af', 'volumedetect', '-f', 'null', '-']); return Number(/mean_volume: (-?[\d.]+|-inf)/.exec(x.stderr)?.[1] ?? 0); };
   assert.ok((await vol(10.5, 3)) < -60, 'claimed range silent'); assert.ok((await vol(5, 3)) > -40, 'rest untouched');
+});
+
+test('reliability score: claims lower it, clean clips raise it, <4 is high risk', () => {
+  assert.equal(reliability(0, 0), 10); assert.equal(reliability(3, 3), 1); assert.equal(reliability(1, 11), 9); assert.ok(reliability(3, 3) < 4);
+});
+
+test('dynamic buffer, API failure holds (never publishes blind), block threshold', async () => {
+  const store = new Store(':memory:'); const { ids } = seed(store);
+  const up = queueUpload(store, ids[0]!, 'youtube');
+  const mk = (over: Record<string, unknown> = {}) => testConfig({ automation: { unlistedBufferMin: 10, ...over } });
+  const ok = { blockedRegions: [] as string[], allowedOnly: null, rejectionReason: null };
+  let fn: () => Promise<typeof ok> = async () => ok; const ad = { restrictions: () => fn() } as unknown as Adapter;
+  const facts = (d: number) => ({ title: 't', description: 'd', tags: [], duration: d, width: 1080, height: 1920 }) as never;
+  const sched = { scheduledAt: new Date(Date.now() + 3600_000) };
+  store.exec(`UPDATE uploads SET state='UNLISTED_VERIFIED', remote_id='abc', updated_at=datetime('now','-6 minutes') WHERE id=?`, up);
+  assert.equal(await advanceUpload(store, mk(), ad, up, { facts: facts(20), ...sched }), 'SCHEDULED_OR_APPROVED'); // 20 s clip: 5 min buffer already over
+  store.exec(`UPDATE uploads SET state='UNLISTED_VERIFIED', updated_at=datetime('now','-6 minutes') WHERE id=?`, up);
+  await assert.rejects(advanceUpload(store, mk(), ad, up, { facts: facts(90), ...sched }), /UNLISTED_BUFFER/); // 90 s clip: 15 min
+  store.exec(`UPDATE uploads SET updated_at=datetime('now','-30 minutes') WHERE id=?`, up);
+  fn = async () => { throw new Error('HTTP 503'); };
+  await assert.rejects(advanceUpload(store, mk(), ad, up, { facts: facts(45), ...sched }), /NOT publishing blind/);
+  fn = async () => ({ ...ok, blockedRegions: ['IN'] });
+  await assert.rejects(advanceUpload(store, mk(), ad, up, { facts: facts(45), ...sched }), /HELD_RESTRICTED/);
+  assert.equal(await advanceUpload(store, mk({ maxBlockedRegions: 2 }), ad, up, { facts: facts(45), ...sched }), 'SCHEDULED_OR_APPROVED');
+});
+
+test("kind 'both' makes two variants (muted + cut) from a real clip", async () => {
+  const store = new Store(':memory:'); const { ids } = seed(store); const d = tmpDir(); const src = join(d, 'a.mp4'); await makeFixture(src, 20);
+  store.exec('UPDATE clips SET edited_path=? WHERE id=?', src, ids[0]!);
+  const r = await recordClaim(store, ids[0]!, { kind: 'both', ranges: [{ from: 8, to: 10 }] });
+  assert.equal(store.all(`SELECT 1 FROM clips WHERE review='pending' AND output_id LIKE 'o0-fx%'`).length, 2); assert.match(r.note, /mute \+ cut/);
 });

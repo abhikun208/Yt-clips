@@ -6,7 +6,7 @@ import type { Config } from '../config.ts';
 import { advanceUpload, queueUpload, DryRunAdapter, type Adapter, type ClipFacts, type UploadState } from './machine.ts';
 import { SecretStore } from './secrets.ts';
 import { TokenProvider, clientCreds, startDeviceFlow, pollDeviceFlow, type DeviceStart } from './oauth.ts';
-import { YouTubeAdapter } from './youtube.ts';
+import { YouTubeAdapter, quotaDay } from './youtube.ts';
 import { instagramProvider, facebookProvider, tiktokProvider, youtubeProvider, type Provider } from '../analytics/providers.ts';
 import { screenText } from './safety.ts';
 import { probe } from '../media/probe.ts';
@@ -140,6 +140,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
     const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, platform, cfg.automation.maxAdvancePerCycle);
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
   }
+  { const used = store.get<{ units: number }>(`SELECT units FROM quota_usage WHERE day=? AND pool='units'`, quotaDay(now))?.units ?? 0; if (used >= 10_000 * ((cfg.automation.quotaPausePct ?? 80) / 100)) { r.blocked.QUOTA_GUARD = 1; void notify(store, cfg, `quota:${quotaDay(now)}`, `YouTube quota ${used}/10000 units: uploads paused until the Pacific-time reset.`); return r; } } // quota guardian
   const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"}) ORDER BY id LIMIT ?`, ...cfg.automation.platforms, cfg.automation.maxAdvancePerCycle);
   for (const u of pending) {
     for (let step = 0; step < 8; step++) {
@@ -148,7 +149,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
         if (cur === 'UNLISTED_VERIFIED' && !cfg.automation.autoApprove) { r.blocked.NEEDS_APPROVAL = (r.blocked.NEEDS_APPROVAL ?? 0) + 1; break; }
         if (cur === 'UNLISTED_VERIFIED') { const ch = channelByUpload(store, u.id); at = planFromStore(store, { n: 1, tz: cfg.timezone, cfg: scheduleFor(cfg, ch), from: now, platform: u.platform, channelId: ch.id }).slots[0]?.at ?? null; if (!at) { r.blocked.NO_SLOT = (r.blocked.NO_SLOT ?? 0) + 1; break; } }
         const res = await advance(store, cfg, u.id, at ? { scheduledAt: at } : {});
-        if ('blocked' in res) { const k = /^[A-Z_]+/.exec(res.blocked)?.[0] ?? 'BLOCKED'; if (k === 'MANUAL_POST_REQUIRED') void notify(store, cfg, `manual:${u.id}`, `Post this clip now on ${u.platform} (task #${u.id}). Dashboard → Publish → Manual post tasks.`); r.blocked[k] = (r.blocked[k] ?? 0) + 1; break; }
+        if ('blocked' in res) { const k = /^[A-Z_]+/.exec(res.blocked)?.[0] ?? 'BLOCKED'; if (k === 'HELD_RESTRICTED') void notify(store, cfg, `held:${u.id}`, `Upload #${u.id} held: ${res.blocked.slice(0, 200)}`); if (k === 'MANUAL_POST_REQUIRED') void notify(store, cfg, `manual:${u.id}`, `Post this clip now on ${u.platform} (task #${u.id}). Dashboard → Publish → Manual post tasks.`); r.blocked[k] = (r.blocked[k] ?? 0) + 1; break; }
         r.advanced++; if (res.state === 'PUBLISHED') { r.published++; void notify(store, cfg, `pub:${u.id}`, `Published on ${u.platform} (upload #${u.id}).`); break; } if (res.state === 'QC_FAILED' || res.state === 'FAILED') break;
       } catch (e) { r.errors.push(`upload ${u.id}: ${(e as Error).message.slice(0, 160)}`); break; }
     }
@@ -237,4 +238,20 @@ export async function channelVideos(store: Store, cfg: Config, ch: Channel) {
   const tp = tokenFor(cfg, ch); if (!tp.connected()) throw new Error('Is channel ka YouTube connect nahi hai');
   const vids = await new YouTubeAdapter(store, tp).listMyVideos(30);
   return { videos: vids.map((v) => ({ ...v, genericTitle: /Josh Wala Moment/i.test(v.title) })), note: 'Content ID claim / "Partially blocked" sirf YouTube Studio mein dikhta hai; YouTube ka API ye nahi deta. rejectionReason/failureReason yahan dikhte hain.' };
+}
+
+/** Post-public safety net (max once a day, 10 videos): re-reads what YouTube itself reports about recent public videos. Only reports; never unpublishes or deletes. */
+export async function rescanPublished(store: Store, cfg: Config, now = new Date()): Promise<{ checked: number; flagged: { uploadId: number; remoteId: string; why: string }[] }> {
+  const day = quotaDay(now); const k = 'rescan:day'; if (store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', k)?.v === day) return { checked: 0, flagged: [] };
+  store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, k, day);
+  const rows = store.all<{ id: number; remote_id: string }>(`SELECT id, remote_id FROM uploads WHERE platform IN ('youtube','youtube_shorts') AND remote_id IS NOT NULL AND state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND updated_at > datetime('now','-14 days') ORDER BY updated_at DESC LIMIT 10`);
+  const flagged: { uploadId: number; remoteId: string; why: string }[] = []; let checked = 0;
+  for (const u of rows) {
+    try {
+      const rs = await new YouTubeAdapter(store, tokenFor(cfg, channelByUpload(store, u.id))).restrictions(u.remote_id); checked++;
+      const why = rs.rejectionReason ? `rejection ${rs.rejectionReason}` : rs.blockedRegions.length ? `blocked in ${rs.blockedRegions.join(',')}` : rs.allowedOnly ? `limited to ${rs.allowedOnly.join(',')}` : '';
+      if (why) { flagged.push({ uploadId: u.id, remoteId: u.remote_id, why }); void notify(store, cfg, `rescan:${u.id}:${why}`, `Public video ${u.remote_id} (upload #${u.id}) now reports: ${why}. Check Studio → Copyright.`); }
+    } catch { /* quota/auth problems are the doctor's other rules' job */ }
+  }
+  return { checked, flagged };
 }

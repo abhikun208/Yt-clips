@@ -38,15 +38,18 @@ export async function recordClaim(store: Store, clipId: number, b: { kind: Claim
   const note = String(b.note ?? '').slice(0, 300);
   const claimId = store.exec('INSERT INTO claims(clip_id, source_id, kind, ranges_json, note) VALUES (?,?,?,?,?)', clipId, c.source_id, b.kind, JSON.stringify(ranges), note).lastId;
   store.exec(`UPDATE clips SET review='rejected', review_note=? WHERE id=?`, `claim (${b.kind}) ${note}`.trim(), clipId);
-  let newClipId: number | null = null; let msg = 'clip reject kiya';
+  let newClipId: number | null = null; let msg = 'clip reject kiya'; const made: string[] = [];
   if (ranges.length && c.edited_path && existsSync(c.edited_path) && b.kind !== 'other') {
-    const dst = c.edited_path.replace(/\.mp4$/, `.fx${claimId}.mp4`);
-    const r = await run('ffmpeg', fixArgs(c.edited_path, dst, b.kind, ranges), { timeoutMs: 10 * 60_000 }).catch(() => null);
-    if (r && r.code === 0 && existsSync(dst)) {
-      let thumb: string | null = null; if (c.thumbnail_path && existsSync(c.thumbnail_path)) { thumb = c.thumbnail_path.replace(/(\.\w+)$/, `.fx${claimId}$1`); copyFileSync(c.thumbnail_path, thumb); }
-      newClipId = store.exec(`INSERT INTO clips(candidate_id, output_id, edited_path, thumbnail_path, metadata_json, variant, review, state) VALUES (?,?,?,?,?,?, 'pending', 'RENDERED')`, c.candidate_id, `${c.output_id}-fx${claimId}`, dst, thumb, c.metadata_json, c.variant + 1).lastId;
-      msg = b.kind === 'audio' ? 'claim wali awaaz mute karke naya variant bana (review mein)' : 'claim wala hissa kaat kar naya variant bana (review mein)';
-    } else msg = 'ffmpeg fix fail hua — clip reject hi raha';
+    for (const k of b.kind === 'both' ? (['audio', 'visual'] as const) : ([b.kind] as const)) { // 'both' = two variants: A muted, B cut — the owner picks the one that passes
+      const dst = c.edited_path.replace(/\.mp4$/, `.fx${claimId}${k[0]}.mp4`);
+      const r = await run('ffmpeg', fixArgs(c.edited_path, dst, k, ranges), { timeoutMs: 10 * 60_000 }).catch(() => null);
+      if (r && r.code === 0 && existsSync(dst)) {
+        let thumb: string | null = null; if (c.thumbnail_path && existsSync(c.thumbnail_path)) { thumb = c.thumbnail_path.replace(/(\.\w+)$/, `.fx${claimId}${k[0]}$1`); copyFileSync(c.thumbnail_path, thumb); }
+        const id = store.exec(`INSERT INTO clips(candidate_id, output_id, edited_path, thumbnail_path, metadata_json, variant, review, state) VALUES (?,?,?,?,?,?, 'pending', 'RENDERED')`, c.candidate_id, `${c.output_id}-fx${claimId}${k[0]}`, dst, thumb, c.metadata_json, c.variant + 1).lastId;
+        newClipId ??= id; made.push(k === 'audio' ? 'mute' : 'cut');
+      }
+    }
+    msg = made.length ? `naya variant (${made.join(' + ')}) review mein` : 'ffmpeg fix fail hua — clip reject hi raha';
   }
   let sourceClaims = 0, paused = false;
   if (c.source_id) {
@@ -56,9 +59,12 @@ export async function recordClaim(store: Store, clipId: number, b: { kind: Claim
   return { claimId, sourceId: c.source_id, sourceClaims, sourcePaused: paused, newClipId, note: msg };
 }
 
-export function claimSummary(store: Store): { bySource: { source_id: number; title: string | null; claims: number; status: string }[]; recent: unknown[] } {
+/** 1–10 source safety score: starts 10, −3 per claim, +1 per 5 clips that went through without one. <4 = high risk. A checklist signal for the owner, not a legal judgement. */
+export const reliability = (claims: number, clips: number) => Math.max(1, Math.min(10, 10 - 3 * claims + Math.floor(Math.max(0, clips - claims) / 5)));
+
+export function claimSummary(store: Store): { bySource: { source_id: number; title: string | null; claims: number; status: string; score: number; highRisk: boolean }[]; recent: unknown[] } {
   return {
-    bySource: store.all<{ source_id: number; title: string | null; claims: number; status: string }>(`SELECT s.id source_id, s.title, count(c.id) claims, s.status FROM claims c JOIN sources s ON s.id=c.source_id GROUP BY s.id ORDER BY claims DESC LIMIT 50`),
+    bySource: store.all<{ source_id: number; title: string | null; claims: number; status: string; clips: number }>(`SELECT s.id source_id, s.title, count(DISTINCT c.id) claims, s.status, (SELECT count(*) FROM clips k JOIN candidates ca ON ca.id=k.candidate_id JOIN videos v ON v.id=ca.video_id WHERE v.source_id=s.id) clips FROM claims c JOIN sources s ON s.id=c.source_id GROUP BY s.id ORDER BY claims DESC LIMIT 50`).map((r) => { const score = reliability(r.claims, r.clips); return { ...r, score, highRisk: score < 4 }; }),
     recent: store.all(`SELECT id, clip_id, source_id, kind, ranges_json, note, created_at FROM claims ORDER BY id DESC LIMIT 30`),
   };
 }

@@ -4,7 +4,7 @@ import { freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
 import { which } from '../util/proc.ts';
 import { listChannels } from '../channels.ts';
-import { advance, remetaClips, healGenericMetadata, youtubeStatus, platformStatus } from '../publish/service.ts';
+import { advance, rescanPublished, remetaClips, healGenericMetadata, youtubeStatus, platformStatus } from '../publish/service.ts';
 import { notify } from '../notify.ts';
 import { info } from '../util/log.ts';
 
@@ -77,6 +77,9 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
 
   // 6) generic metadata
   const healed = fix ? await healGenericMetadata(store, cfg, 5) : 0; if (healed) add('metadata', 'clips had placeholder title/description', `rebuilt ${healed} from real speech`, 'fixed');
+
+  // 7) post-public rescan (daily): report only
+  if (fix) { const sc = await rescanPublished(store, cfg, new Date(now)).catch(() => null); for (const f of sc?.flagged ?? []) add(`public video ${f.remoteId}`, `YouTube reports ${f.why}`, 'nothing changed automatically → check Studio → Copyright; use ⚠️ Claim aaya on the clip if a claim is there', 'manual'); }
 
   const rep: DoctorReport = { at: new Date(now).toISOString(), items, fixed: items.filter((i) => i.result === 'fixed').length, manual: items.filter((i) => i.result === 'manual').length, deferred: items.filter((i) => i.result === 'deferred').length };
   kvSet(store, 'doctor:last', JSON.stringify(rep));
