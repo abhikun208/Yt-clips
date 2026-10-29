@@ -75,6 +75,10 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
     else add('source', `${s.uri.slice(0, 60)}: ${(m.reason ?? '').slice(0, 80)}`, n >= 2 ? 'failed again after 2 retries → check the link/yt-dlp' : 'not transient → check the link', 'manual');
   }
 
+  // 5b) speech-to-text availability: without it every clip gets generic metadata and no real captions
+  { const st = await import('../analysis/stt.ts'); const { pickLocal } = await import('../analysis/localStt.ts'); const local = await pickLocal(cfg).catch(() => null);
+    if (!local && st.lastApiSttError && Date.now() - st.lastApiSttError.at < 6 * 3600_000) add('speech-to-text', `cloud STT failed (${st.lastApiSttError.err}) and no local engine is installed → clips get generic title/description and plain captions`, 'install the free offline engine: sh tools/install-whisper-cpp.sh base   (then: npm run cli -- local-check), or fix the server\'s access to the STT API (check key + internet/DNS), then run Home → Generic title/description theek karo', 'manual'); }
+
   // 6) generic metadata
   const healed = fix ? await healGenericMetadata(store, cfg, 5) : 0; if (healed) add('metadata', 'clips had placeholder title/description', `rebuilt ${healed} from real speech`, 'fixed');
 

@@ -88,7 +88,15 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   if (!existsSync(rawPath)) {
     const tmp = rawPath + '.part.mp4';
     const r = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', v.path, '-ss', c.start_sec.toFixed(3), '-t', dur.toFixed(3), ...encodeArgs(enc, { crf: 17, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp], { timeoutMs: 20 * 60_000 }));
-    if (r.code !== 0) throw new Error(`raw clip extraction failed: ${r.stderr.slice(0, 300)}`);
+    let rr = r;
+    if (rr.code !== 0 && /dav1d|av1|obu_|Failed to parse temporal|Invalid data/i.test(rr.stderr)) { // broken/unsupported AV1 decode (common on Termux/ARM builds): retry with the other decoder, then tolerate corrupt packets
+      for (const pre of [['-c:v', 'libaom-av1'], ['-err_detect', 'ignore_err', '-fflags', '+discardcorrupt+genpts']]) {
+        rmSync(tmp, { force: true });
+        rr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, ...pre, '-i', v.path, '-ss', c.start_sec.toFixed(3), '-t', dur.toFixed(3), ...encodeArgs(enc, { crf: 17, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp], { timeoutMs: 20 * 60_000 }));
+        if (rr.code === 0 && existsSync(tmp)) break;
+      }
+    }
+    if (rr.code !== 0) throw new Error(`raw clip extraction failed (video may be AV1/corrupt — re-download it; new downloads avoid AV1): ${rr.stderr.slice(0, 300)}`);
     renameSync(tmp, rawPath);
   }
   const chan0early = channelOfVideo(store, c.video_id);

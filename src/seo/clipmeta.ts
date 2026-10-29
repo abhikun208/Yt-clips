@@ -31,7 +31,8 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   }
   const part = cand.part_no && cand.part_total ? { no: cand.part_no, total: cand.part_total } : null;
   let cues: Cue[] = []; try { const vp = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', cand.video_id)?.path; if (vp) cues = loadTranscript(vp.replace(/\.[^.]+$/, '')); } catch { /* chapters omitted */ }
-  const base = { transcript, category: cand.category, language: language ?? 'unknown', hook: cand.hook ?? undefined, cues, clipStart: cand.start_sec, duration: cand.end_sec - cand.start_sec, part, ...chMeta(ch) };
+  const srcRow = store.get<{ title: string | null; path: string }>('SELECT s.title, v.path FROM videos v LEFT JOIN sources s ON s.id=v.source_id WHERE v.id=?', cand.video_id); const sourceTitle = (srcRow?.title ?? srcRow?.path.split('/').pop()?.replace(/\.[^.]+$/, '').replace(/[-_]?[A-Za-z0-9_-]{11}$/, '').replace(/[_]+/g, ' ').trim() ?? '') || undefined;
+  const base = { sourceTitle, transcript, category: cand.category, language: language ?? 'unknown', hook: cand.hook ?? undefined, cues, clipStart: cand.start_sec, duration: cand.end_sec - cand.start_sec, part, ...chMeta(ch) };
   const first = buildMetadata(base);
   const related = transcript ? await suggestKeywords(store, first.keywords[0] ?? '', { hl: language === 'en' ? 'en' : 'hi' }) : [];
   let md = related.length ? buildMetadata({ ...base, relatedExtra: related }) : first;

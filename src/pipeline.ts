@@ -38,7 +38,7 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     const r = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle === false ? { title: null } : hook ? { title: hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}) });
     enqueue(store, 'meta', `meta:${r.clipId}`); return;
   }
-  if (job.kind === 'meta') { await metaForClip(store, cfg, id); return; }
+  if (job.kind === 'meta') { if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return; await metaForClip(store, cfg, id); return; } // clip deleted by the owner meanwhile: nothing to do
   if (job.kind === 'rerender') { await rerenderClip(store, cfg, id, job.payload_json ? JSON.parse(job.payload_json) : {}); return; }
   throw new Error(`unknown job kind ${job.kind}`);
 }

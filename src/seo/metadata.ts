@@ -35,7 +35,7 @@ export function buildMetadata(i: MetaInput): Metadata {
     const md0: Metadata = { titles: lm.titles.map((t) => t.slice(0, 95)), title: `${lm.titles[0]!.slice(0, 90)} #Shorts`.slice(0, 100), description: composeDescription(parts), tags: lm.tags, hashtags: ht, keywords: lm.keyphrases, language: i.language, thumbnailText: lm.thumbnailText, source: 'template', warnings, parts };
     return { ...md0, seo: { ...scoreMetadata(md0, { keyphrases: kwAll, hasChapters: brief.chapters.length >= 3, durationSec: i.duration, transcriptWords: brief.words }), chapters: brief.chapters.length } };
   }
-  const kws = extractKeywords(i.transcript, 8);
+  const kws = extractKeywords(i.transcript || (i.sourceTitle ?? ''), 8);
   // No speech to work from: never invent a title. Use the source title (or channel name) and say so.
   const kw0 = kws[0]; const titles: string[] = [];
   if (i.sourceTitle) titles.push(`${i.sourceTitle.slice(0, 70)} | Best Moment`);

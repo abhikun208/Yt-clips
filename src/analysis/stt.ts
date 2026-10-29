@@ -45,6 +45,9 @@ export function parseSttJson(stdout: string): { cues: Cue[]; language?: string }
   return { cues, language: j.language };
 }
 
+/** Last cloud-STT failure in this process (the doctor reports it when no local engine can take over). */
+export let lastApiSttError: { at: number; err: string } | null = null;
+export const noteApiSttError = (err: string) => { lastApiSttError = { at: Date.now(), err: err.slice(0, 120) }; };
 /** Extract 16k mono audio, run STT, write the `<video>.json` sidecar the analyzer/captions already read. Never throws: failure => status. */
 export async function transcribeVideo(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
   if (!process.env.YT_CLIPS_STT_CMD && cfg.stt.engine !== 'local') {
@@ -53,9 +56,9 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
       try {
         const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: hint.language ?? cfg.stt.language, prompt: hint.prompt ?? cfg.stt.prompt });
         if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'api', language: r.language };
-        writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'api', model: api.model, cues: r.cues.length, language: r.language });
+        lastApiSttError = null; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'api', model: api.model, cues: r.cues.length, language: r.language });
         return { status: 'ok', cues: r.cues, language: r.language, engine: 'api' };
-      } catch (e) { warn('api stt failed', { err: (e as Error).message.slice(0, 160) }); if (cfg.stt.engine === 'api') return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; /* auto: fall through to a local engine */ }
+      } catch (e) { noteApiSttError((e as Error).message); warn('api stt failed', { err: (e as Error).message.slice(0, 160) }); if (cfg.stt.engine === 'api') return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; /* auto: fall through to a local engine */ }
     }
   }
   if (cfg.stt.engine === 'api') return { status: 'unavailable', cues: [], error: 'stt.engine=api but no API key saved' };

@@ -58,7 +58,7 @@ export async function fetchSignals(url: string, base: string): Promise<{ chat: b
 }
 export async function downloadVideo(url: string, dir: string, maxHeight: number): Promise<string> {
   mkdirSync(dir, { recursive: true });
-  const r = await run('yt-dlp', [...extra(), '--no-playlist', '--no-warnings', '-f', `bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`, '--merge-output-format', 'mp4', '-o', join(dir, '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
+  const r = await run('yt-dlp', [...extra(), '--no-playlist', '--no-warnings', '-f', `bv*[height<=${maxHeight}][vcodec!^=av01]+ba/bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`, '--merge-output-format', 'mp4', '-o', join(dir, '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
   const path = r.stdout.trim().split('\n').filter(Boolean).pop();
   if (r.code !== 0 || !path || !existsSync(path)) throw new Error(`yt-dlp download failed: ${r.stderr.trim().slice(-200)}`);
   return path;
