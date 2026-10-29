@@ -146,11 +146,11 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   let assPath: string | undefined; let cap: CaptionResult | undefined;
   { const inClip = cues.filter((q) => q.end > c.start_sec && q.start < effEnd).map((q) => q.text).join(' ').trim();
     if (inClip) store.exec(`UPDATE candidates SET transcript=?, language=COALESCE(NULLIF(language,''),?) WHERE id=? AND (transcript IS NULL OR transcript='')`, inClip, guessLanguage(inClip), c.id); // so the metadata step works from the real speech
-    if (ro.title === undefined && cfg.edit.hookTitle !== false) { const h = realHook(inClip); if (h) ro = { ...ro, title: h }; } }
+    if (ro.title === undefined && cfg.edit.hookTitle === true) { const h = realHook(inClip); if (h) ro = { ...ro, title: h }; } }
   { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; // visible series label
     if (pn && pt) { const lbl = `PART ${pn}/${pt}`; ro = { ...ro, title: ro.title ? `${lbl} • ${ro.title}`.slice(0, 64) : lbl }; } }
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
-  const ctaText = ro.cta === undefined ? (((c as { part_no?: number | null }).part_no && (c as { part_no?: number | null; part_total?: number | null }).part_no! < ((c as { part_total?: number | null }).part_total ?? 0)) ? 'AGLA PART DEKHO ▶' : (chan0.config.cta ?? cfg.edit.cta ?? null)) : ro.cta;
+  const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text
   if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
     cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
