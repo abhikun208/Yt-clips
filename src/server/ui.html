@@ -181,7 +181,7 @@ async function credDialog(id,slug){await ensureCH();const x=id==='notify'?{id:'n
  $('#cfsave').onclick=guard(async()=>{const f={};$$('[data-cf]',dl).forEach(i=>{f[i.dataset.cf]=i.value.trim()});$('#cfres').textContent='Save + test ho raha hai…';const r=await jpost('/api/credentials/'+id,{fields:f,channel:($('#cfch')||{}).value||undefined});CONN.results[r.test.target]=r.test;$('#cfres').innerHTML=(r.test.ok?'<b class="ok">✓ Connected</b> ':'<b class="bad">✕ Save hua par kaam nahi kar raha</b> ')+esc(r.test.detail);$$('[data-cf]',dl).forEach(i=>{i.value=''});if(r.test.ok)setTimeout(()=>{if(dl.open)dl.close();load(tab)},1500)})}
 const guard=f=>async function(){try{await f.apply(this,arguments)}catch(e){toast(String(e.message||e),true)}};
 function show(ok){$('#login').hidden=ok;$('#app').hidden=!ok}
-$('#go').onclick=async()=>{token=$('#tok').value.trim();try{await api('/api/login',{method:'POST'});try{localStorage.setItem('ytc_token',token)}catch(e){}show(true);init()}catch(e){$('#lerr').textContent='Token galat hai'}};
+$('#go').onclick=async()=>{token=$('#tok').value.trim();try{await api('/api/login',{method:'POST'});token='';try{localStorage.removeItem('ytc_token')}catch(e){}show(true);init()}catch(e){$('#lerr').textContent='Token galat hai'}};
 $$('nav button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
 function go(t){tab=t;$$('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));$$('.tab').forEach(s=>s.classList.toggle('on',s.id==='t-'+t));try{history.replaceState(null,'','#'+t)}catch(e){}load(t);window.scrollTo(0,0)}
 function load(t){({home:homeLoad,clips:clipsLoad,publish:pubLoad,schedule:schLoad,insights:insLoad,studio:studioLoad,settings:setLoad})[t]().catch(()=>{})}
@@ -439,5 +439,5 @@ const login=app=>guard(async()=>{const r=await api('/api/oauth/'+app+'/start');l
 
 async function init(){const h=(location.hash||'').slice(1);try{const r=await api('/api/presets');presets=r.presets}catch(e){}go(['home','clips','publish','schedule','insights','studio','settings'].includes(h)?h:'home');
  setInterval(()=>{if(document.hidden||$('#app').hidden||dialogOpen()||isEditing())return;if(tab==='publish')upsLoad().catch(()=>{});else if(tab==='home'||tab==='clips')load(tab)},6000)}
-(async()=>{try{await api('/api/login',{method:'POST'});show(true);init()}catch(e){show(false)}})();
+(async()=>{try{await api('/api/login',{method:'POST'});if(token){token='';try{localStorage.removeItem('ytc_token')}catch(e){}}show(true);init()}catch(e){show(false)}})();
 </script></body></html>

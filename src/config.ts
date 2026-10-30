@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 export interface Config {
@@ -109,6 +109,6 @@ export function updateOwnerConfig(cfg: Config, patch: Record<string, unknown>): 
   if (existsSync(file)) cur = JSON.parse(readFileSync(file, 'utf8'));
   const merged = deepMerge(cur, patch);
   const tmp = file + '.tmp';
-  writeFileSync(tmp, JSON.stringify(merged, null, 2));
-  renameSync(tmp, file);
+  writeFileSync(tmp, JSON.stringify(merged, null, 2), { mode: 0o600 });
+  renameSync(tmp, file); try { chmodSync(file, 0o600); } catch { /* best effort */ }
 }

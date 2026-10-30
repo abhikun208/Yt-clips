@@ -43,7 +43,7 @@ fi
 say "app config"
 if [ ! -f .env ]; then
   TOKEN=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
-  printf 'YT_CLIPS_TOKEN=%s\nHOST=0.0.0.0\nPORT=8080\nAUTO_RUN=1\n' "$TOKEN" > .env; echo ".env created (login token: $TOKEN)"
+  (umask 077; printf 'YT_CLIPS_TOKEN=%s\nHOST=0.0.0.0\nPORT=8080\nAUTO_RUN=1\n' "$TOKEN" > .env); chmod 600 .env; echo ".env created (login token: $TOKEN)"
 else echo ".env exists (kept)"; fi
 mkdir -p data assets/music assets/hooks assets/gameplay
 

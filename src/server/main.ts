@@ -10,6 +10,7 @@ process.on('unhandledRejection', (e) => error('unhandledRejection', { err: Strin
 app.start().then(async (port) => {
   if (dotEnvInfo.file) info('.env loaded', { names: dotEnvInfo.names.filter((n) => !/KEY|TOKEN|SECRET|PASS/i.test(n)), secrets: dotEnvInfo.names.filter((n) => /KEY|TOKEN|SECRET|PASS/i.test(n)).length });
   void app.applyEnv?.();
+  void app.bootstrap?.();
   const host = process.env.HOST ?? '127.0.0.1'; const url = `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}`;
   console.log(`\n  yt-clips ready -> ${url}   (browser mein ye link kholo)\n`);
   if (process.env.AUTO_OPEN !== '0') { const { which, run } = await import('../util/proc.ts'); for (const c of ['termux-open-url', 'xdg-open', 'open']) if (await which(c)) { void run(c, [url], { timeoutMs: 10_000 }).catch(() => {}); break; } }

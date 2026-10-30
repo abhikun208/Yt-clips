@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
 import { createWriteStream, createReadStream, existsSync, statSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
-import { timingSafeEqual, randomUUID, createHash } from 'node:crypto';
+import { timingSafeEqual, randomUUID, randomBytes, createHash } from 'node:crypto';
 import { join, basename, resolve, sep } from 'node:path';
 import { Store } from '../db.ts';
 import { loadConfig, updateOwnerConfig, type Config } from '../config.ts';
@@ -9,6 +9,7 @@ import { ingestLocal } from '../sources/local.ts';
 import { seedJobs, work } from '../pipeline.ts';
 import { whyReport } from '../diagnose.ts';
 import { notify } from '../notify.ts';
+import { bootstrap as bootstrapTools } from '../ops/bootstrap.ts';
 import { recordClaim, claimSummary, type ClaimKind } from '../publish/claims.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
@@ -44,10 +45,14 @@ import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPo
 import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ALLOWED_PLATFORMS } from '../channels.ts';
 
 export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown> }
-export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean; applyEnv?(force?: boolean): Promise<unknown> }
+export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean; applyEnv?(force?: boolean): Promise<unknown>; bootstrap?(): Promise<unknown> }
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
 const VERSION = '0.2.0';
+const SESSION_MS = 30 * 24 * 3600_000;
+/** Never show server paths or parser internals to a client. */
+export const scrubError = (e: Error): string => e instanceof SyntaxError ? 'invalid JSON body' : e.message.replace(/(?:[A-Za-z]:)?(?:\/|\\)(?:[\w.@~ -]+(?:\/|\\))+[\w.@~ -]*/g, '<path>').slice(0, 200);
+export const SEC_HEADERS: Record<string, string> = { 'x-content-type-options': 'nosniff', 'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=()', 'cross-origin-opener-policy': 'same-origin', 'cross-origin-resource-policy': 'same-origin', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer' };
 
 function safeEq(a: string, b: string): boolean {
   const ha = createHash('sha256').update(a).digest(), hb = createHash('sha256').update(b).digest();
@@ -55,7 +60,7 @@ function safeEq(a: string, b: string): boolean {
 }
 function json(res: ServerResponse, code: number, body: unknown, extra: Record<string, string> = {}) {
   const s = JSON.stringify(body);
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...extra });
+  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...SEC_HEADERS, ...extra });
   res.end(s);
 }
 async function readBody(req: IncomingMessage, max: number): Promise<Buffer> {
@@ -103,9 +108,15 @@ export function createApp(o: AppOptions = {}): App {
     if (!token) return true; // loopback-only mode
     const h = String(req.headers.authorization ?? ''); const bearer = h.startsWith('Bearer ') ? h.slice(7) : String(req.headers['x-api-key'] ?? '');
     if (bearer && safeEq(bearer, token)) return true;
-    const ck = /(?:^|;\s*)ytc_token=([^;]+)/.exec(String(req.headers.cookie ?? ''));
-    return !!ck && safeEq(decodeURIComponent(ck[1]!), token);
+    const sid = sessionId(req); if (!sid) return false;
+    const exp = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `session:${sid}`)?.v ?? 0); if (exp > Date.now()) return true;
+    if (exp) store.exec('DELETE FROM kv WHERE k=?', `session:${sid}`); return false;
   };
+  const sessionId = (req: IncomingMessage): string | null => { const ck = /(?:^|;\s*)ytc_sid=([A-Za-z0-9_-]{20,64})/.exec(String(req.headers.cookie ?? '')); return ck ? ck[1]! : null; };
+  const hasCreds = (req: IncomingMessage) => !!(req.headers.authorization || req.headers['x-api-key'] || sessionId(req));
+  const newSession = (): string => { const sid = randomBytes(32).toString('base64url'); store.exec(`DELETE FROM kv WHERE k LIKE 'session:%' AND CAST(v AS INTEGER) < ?`, Date.now()); store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, `session:${sid}`, String(Date.now() + SESSION_MS)); return sid; };
+  const trustProxy = process.env.TRUST_PROXY === '1';
+  const clientIp = (req: IncomingMessage) => { if (trustProxy) { const xf = String(req.headers['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean); if (xf.length) return xf[xf.length - 1]!; } return req.socket.remoteAddress ?? '?'; };
   const usedCookie = (req: IncomingMessage) => !String(req.headers.authorization ?? '').startsWith('Bearer ') && !req.headers['x-api-key'];
 
   const publicBase = (req: IncomingMessage) => (process.env.PUBLIC_URL ?? `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host ?? '127.0.0.1'}`).replace(/\/+$/, '');
@@ -157,7 +168,7 @@ export function createApp(o: AppOptions = {}): App {
         g('ytclips_uploads', 'uploads by state', store.all<{ state: string; n: number }>('SELECT state, count(*) n FROM uploads GROUP BY state').map((x) => [`{state="${x.state}"}`, x.n]));
         g('ytclips_free_disk_mb', 'free disk in MB', [['', freeMb(cfg.dataDir)]]); g('ytclips_running', 'worker loop active', [['', running ? 1 : 0]]);
         res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' }); return void res.end(L.join('\n') + '\n'); }
-      if (p === '/' && m === 'GET') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" }); return void res.end(UI_HTML); }
+      if (p === '/' && m === 'GET') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...SEC_HEADERS, ...(req.headers['x-forwarded-proto'] === 'https' ? { 'strict-transport-security': 'max-age=31536000' } : {}), 'content-security-policy': "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }); return void res.end(UI_HTML); }
       const cbm = /^\/api\/oauth\/(facebook|tiktok)\/callback$/.exec(p);
       if (cbm && m === 'GET') { // browser redirect from the provider: protected by the one-time server-side `state`, not by cookie (SameSite=Strict cookies are not sent on cross-site redirects)
         let msg = ''; try { const r = await handleCallback(store, cfg, cbm[1] as SocialApp, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') }, publicBase(req)); msg = `Connected: ${r.connected.join(', ')}${r.note ? ' (' + r.note + ')' : ''}`; }
@@ -178,13 +189,21 @@ export function createApp(o: AppOptions = {}): App {
         if (range) { const a = Number(range[1]), b = Math.min(size - 1, range[2] ? Number(range[2]) : size - 1); if (a >= size || b < a) { res.writeHead(416, { 'content-range': `bytes */${size}` }); return void res.end(); } res.writeHead(206, { ...hb, 'content-range': `bytes ${a}-${b}/${size}`, 'content-length': b - a + 1 }); return m === 'HEAD' ? void res.end() : void createReadStream(j.file, { start: a, end: b }).pipe(res); }
         res.writeHead(200, { ...hb, 'content-length': size }); return m === 'HEAD' ? void res.end() : void createReadStream(j.file).pipe(res);
       }
-      const ip = req.socket.remoteAddress ?? '?';
-      const f = fails.get(ip); if (f && f.n >= 10 && Date.now() - f.t < 60_000) return json(res, 429, { error: 'too many failed attempts' });
-      if (!authed(req)) { fails.set(ip, { n: (f && Date.now() - f.t < 60_000 ? f.n : 0) + 1, t: Date.now() }); return json(res, 401, { error: 'unauthorized' }); }
+      const ip = clientIp(req);
+      const f = fails.get(ip);
+      if (!authed(req)) { // lockout applies ONLY to callers that are not authenticated, and only wrong credentials count (a browser that has not logged in yet is not an attack)
+        if (f && f.n >= 10 && Date.now() - f.t < 60_000) return json(res, 429, { error: 'too many failed attempts' });
+        if (hasCreds(req)) fails.set(ip, { n: (f && Date.now() - f.t < 60_000 ? f.n : 0) + 1, t: Date.now() });
+        return json(res, 401, { error: 'unauthorized' });
+      }
+      if (f) fails.delete(ip);
       // CSRF: cookie-authenticated state-changing requests must carry the custom header (cross-site forms can't set it).
       if (m !== 'GET' && token && usedCookie(req) && req.headers['x-ytc'] !== '1') return json(res, 403, { error: 'missing x-ytc header' });
 
-      if (p === '/api/login' && m === 'POST') return json(res, 200, { ok: true }, token ? { 'set-cookie': `ytc_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}` } : {});
+      if (p === '/api/login' && m === 'POST') { // a random session id (30 days, revocable), never the master token itself
+        const had = sessionId(req); const viaBearer = !usedCookie(req); if (!token || (had && !viaBearer)) return json(res, 200, { ok: true });
+        return json(res, 200, { ok: true }, { 'set-cookie': `ytc_sid=${newSession()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${req.headers['x-forwarded-proto'] === 'https' || process.env.COOKIE_SECURE === '1' ? '; Secure' : ''}` }); }
+      if (p === '/api/logout' && m === 'POST') { const sid = sessionId(req); if (sid) store.exec('DELETE FROM kv WHERE k=?', `session:${sid}`); return json(res, 200, { ok: true }, { 'set-cookie': 'ytc_sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' }); }
       if (p === '/api/status') return json(res, 200, { running, version: VERSION, gates: cfg.gates, captionPreset: cfg.edit.captionPreset,
         videos: store.all('SELECT state, count(*) n FROM videos GROUP BY state'), jobs: store.all('SELECT state, count(*) n FROM jobs GROUP BY state'), jobKinds: store.all('SELECT kind, state, count(*) n FROM jobs GROUP BY kind, state'), reviewPending: store.get<{ n: number }>(`SELECT count(*) n FROM clips WHERE review='pending' AND edited_path IS NOT NULL`)?.n ?? 0, clips: store.all('SELECT state, count(*) n FROM clips GROUP BY state'), uploads: store.all('SELECT state, count(*) n FROM uploads GROUP BY state') });
       { const m = p.match(/^\/api\/videos\/(\d+)\/reanalyze$/); if (m && req.method === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { from?: number; to?: number; length?: string; whole?: boolean }; if (b.length !== undefined && !isLengthBucket(b.length)) return json(res, 400, { error: 'length: u30, 30-60, 60-90 ya 90-180' }); const override = b.from !== undefined || b.to !== undefined ? { ...(b.from !== undefined ? { introEnd: Number(b.from) } : {}), ...(b.to !== undefined ? { outroStart: Number(b.to) } : {}) } : undefined; const r = await analyzeVideo(store, cfg, Number(m[1]), { force: true, override, length: b.length as LengthBucket | undefined, whole: b.whole === true }); seedJobs(store, cfg); return json(res, 200, r); } }
@@ -449,7 +468,7 @@ export function createApp(o: AppOptions = {}): App {
     } catch (e) {
       const err = e as Error & { status?: number }; const status = err.status ?? (/LOW_DISK/.test(err.message) ? 507 : /Unsupported|not found|ffprobe failed|Unexpected token|JSON|authorization required|only https|invalid|Unknown (clip|upload|channel)|only manual|nothing staged|unsupported VOD|oauth:|unsupported YouTube/i.test(err.message) ? 400 : 500);
       if (status >= 500) error('request failed', { path: p, err: err.message }); else warn('bad request', { path: p, err: err.message.slice(0, 120) });
-      if (!res.headersSent) json(res, status, { error: status >= 500 ? 'internal error' : err.message.slice(0, 200) }); else res.end();
+      if (!res.headersSent) json(res, status, { error: status >= 500 ? 'internal error' : scrubError(err) }); else res.end();
     }
   };
 
@@ -457,7 +476,7 @@ export function createApp(o: AppOptions = {}): App {
   const server = createServer((req, res) => { void handler(req, res); });
   server.requestTimeout = 0; server.headersTimeout = 30_000;
   return {
-    server, cfg, store, runOnce, get running() { return running; }, applyEnv: async (force) => { try { const r = await runEnvApply(!!force); for (const x of r) info('env key', { provider: x.provider, var: x.var, ok: x.ok, model: x.model, detail: x.ok ? undefined : x.detail }); return r; } catch (e) { warn('env apply failed', { err: (e as Error).message }); return []; } },
+    server, cfg, store, runOnce, bootstrap: async () => { try { return await bootstrapTools(store, cfg); } catch { return null; } }, get running() { return running; }, applyEnv: async (force) => { try { const r = await runEnvApply(!!force); for (const x of r) info('env key', { provider: x.provider, var: x.var, ok: x.ok, model: x.model, detail: x.ok ? undefined : x.detail }); return r; } catch (e) { warn('env apply failed', { err: (e as Error).message }); return []; } },
     start: () => new Promise<number>((ok, bad) => {
       server.once('error', bad);
       server.listen(o.port ?? Number(process.env.PORT ?? 8080), host, () => {

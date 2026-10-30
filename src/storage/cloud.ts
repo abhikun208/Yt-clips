@@ -14,7 +14,7 @@ export const SIDECARS = ['.json', '.live_chat.json', '.heatmap.json'];
 const DONE = new Set(['PUBLISHED', 'ANALYTICS_WAIT', 'ANALYZING', 'LEARNING', 'NEXT_CYCLE']);
 const remoteOf = (cfg: Config) => (cfg.storage.remote || '').trim().replace(/\/+$/, '');
 export const rcloneAvailable = () => which('rclone');
-export const validRemote = (r: string) => /^[\w.-]+:[\w ./-]*$/.test(r) && !r.includes('..');
+export const validRemote = (r: string) => /^[A-Za-z0-9_][\w.-]*:[\w ./-]*$/.test(r) && !r.includes('..') && !r.startsWith('-');
 
 export async function listRemotes(): Promise<string[]> { const r = await run('rclone', ['listremotes'], { timeoutMs: 20_000 }).catch(() => null); return r && r.code === 0 ? r.stdout.split('\n').map((x) => x.trim()).filter(Boolean) : []; }
 async function lsjson(path: string): Promise<{ Name: string; Size: number }[] | null> { const r = await run('rclone', ['lsjson', path], { timeoutMs: 120_000 }).catch(() => null); if (!r || r.code !== 0) return null; try { return JSON.parse(r.stdout || '[]'); } catch { return null; } }

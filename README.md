@@ -107,3 +107,9 @@ Dhyan: Google naye/unverified API projects par videos ki visibility par pabandi 
 Verified (tests + real ffmpeg/process runs): ingest, analysis, clipping, rendering, captions, QC, state machine, server/auth, automation loop. **Fake-tested only** (asli account par kabhi nahi chala): YouTube/Instagram/Facebook/TikTok API calls. **Unverified:** Docker build, systemd, asli yt-dlp/faster-whisper. Pura hisaab: [PROGRESS.md](PROGRESS.md) aur [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md).
 
 Rights: sirf apni ya authorized content use karo. Views/ranking ki koi guarantee nahi.
+
+
+## Start-up auto-install & security notes
+- On start, missing tools (ffmpeg, yt-dlp, whisper.cpp, edge-tts, opencv) are installed in the background via `setup.sh` (once per 24 h, log `data/bootstrap.log`). Disable with `AUTO_INSTALL=0`.
+- Behind a reverse proxy (Caddy/nginx) set `TRUST_PROXY=1` so rate limits use the real client IP; `COOKIE_SECURE=1` forces Secure cookies.
+- `data/config.json` and `.env` are created with 0600 permissions.
