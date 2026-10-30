@@ -33,6 +33,7 @@ import { shortHash } from '../util/hash.ts';
 import { info, warn } from '../util/log.ts';
 import { pickHook, prependHook } from './hookintro.ts';
 import { narrate } from './narrate.ts';
+import { pickMusicTrack } from './music.ts';
 import { clipHash, hashSimilarity } from '../media/phash.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
@@ -54,12 +55,6 @@ async function faceTrack(path: string, root: string): Promise<[number, number][]
   try { const r = await run('python3', ['-I', join(root, 'tools', 'face_track.py'), path, '5'], { timeoutMs: 4 * 60_000 }); const j = JSON.parse(r.stdout.trim() || '{}') as { track?: [number, number][]; faces?: number }; return (j.faces ?? 0) >= 8 && Array.isArray(j.track) && j.track.length >= 3 ? j.track : []; } catch { return []; }
 }
 
-function pickMusic(assetsDir: string): string | undefined {
-  const d = join(assetsDir, 'music');
-  if (!existsSync(d)) return undefined;
-  // Only files the owner placed there (must be licensed/authorized by them). Nothing is bundled.
-  return readdirSync(d).filter((f) => /\.(mp3|wav|m4a|ogg)$/i.test(f)).map((f) => join(d, f))[0];
-}
 
 /**
  * Render one candidate: (1) frame-accurate raw clip to raw_clips (original-resolution, unedited), (2) edited short to NEW edited_shorts folder.
@@ -183,10 +178,10 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     } catch { emph = []; }
   }
   const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
-  const music = pickMusic(cfg.dirs.assets);
+  const musicPick = pickMusicTrack(cfg.dirs.assets, { mood: c.category, seed: c.id }); const music = musicPick?.path;
   const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
-  const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: cfg.edit.musicVolume, duration: m.duration });
+  const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: musicPick?.volume ?? cfg.edit.musicVolume, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
   const argsFor = (enc: string) => ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), ...(fill ? ['-stream_loop', '-1', '-i', fill] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),
     '-r', String(cfg.edit.fps), ...encodeArgs(enc, { crf: cfg.edit.crf, preset: cfg.edit.preset }), ...(ag.graph ? ['-c:a', 'aac', '-b:a', '160k', '-ar', '48000'] : []), '-movflags', '+faststart', '-t', m.duration.toFixed(3), finalPath + '.part.mp4'];
@@ -207,7 +202,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
     captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,
-    render: { narration: narrated, width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? 'owner-supplied file' : null },
+    render: { narration: narrated, width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? { file: music.split('/').pop(), license: musicPick?.license ?? 'owner-supplied (licence not recorded)', source: musicPick?.source ?? null, moodMatched: musicPick?.matchedMood ?? false } : null },
     treatments, treatmentCoverage: cov, treatmentTarget: { target: cfg.edit.treatmentTarget, met: targetMet }, visualChange, translation, qc, createdAt: new Date().toISOString(),
   };
   const manifestPath = join(cfg.dirs.manifests, `${outputId}.json`);

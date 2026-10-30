@@ -91,3 +91,26 @@ test('render: a stale output left by an interrupted attempt is replaced (no "Ref
   const again = await renderCandidate(s, cfg, cand.id, {}); assert.equal(again.reused, false); assert.ok(ex2(again.editedPath));
   s.close();
 });
+
+import { envStatus, applyEnvKeys } from '../src/ai/envkeys.ts';
+import { KEY_PREFIX, providerFromKey } from '../src/ai/autodetect.ts';
+test('env keys: new providers, odd variable names recognised by key prefix, generic AI_API_KEY + AI_API_BASE', async () => {
+  const st = envStatus({ CEREBRAS_API_KEY: 'csk-abc', MY_GEMINI_KEY: 'AIzaSyXYZ', random_token: 'gsk_123', export_me: 'x', AI_API_KEY: 'zzz', AI_API_BASE: 'https://x.example/v1' } as never);
+  const names = st.filter((x) => x.var).map((x) => `${x.provider}:${x.var}`);
+  for (const n of ['cerebras:CEREBRAS_API_KEY', 'gemini:MY_GEMINI_KEY', 'groq:random_token', 'custom:AI_API_KEY']) assert.ok(names.includes(n), `${n} in ${names}`);
+  assert.equal(providerFromKey('hf_abc'), 'huggingface'); assert.equal(providerFromKey('nvapi-1'), 'nvidia'); assert.ok(KEY_PREFIX['csk-']);
+  const cfg = testConfig(); const calls: string[] = [];
+  const fetchFn = (async (url: string, init?: { method?: string }) => { calls.push(`${init?.method ?? 'GET'} ${url}`); if (/\/models$/.test(url)) return new Response(JSON.stringify({ data: [{ id: 'my-chat-70b' }] }), { status: 200 }); return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 }); }) as unknown as typeof fetch;
+  const r = await applyEnvKeys(cfg, { env: { AI_API_KEY: 'secret-key', AI_API_BASE: 'https://x.example/v1/' } as never, fetchFn });
+  assert.equal(r[0]!.provider, 'custom'); assert.equal(r[0]!.report?.ok, true, JSON.stringify(r[0]!.report)); assert.ok(calls.some((c) => c.startsWith('POST https://x.example/v1/chat/completions')));
+});
+
+import { pickMusicTrack, loadLibrary } from '../src/edit/music.ts';
+test('music library: mood match first, deterministic rotation, only listed files, licence kept, volume clamped', () => {
+  const d = tmpDir(); mkdirSync(join(d, 'music')); for (const f of ['a.mp3', 'b.mp3', 'c.mp3', 'notes.txt']) writeFileSync(join(d, 'music', f), 'x');
+  assert.equal(pickMusicTrack(d, { seed: 0 })?.path.endsWith('a.mp3'), true); assert.equal(pickMusicTrack(d, { seed: 1 })?.path.endsWith('b.mp3'), true); // plain folder = rotation
+  writeFileSync(join(d, 'music', 'library.json'), JSON.stringify([{ file: 'b.mp3', mood: ['comedy'], license: 'YT Audio Library', volume: 5 }, { file: 'c.mp3', mood: ['action'] }, { file: 'missing.mp3' }]));
+  const lib = loadLibrary(d); assert.equal(lib.curated, true); assert.deepEqual(lib.tracks.map((t) => t.file), ['b.mp3', 'c.mp3']); // a.mp3 not listed → unused, missing.mp3 ignored
+  const p = pickMusicTrack(d, { mood: 'comedy', seed: 7 })!; assert.ok(p.path.endsWith('b.mp3') && p.matchedMood && p.license === 'YT Audio Library' && p.volume === 1);
+  assert.equal(pickMusicTrack(d, { mood: 'sad', seed: 0 })!.matchedMood, false); assert.equal(pickMusicTrack(join(d, 'none'), {}), undefined);
+});

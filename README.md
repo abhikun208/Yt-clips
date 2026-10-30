@@ -71,6 +71,12 @@ Worker har ~30 sec: channels poll → analyze → clips → edit (LUT, grain, pa
 - Safety gates sirf server par (UI/API se nahi): `npm run cli -- autopilot on --publish --yes` (private/unlisted tak) · `npm run cli -- autopilot on --review --publish --approve --public --yes` (auto public, aapke review ke baad) · `npm run cli -- autopilot off`.
 - Source channel add karne ke baad kuch nahi karna: loop khud naye uploads dhoondh kar process karta rehta hai (yt-dlp chahiye).
 
+### AI keys (sirf key daalo)
+`.env` mein jis provider ki key ho utni daalo (`.env.ai.example` dekho): GROQ, GEMINI, OPENROUTER, CEREBRAS, SAMBANOVA, NVIDIA, HF_TOKEN, MISTRAL (free tier) — DEEPSEEK/OPENAI/TOGETHER/XAI paid. Koi aur OpenAI-compatible provider ho to `AI_API_KEY=` + `AI_API_BASE=https://…/v1`. Restart ke baad `npm run cli -- env-check` har key ko asli call se test karta hai.
+
+### Background music (apni, pre-cleared)
+`assets/music/` mein YouTube Audio Library / Pixabay / apne tracks daalo. Optional `assets/music/library.json`: `[{"file":"calm.mp3","mood":["comedy"],"license":"YT Audio Library","volume":0.15}]`. Mood se track chuna jaata hai, awaaz ke neeche auto-duck hota hai, licence manifest mein save hota hai.
+
 ### Optional installs (free)
 - Transcript (alternative to Groq): `pip install faster-whisper` (PC/VPS). Ya apna `.srt/.vtt/.json` video ke saath rakho.
 - YouTube download: `pip install yt-dlp`.

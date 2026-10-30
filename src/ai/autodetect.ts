@@ -17,9 +17,9 @@ const ver = (id: string) => (id.match(/(\d+(?:\.\d+)?)/g) ?? []).map(Number);
 const cmpVerDesc = (a: string, b: string) => { const x = ver(a), y = ver(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (y[i] ?? 0) - (x[i] ?? 0); if (d) return d; } return 0; };
 const sizeB = (id: string) => { const m = /(\d+(?:\.\d+)?)\s*b\b/i.exec(id) ?? /-(\d+)b/i.exec(id); return m ? Number(m[1]) : 0; };
 
-export type ProviderId = 'groq' | 'gemini' | 'openrouter' | 'xai' | 'mistral' | 'ollama' | 'lmstudio';
-export const KEY_PREFIX: Record<string, ProviderId> = { gsk_: 'groq', AIza: 'gemini', 'AQ.': 'gemini', 'sk-or-': 'openrouter', 'xai-': 'xai' };
-export const PROBE_ORDER: ProviderId[] = ['groq', 'gemini', 'openrouter', 'xai', 'mistral'];
+export type ProviderId = 'groq' | 'gemini' | 'openrouter' | 'xai' | 'mistral' | 'cerebras' | 'sambanova' | 'nvidia' | 'huggingface' | 'deepseek' | 'openai' | 'together' | 'ollama' | 'lmstudio';
+export const KEY_PREFIX: Record<string, ProviderId> = { gsk_: 'groq', AIza: 'gemini', 'AQ.': 'gemini', 'sk-or-': 'openrouter', 'xai-': 'xai', 'csk-': 'cerebras', 'nvapi-': 'nvidia', hf_: 'huggingface' };
+export const PROBE_ORDER: ProviderId[] = ['groq', 'gemini', 'openrouter', 'cerebras', 'sambanova', 'nvidia', 'huggingface', 'xai', 'mistral', 'deepseek', 'openai', 'together'];
 export const providerFromBase = (base: string): string | null => { for (const [id, b] of Object.entries(BASES)) if (base.replace(/\/+$/, '') === b) return id; return /11434/.test(base) ? 'ollama' : null; };
 export const providerFromKey = (key: string): ProviderId | null => { for (const [p, id] of Object.entries(KEY_PREFIX)) if (key.startsWith(p)) return id; return null; };
 
