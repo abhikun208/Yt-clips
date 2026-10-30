@@ -39,3 +39,11 @@ Code + test passing + PROGRESS.md updated with real results + next step. Report 
 
 ## Pending work
 See `PROGRESS.md` → "PENDING WORK" (single source of truth, includes the triage of the pasted production-upgrade prompt). If a feature already exists, ignore it; otherwise build it.
+
+## Development discipline (owner's rules — always)
+1. Unit tests are a must for everything that is developed.
+2. Integration tests always (real ffmpeg / real server / fake platform where needed).
+3. TDD: write the test cases first, then the code.
+4. When a feature is "complete": switch role to security agent / pen-tester and try to BREAK it. Report findings as points ONLY — do not fix in that step.
+5. Discuss the findings with the owner, then fix them one by one (a test for each).
+6. After that: simulate thousands of users (load / many sources / many channels) and report what breaks and which flows fail.
