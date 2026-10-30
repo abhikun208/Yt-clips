@@ -81,7 +81,10 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   mkdirSync(cfg.dirs.rawClips, { recursive: true }); mkdirSync(cfg.dirs.editedShorts, { recursive: true });
   const rawPath = join(cfg.dirs.rawClips, `${baseId}.mp4`);
   const finalPath = join(cfg.dirs.editedShorts, `${outputId}.mp4`);
-  if (existsSync(finalPath)) throw new Error(`Refusing to overwrite existing output ${finalPath}`);
+  if (existsSync(finalPath)) { // reached only when no finished clip row owns this file → a leftover of an interrupted attempt of ours (never a source/original): replace it
+    if (store.get('SELECT 1 FROM clips WHERE edited_path=?', finalPath)) throw new Error(`Refusing to overwrite existing output ${finalPath}`);
+    rmSync(finalPath, { force: true }); warn('removed stale output of an interrupted render', { file: finalPath });
+  }
   const th = String(cfg.resources.ffmpegThreads);
 
   // 1) raw clip (frame-accurate: seek AFTER -i, re-encode)
@@ -100,6 +103,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     renameSync(tmp, rawPath);
   }
   const chan0early = channelOfVideo(store, c.video_id);
+  const cleanFx = chan0early.config.effects === 'clean'; // owner/channel choice: dialogue/comedy content without film grain, dust, light leak, flash cuts, LUT, slow-mo
   let m = await probe(rawPath);
   // 1a) optional jump cuts: dead-air (long silences) removed; captions re-timed. Verified by duration, else rendered without.
   let cuts: CutPlan | null = null; let srcPath = rawPath; let cutNote = 'disabled'; const tmpFiles: string[] = [];
@@ -117,7 +121,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   }
   // 1b) optional slow-motion window at the strongest audio peak (re-timed clip; captions are re-timed to match)
   let ramp: Ramp | null = null; let editSrc = srcPath; let rampNote = 'disabled';
-  if ((ro.speedRamp ?? cfg.edit.speedRamp) && m.hasAudio) {
+  if ((ro.speedRamp ?? (cleanFx ? false : cfg.edit.speedRamp)) && m.hasAudio) {
     try {
       const peaks = pickPeaks(await audioEnergy(srcPath, 0.25), { duration: m.duration, max: 1 }); ramp = planRamp(peaks[0], m.duration); rampNote = ramp ? '' : 'no strong peak / clip too short';
       if (ramp) {
@@ -181,7 +185,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
   const music = pickMusic(cfg.dirs.assets);
   const vg = buildVideoGraph({ punch,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
-    vfx: { ...cfg.edit.vfx, ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
+    vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: cfg.edit.musicVolume, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
   const argsFor = (enc: string) => ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), ...(fill ? ['-stream_loop', '-1', '-i', fill] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),

@@ -69,3 +69,25 @@ test('doctor: closes meta jobs of deleted clips, closes uploads whose video is g
   assert.equal(store.get<{ state: string }>(`SELECT state FROM jobs WHERE key=?`, `render:${cand}`)!.state, 'PENDING');
 });
 test('a saved Ollama URL in the STT slot is ignored', () => { const old = process.env.STT_API_BASE; process.env.STT_API_BASE = 'http://127.0.0.1:11434/v1'; try { assert.equal(sttCreds(testConfig()), null); } finally { if (old === undefined) delete process.env.STT_API_BASE; else process.env.STT_API_BASE = old; } });
+
+import { cleanConfig as cc2 } from '../src/channels.ts';
+test('channel effects setting is validated', () => { assert.equal(cc2({ effects: 'clean' }, () => true).effects, 'clean'); assert.throws(() => cc2({ effects: 'wild' }, () => true)); });
+
+import { existsSync as ex2, readFileSync } from 'node:fs';
+import { ingestLocal } from '../src/sources/local.ts';
+import { analyzeVideo } from '../src/analysis/analyzer.ts';
+import { renderCandidate } from '../src/edit/render.ts';
+import { updateChannel } from '../src/channels.ts';
+test('render: a stale output left by an interrupted attempt is replaced (no "Refusing to overwrite"); effects=clean drops grain/dust/flash/LUT/slow-mo', { timeout: 200_000 }, async () => {
+  const d = tmpDir(); const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 2, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } }); const s = new Store(cfg.dbPath);
+  const src = join(d, 'v.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  updateChannel(s, 1, { config: { effects: 'clean' } } as never, () => true);
+  const cand = s.get<{ id: number }>('SELECT id FROM candidates ORDER BY score DESC')!;
+  const first = await renderCandidate(s, cfg, cand.id, {});
+  const man = JSON.parse(readFileSync(join(cfg.dirs.manifests, `${first.outputId}.json`), 'utf8')); const dims = (man.treatments as { dimension: string; applied: boolean }[]).filter((t) => t.applied).map((t) => t.dimension);
+  for (const bad of ['film_grain', 'particles', 'light_leak', 'flash_transition', 'cinematic_lut', 'speed_ramp']) assert.ok(!dims.includes(bad), `${bad} must be off in clean mode: ${dims}`);
+  // simulate an interrupted attempt: the clip row never got its path, but the file is on disk
+  s.exec('UPDATE clips SET edited_path=NULL, qc_pass=NULL WHERE id=?', first.clipId); assert.ok(ex2(first.editedPath));
+  const again = await renderCandidate(s, cfg, cand.id, {}); assert.equal(again.reused, false); assert.ok(ex2(again.editedPath));
+  s.close();
+});
