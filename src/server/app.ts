@@ -82,7 +82,7 @@ export function createApp(o: AppOptions = {}): App {
   const maxUpload = (o.maxUploadMb ?? Number(process.env.MAX_UPLOAD_MB ?? 2048)) * 1024 * 1024;
   const uploadDir = join(cfg.dataDir, 'uploads'); mkdirSync(uploadDir, { recursive: true });
   const previewDir = join(cfg.dirs.tmp, 'preview');
-  let lastPoll = 0; let lastEnvTry = Date.now(); let lastDoctor = 0; let lastAnalytics = 0; let lastComments = 0; let lastTt = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
+  let chCache: { t: number; body: unknown } | null = null; let chPending: Promise<unknown[]> | null = null; let lastPoll = 0; let lastEnvTry = Date.now(); let lastDoctor = 0; let lastAnalytics = 0; let lastComments = 0; let lastTt = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
   const fails = new Map<string, { n: number; t: number }>();
 
   async function runOnce(): Promise<void> {
@@ -152,7 +152,7 @@ export function createApp(o: AppOptions = {}): App {
   }
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? '/', 'http://x'); const p = url.pathname; const m = req.method ?? 'GET';
+    const url = new URL(req.url ?? '/', 'http://x'); const p = url.pathname; const m = req.method ?? 'GET'; if (m !== 'GET' && m !== 'HEAD') chCache = null;
     res.setHeader('x-frame-options', 'DENY'); res.setHeader('referrer-policy', 'no-referrer');
     try {
       if (p === '/healthz') {
@@ -194,6 +194,7 @@ export function createApp(o: AppOptions = {}): App {
       const f = fails.get(ip);
       if (!authed(req)) { // lockout applies ONLY to callers that are not authenticated, and only wrong credentials count (a browser that has not logged in yet is not an attack)
         if (f && f.n >= 10 && Date.now() - f.t < 60_000) return json(res, 429, { error: 'too many failed attempts' });
+        if (fails.size > 5000) { const now = Date.now(); for (const [k, v] of fails) if (now - v.t > 60_000) fails.delete(k); if (fails.size > 5000) fails.clear(); } // bounded memory under spray from many addresses
         if (hasCreds(req)) fails.set(ip, { n: (f && Date.now() - f.t < 60_000 ? f.n : 0) + 1, t: Date.now() });
         return json(res, 401, { error: 'unauthorized' });
       }
@@ -354,14 +355,17 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/analytics' && m === 'GET') return json(res, 200, { platforms: analyticsSummary(store, cfg.timezone, (pl) => hourStats(store, cfg.timezone, pl)) });
       if (p === '/api/analytics/import' && m === 'POST') return json(res, 200, importAnalyticsCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'), url.searchParams.get('platform') ?? undefined));
       if (p === '/api/channels' && m === 'GET') {
-        const from = new Date(); const rows = listChannels(store).map((ch) => {
+        if (chCache && Date.now() - chCache.t < 15_000) return json(res, 200, chCache.body); // planning slots per channel is CPU heavy (≈20 ms each): with hundreds of channels + a busy dashboard it starved the server, so the answer is shared for 15 s and any write clears it
+        const from = new Date(); if (!chPending) chPending = (async () => { const out = []; for (const ch of listChannels(store)) { out.push((() => {
           const eff = scheduleFor(cfg, ch); const pl = planFromStore(store, { n: 3, tz: cfg.timezone, cfg: eff, from, channelId: ch.id });
           const cnt = store.get<{ sources: number }>('SELECT count(*) AS sources FROM sources WHERE channel_id=?', ch.id)!;
           const up = store.get<{ queued: number; scheduled: number; published: number }>(`SELECT count(*) AS queued, sum(state='SCHEDULED_OR_APPROVED') AS scheduled, sum(state='PUBLISHED') AS published FROM uploads WHERE channel_id=?`, ch.id)!;
           const yt = youtubeStatus(store, cfg, ch);
           return { id: ch.id, slug: ch.slug, name: ch.name, profile: ch.profile, config: ch.config, schedule: eff, evidenceRows: pl.samples, nextSlots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })), sources: cnt.sources, uploads: { queued: up.queued, scheduled: up.scheduled ?? 0, published: up.published ?? 0 }, youtube: { connected: yt.connected, clientConfigured: yt.clientConfigured, identity: identityOf(store, ch.slug) } };
-        });
-        return json(res, 200, { channels: rows, platforms: ALLOWED_PLATFORMS, timezone: cfg.timezone, globalSchedule: cfg.schedule });
+        })()); await new Promise((r) => setImmediate(r)); } return out; })().finally(() => { chPending = null; }); // one computation shared by concurrent callers; yields between channels so other requests keep flowing
+        const rows = await chPending;
+        const body = { channels: rows, platforms: ALLOWED_PLATFORMS, timezone: cfg.timezone, globalSchedule: cfg.schedule }; chCache = { t: Date.now(), body };
+        return json(res, 200, body);
       }
       if (p === '/api/channels' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown };

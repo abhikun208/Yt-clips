@@ -55,3 +55,16 @@ test('package lint: advisory warnings from visible words only', () => {
   const w = lintPackage({ title: 'THIS IS A VERY LOUD TITLE THAT GOES ON AND ON FOR TOO LONG TO FIT', description: 'x' }, 'this is a very loud title that goes on and on for too long to fit');
   assert.ok(w.some((x) => /60/.test(x)) && w.some((x) => /ALL CAPS/.test(x)) && w.some((x) => /repeats/.test(x)) && w.some((x) => /short/.test(x)));
 });
+
+import { createApp } from '../src/server/app.ts';
+test('scale: /api/channels with 60 channels answers 80 concurrent callers quickly (shared + cached), and status stays responsive', async () => {
+  const T = 'load-token-0123456789'; const app = createApp({ host: '127.0.0.1', port: 0, token: T, dataDir: tmpDir(), autoRun: false }); const port = await app.start(); const b = `http://127.0.0.1:${port}`; const H = { authorization: `Bearer ${T}` };
+  try {
+    for (let i = 0; i < 60; i++) app.store.exec(`INSERT INTO channels(slug,name) VALUES(?,?)`, `c${i}`, `C${i}`);
+    const t0 = Date.now(); const rs = await Promise.all([...Array.from({ length: 80 }, () => fetch(`${b}/api/channels`, { headers: H })), fetch(`${b}/api/status`, { headers: H })]);
+    assert.ok(rs.every((r) => r.status === 200)); const j = await rs[0]!.json() as { channels: unknown[] }; assert.ok(j.channels.length >= 61); assert.ok(Date.now() - t0 < 15_000, `took ${Date.now() - t0}ms`);
+    const t1 = Date.now(); await fetch(`${b}/api/channels`, { headers: H }); assert.ok(Date.now() - t1 < 500, 'second call is served from the 15 s cache');
+    await fetch(`${b}/api/channels`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Fresh One' }) });
+    const j2 = await (await fetch(`${b}/api/channels`, { headers: H })).json() as { channels: { name: string }[] }; assert.ok(j2.channels.some((c) => c.name === 'Fresh One'), 'a write clears the cache');
+  } finally { await app.stop(); }
+});

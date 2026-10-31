@@ -87,6 +87,8 @@ const MIGRATIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS clip_fingerprints (clip_id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
   // v10 (additive): owner-reported copyright claims (Studio is the only place Content ID shows) -> per-source counter
   `CREATE TABLE IF NOT EXISTS claims (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, source_id INTEGER, kind TEXT NOT NULL, ranges_json TEXT NOT NULL DEFAULT '[]', note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v11 (additive): indexes for many-channel installs (per-channel counts, queue lookups, source->videos)
+  `CREATE INDEX IF NOT EXISTS idx_sources_channel ON sources(channel_id); CREATE INDEX IF NOT EXISTS idx_uploads_channel ON uploads(channel_id, state); CREATE INDEX IF NOT EXISTS idx_videos_source ON videos(source_id); CREATE INDEX IF NOT EXISTS idx_clips_cand ON clips(candidate_id);`,
 ];
 
 export type Row = Record<string, unknown>;
