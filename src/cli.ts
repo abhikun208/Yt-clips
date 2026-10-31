@@ -26,6 +26,8 @@ import { readFileSync } from 'node:fs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const cfg = loadConfig();
+// keys from .env/environment are applied for every CLI command too (previously only the server did, so `remeta`/`run` from the CLI saw no key)
+if (cmd && !['help', '--help', 'set', 'token', 'local-check', 'env-check', 'doctor'].includes(cmd)) { try { const { applyEnvKeys } = await import('./ai/envkeys.ts'); await Promise.race([applyEnvKeys(cfg), new Promise((r) => setTimeout(r, 20_000))]); } catch { /* best effort */ } }
 
 async function doctor(): Promise<number> {
   const checks: [string, boolean, string][] = [];

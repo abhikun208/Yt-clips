@@ -14,6 +14,17 @@ export const assColor = (hex: string, alpha = 0): string => {
   return `&H${alpha.toString(16).padStart(2, '0').toUpperCase()}${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toUpperCase();
 };
 const inl = (hex: string) => assColor(hex).replace('&H00', '&H') + '&'; // inline form &HBBGGRR&
+/** Fit an on-screen title into the safe width: wrap to max 2 lines (WrapStyle 2 never wraps by itself), shrink the font if needed, trim at a word as the last resort. Returns ASS text (with \\N and an optional \\fs override). */
+export function fitTitle(text: string, W: number, baseSize: number, minSize: number): string {
+  const usable = W - 140, cw = 0.62; // average glyph width of a bold caps/latin font, in em
+  let words = text.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').trim().split(/\s+/).filter(Boolean); if (!words.length) return '';
+  const wrap = (n: number): string[] => { const out: string[] = []; let cur = ''; for (const w of words) { if (cur && (cur + ' ' + w).length > n) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; } if (cur) out.push(cur); return out; };
+  for (let size = baseSize; size >= minSize; size -= Math.max(2, Math.round(baseSize * 0.06))) {
+    const n = Math.floor(usable / (cw * size)); const lines = wrap(n); if (lines.length <= 2 && lines.every((l) => l.length <= n)) return (size < baseSize ? `{\\fs${size}}` : '') + lines.join('\\N');
+  }
+  const n = Math.floor(usable / (cw * minSize)); while (words.length > 1 && wrap(n).length > 2) words = words.slice(0, -1);
+  const lines = wrap(n).slice(0, 2).map((l) => l.length > n ? l.slice(0, n - 1) + '…' : l); return `{\\fs${minSize}}` + lines.join('\\N');
+}
 const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').trim();
 
 interface TWord { w: string; a: number; b: number }
@@ -100,8 +111,8 @@ Style: Title,${f.font},${tSize},${assColor(o.titleColor ?? pal.active)},${assCol
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
   const lines: string[] = [];
-  if (o.cta && dur >= 6) lines.push(`Dialogue: 1,${hms(Math.max(0.5, dur - 3))},${hms(dur)},Title,,0,0,0,,{\\fad(250,200)}${clean(o.cta)}`);
-  if (title) lines.push(`Dialogue: 1,${hms(0.2)},${hms(Math.min(3.5, dur))},Title,,0,0,0,,{\\fad(200,300)\\fscx80\\fscy80\\t(0,200,\\fscx100\\fscy100)}${clean(title)}`);
+  if (o.cta && dur >= 6) lines.push(`Dialogue: 1,${hms(Math.max(0.5, dur - 3))},${hms(dur)},Title,,0,0,0,,{\\fad(250,200)}${fitTitle(o.cta, o.width, tSize, Math.round(H * 0.026))}`);
+  if (title) lines.push(`Dialogue: 1,${hms(0.2)},${hms(Math.min(3.5, dur))},Title,,0,0,0,,{\\fad(200,300)\\fscx80\\fscy80\\t(0,200,\\fscx100\\fscy100)}${fitTitle(title, o.width, tSize, Math.round(H * 0.026))}`);
 
   const emph = new Set([...HOOK_WORDS, ...(o.emphasis ?? [])].map((x) => x.toLowerCase()));
   const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');

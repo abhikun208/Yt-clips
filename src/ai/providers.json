@@ -157,6 +157,78 @@
         "qwen2.5:7b"
       ],
       "stt": []
+    },
+    {
+      "id": "llm7",
+      "label": "LLM7.io (free, no card)",
+      "base": "https://api.llm7.io/v1",
+      "keyHint": "key",
+      "getKey": "token.llm7.io",
+      "models": [
+        "gpt-4.1-nano",
+        "default"
+      ],
+      "stt": []
+    },
+    {
+      "id": "modelscope",
+      "label": "ModelScope (free quota)",
+      "base": "https://api-inference.modelscope.cn/v1",
+      "keyHint": "ms-...",
+      "getKey": "modelscope.cn/my/myaccesstoken",
+      "models": [
+        "Qwen/Qwen3-235B-A22B-Instruct-2507",
+        "Qwen/Qwen3-32B"
+      ],
+      "stt": []
+    },
+    {
+      "id": "siliconflow",
+      "label": "SiliconFlow (free small models)",
+      "base": "https://api.siliconflow.cn/v1",
+      "keyHint": "sk-...",
+      "getKey": "cloud.siliconflow.cn/account/ak",
+      "models": [
+        "Qwen/Qwen3-8B",
+        "THUDM/glm-4-9b-chat"
+      ],
+      "stt": [
+        "FunAudioLLM/SenseVoiceSmall"
+      ]
+    },
+    {
+      "id": "zai",
+      "label": "Z AI / Zhipu (free flash)",
+      "base": "https://open.bigmodel.cn/api/paas/v4",
+      "keyHint": "key",
+      "getKey": "open.bigmodel.cn/usercenter/apikeys",
+      "models": [
+        "glm-4.7-flash",
+        "glm-4-flash"
+      ],
+      "stt": []
+    },
+    {
+      "id": "nebius",
+      "label": "Nebius AI Studio",
+      "base": "https://api.studio.nebius.com/v1",
+      "keyHint": "key",
+      "getKey": "studio.nebius.com",
+      "models": [
+        "meta-llama/Llama-3.3-70B-Instruct"
+      ],
+      "stt": []
+    },
+    {
+      "id": "ai21",
+      "label": "AI21 Labs",
+      "base": "https://api.ai21.com/studio/v1",
+      "keyHint": "key",
+      "getKey": "studio.ai21.com/account/api-key",
+      "models": [
+        "jamba-mini"
+      ],
+      "stt": []
     }
   ]
 }

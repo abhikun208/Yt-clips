@@ -3,7 +3,7 @@ import { CATALOG, saveProviderKey, autoSetup, slotFor, providerFromKey, type Aut
 import { llmSlot, SLOT_LIST } from './settings.ts';
 
 /** Which env var names fill which provider (first one set wins). Only names are ever reported, never values. */
-export const ENV_KEYS: Record<string, string[]> = { groq: ['GROQ_API_KEY'], gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], openrouter: ['OPENROUTER_API_KEY'], xai: ['XAI_API_KEY', 'GROK_API_KEY'], mistral: ['MISTRAL_API_KEY'], cerebras: ['CEREBRAS_API_KEY'], sambanova: ['SAMBANOVA_API_KEY'], nvidia: ['NVIDIA_API_KEY', 'NGC_API_KEY'], huggingface: ['HF_TOKEN', 'HUGGINGFACE_API_KEY', 'HUGGING_FACE_HUB_TOKEN'], deepseek: ['DEEPSEEK_API_KEY'], openai: ['OPENAI_API_KEY'], together: ['TOGETHER_API_KEY'] };
+export const ENV_KEYS: Record<string, string[]> = { groq: ['GROQ_API_KEY'], gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], openrouter: ['OPENROUTER_API_KEY'], xai: ['XAI_API_KEY', 'GROK_API_KEY'], mistral: ['MISTRAL_API_KEY'], cerebras: ['CEREBRAS_API_KEY'], sambanova: ['SAMBANOVA_API_KEY'], nvidia: ['NVIDIA_API_KEY', 'NGC_API_KEY'], huggingface: ['HF_TOKEN', 'HUGGINGFACE_API_KEY', 'HUGGING_FACE_HUB_TOKEN'], deepseek: ['DEEPSEEK_API_KEY'], openai: ['OPENAI_API_KEY'], together: ['TOGETHER_API_KEY'], llm7: ['LLM7_API_KEY', 'LLM7_TOKEN'], modelscope: ['MODELSCOPE_API_KEY', 'MODELSCOPE_TOKEN'], siliconflow: ['SILICONFLOW_API_KEY'], zai: ['ZAI_API_KEY', 'ZHIPU_API_KEY', 'BIGMODEL_API_KEY'], nebius: ['NEBIUS_API_KEY'], ai21: ['AI21_API_KEY'] };
 const clean = (v: string) => v.trim().replace(/^bearer\s+/i, '').replace(/^["']|["']$/g, '').trim();
 
 const SUFFIXES = ['', '_2', '_3', '_4', '_5'];

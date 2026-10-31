@@ -65,6 +65,17 @@ export function validateMetadata(m: Metadata): string[] {
   return errs;
 }
 
+/** Advisory (never blocking) title/hook checks, after the MIT-licensed youtube-agent-skill "title/thumbnail linter" idea: only things visible in the words themselves. */
+export function lintPackage(m: { title: string; description?: string }, hookText?: string | null): string[] {
+  const w: string[] = []; const t = m.title.replace(/#\S+/g, '').trim();
+  if (t.length > 60) w.push(`title ${t.length} chars: mobile search cuts after ~60`);
+  const letters = t.replace(/[^A-Za-z]/g, ''); if (letters.length >= 8 && letters === letters.toUpperCase()) w.push('title is ALL CAPS');
+  if (/^(video|clip|short|funny|best|new)\b[\s\d:.-]*$/i.test(t)) w.push('title is vague');
+  if (hookText && hookText.trim().toLowerCase() === t.toLowerCase()) w.push('on-screen hook repeats the title word-for-word (waste of the first 3 seconds)');
+  if ((m.description ?? '').trim().length < 40) w.push('description is very short (add what the clip is about)');
+  return w;
+}
+
 /** Series clips: add "(Part n/N)" to the title and a line to the description. No-op for single clips. */
 export function withPart(md: Metadata, part?: { no: number; total: number } | null): Metadata {
   if (!part?.no || !part.total) return md;

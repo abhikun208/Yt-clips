@@ -72,7 +72,7 @@ Worker har ~30 sec: channels poll → analyze → clips → edit (LUT, grain, pa
 - Source channel add karne ke baad kuch nahi karna: loop khud naye uploads dhoondh kar process karta rehta hai (yt-dlp chahiye).
 
 ### AI keys (sirf key daalo)
-`.env` mein jis provider ki key ho utni daalo (`.env.ai.example` dekho): GROQ, GEMINI, OPENROUTER, CEREBRAS, SAMBANOVA, NVIDIA, HF_TOKEN, MISTRAL (free tier) — DEEPSEEK/OPENAI/TOGETHER/XAI paid. Koi aur OpenAI-compatible provider ho to `AI_API_KEY=` + `AI_API_BASE=https://…/v1`. Restart ke baad `npm run cli -- env-check` har key ko asli call se test karta hai.
+`.env` mein jis provider ki key ho utni daalo (`.env.ai.example` dekho): GROQ, GEMINI, OPENROUTER, CEREBRAS, SAMBANOVA, NVIDIA, HF_TOKEN, MISTRAL (free tier), LLM7, MODELSCOPE, SILICONFLOW, ZAI, NEBIUS, AI21 — DEEPSEEK/OPENAI/TOGETHER/XAI paid. Koi aur OpenAI-compatible provider ho to `AI_API_KEY=` + `AI_API_BASE=https://…/v1`. Restart ke baad `npm run cli -- env-check` har key ko asli call se test karta hai.
 
 ### Background music (apni, pre-cleared)
 `assets/music/` mein YouTube Audio Library / Pixabay / apne tracks daalo. Optional `assets/music/library.json`: `[{"file":"calm.mp3","mood":["comedy"],"license":"YT Audio Library","volume":0.15}]`. Mood se track chuna jaata hai, awaaz ke neeche auto-duck hota hai, licence manifest mein save hota hai.
@@ -113,3 +113,5 @@ Rights: sirf apni ya authorized content use karo. Views/ranking ki koi guarantee
 - On start, missing tools (ffmpeg, yt-dlp, whisper.cpp, edge-tts, opencv) are installed in the background via `setup.sh` (once per 24 h, log `data/bootstrap.log`). Disable with `AUTO_INSTALL=0`.
 - Behind a reverse proxy (Caddy/nginx) set `TRUST_PROXY=1` so rate limits use the real client IP; `COOKIE_SECURE=1` forces Secure cookies.
 - `data/config.json` and `.env` are created with 0600 permissions.
+- Hindi/Hinglish: Whisper language defaults to Hindi (`stt.indiaFirst`, set false for English-only channels or set a channel `language`). Wide sources in fit mode are trimmed 10% per side (`edit.fitZoom`, 1 = off).
+- Optional VoiceStudio voice-over: `YT_CLIPS_VOICESTUDIO_URL=http://127.0.0.1:<port>` (unverified route).

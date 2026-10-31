@@ -35,7 +35,7 @@ python3 -c 'import cv2' 2>/dev/null && echo "ok" || { if [ "$PM" = termux ]; the
 say "whisper.cpp (free offline speech-to-text: real titles + word captions)"
 if [ -x "$HOME/whisper.cpp/build/bin/whisper-cli" ] && ls "$HOME"/whisper.cpp/models/ggml-*.bin >/dev/null 2>&1; then echo "ok (already built)"; else
   RAM=$(awk '/MemTotal/{printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null || echo 4)
-  M="${WHISPER_MODEL:-$([ "${RAM:-4}" -ge 4 ] && echo small || echo base)}"
+  M="${WHISPER_MODEL:-$([ "${RAM:-4}" -ge 8 ] && echo medium || { [ "${RAM:-4}" -ge 4 ] && echo small || echo base; })}"
   have cmake || pm_install cmake; have g++ || have clang || { [ "$PM" = apt ] && pm_install build-essential || pm_install clang make; }
   sh tools/install-whisper-cpp.sh "$M" || echo "WARN whisper.cpp install failed (send the last 20 lines); a free Groq key in the dashboard also works"
 fi

@@ -3,7 +3,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { loadTranscript, guessLanguage, type Cue } from '../analysis/transcript.ts';
 import { transcribeVideo } from '../analysis/stt.ts';
-import { buildMetadata, validateMetadata, withPart, type Metadata } from './metadata.ts';
+import { buildMetadata, validateMetadata, lintPackage, withPart, type Metadata } from './metadata.ts';
 import { llmMetadata } from './llm.ts';
 import { llmChain } from '../ai/settings.ts';
 import { makeThumbnail } from './thumbnail.ts';
@@ -49,6 +49,7 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   }
   const generic = md.generic === true || transcript.split(/\s+/).length < 8; md = { ...md, generic };
   const errs = validateMetadata(md); if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);
+  { const lw = lintPackage(md); if (lw.length) warn('metadata advice', { lw }); }
   const thumb = await makeThumbnail(row.edited_path, join(cfg.dirs.thumbnails, `${row.output_id}.jpg`), md.thumbnailText).catch((e: Error) => { warn('thumbnail failed', { clip: clipId, err: e.message.slice(0, 80) }); return null; });
   store.exec('UPDATE clips SET metadata_json=?, thumbnail_path=? WHERE id=?', JSON.stringify({ ...md, thumbnailOk: !!thumb }), thumb?.path ?? null, clipId);
   if (o.notifyOwner !== false) void notify(store, cfg, `clip:${clipId}`, `Clip ready for review: ${md.titles[0] ?? row.output_id} (${ch.name}). Dashboard → Clips.`);

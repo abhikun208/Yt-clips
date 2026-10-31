@@ -51,12 +51,14 @@ export const resetApiBreaker = () => { apiDownAt = 0; };
 export let lastApiSttError: { at: number; err: string } | null = null;
 export const noteApiSttError = (err: string) => { lastApiSttError = { at: Date.now(), err: err.slice(0, 120) }; };
 /** Extract 16k mono audio, run STT, write the `<video>.json` sidecar the analyzer/captions already read. Never throws: failure => status. */
+/** Whisper's own 'auto' detection often calls Hindi/Hinglish speech over music "English" and then invents English sentences (owner's TMKOC clip: "gets away from the water…"). For this owner's content Hindi is the safe default: Hindi speech -> Devanagari -> Hinglish captions; English speech still comes out in Latin letters. Turn off with stt.indiaFirst=false (or set a language per channel). */
+export const sttLang = (cfg: Config, hint?: string): string => { const l = hint ?? cfg.stt.language; return (!l || l === 'auto') && cfg.stt.indiaFirst !== false ? 'hi' : (l || 'auto'); };
 export async function transcribeVideo(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
   if (!process.env.YT_CLIPS_STT_CMD && cfg.stt.engine !== 'local') {
     const api = Date.now() - apiDownAt < 10 * 60_000 ? null : sttCreds(cfg); // circuit breaker: after a network failure the cloud engine is skipped for 10 min (no 1-minute wait per clip)
     if (api) {
       try {
-        const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: hint.language ?? cfg.stt.language, prompt: hint.prompt ?? cfg.stt.prompt });
+        const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: sttLang(cfg, hint.language), prompt: hint.prompt ?? cfg.stt.prompt });
         if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'api', language: r.language };
         lastApiSttError = null; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'api', model: api.model, cues: r.cues.length, language: r.language });
         return { status: 'ok', cues: r.cues, language: r.language, engine: 'api' };
@@ -67,7 +69,7 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
   const pick = await pickLocal(cfg);
   if (pick?.id === 'voicestudio') {
     try {
-      const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, { baseUrl: voiceStudioUrl(cfg) + '/v1', apiKey: '', model: cfg.stt.model }, { language: hint.language ?? cfg.stt.language, prompt: hint.prompt ?? cfg.stt.prompt });
+      const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, { baseUrl: voiceStudioUrl(cfg) + '/v1', apiKey: '', model: cfg.stt.model }, { language: sttLang(cfg, hint.language), prompt: hint.prompt ?? cfg.stt.prompt });
       if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'voicestudio', language: r.language };
       writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'voicestudio', cues: r.cues.length });
       return { status: 'ok', cues: r.cues, language: r.language, engine: 'voicestudio' };
@@ -76,7 +78,7 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
   const eng = pick && (pick.id === 'faster-whisper' || pick.id === 'custom') ? await sttEngine(cfg.rootDir) : pick ? { cmd: '', args: [], name: pick.id } : null;
   if (!eng && cfg.stt.engine !== 'local') { // last resort: a saved Gemini key can listen to audio (approximate timing, labelled engine "gemini-audio")
     const g = llmChain(cfg).find((x) => /generativelanguage\.googleapis\.com/.test(x.baseUrl));
-    if (g) { try { const r = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: hint.language ?? cfg.stt.language }); if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'gemini-audio' }; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'gemini-audio', cues: r.cues.length }); return { status: 'ok', cues: r.cues, engine: 'gemini-audio' }; } catch (e) { return { status: 'failed', cues: [], engine: 'gemini-audio', error: (e as Error).message.slice(0, 200) }; } }
+    if (g) { try { const r = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: sttLang(cfg, hint.language) }); if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'gemini-audio' }; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'gemini-audio', cues: r.cues.length }); return { status: 'ok', cues: r.cues, engine: 'gemini-audio' }; } catch (e) { return { status: 'failed', cues: [], engine: 'gemini-audio', error: (e as Error).message.slice(0, 200) }; } }
   }
   if (!eng) return { status: 'unavailable', cues: [], error: 'no local STT engine (Setup -> Local speech-to-text shows what to install; or add a free Groq key)' };
   const wav = join(cfg.dirs.tmp, `stt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
@@ -84,7 +86,7 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
     const ex = await run('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], { timeoutMs: 30 * 60_000 });
     if (ex.code !== 0) return { status: 'failed', cues: [], engine: eng.name, error: `audio extraction failed: ${ex.stderr.slice(0, 150)}` };
     let r = { code: 0, stdout: '', stderr: '' }; let parsed: { cues: Cue[]; language?: string };
-    try { if (eng.cmd) { r = await run(eng.cmd, [...eng.args, wav, cfg.stt.model, hint.language ?? cfg.stt.language], { timeoutMs: 4 * 60 * 60_000 }); parsed = parseSttJson(r.stdout); } else parsed = await runLocalCli(cfg, eng.name as 'whisper-cpp' | 'whisper-cli', wav, hint.language ?? cfg.stt.language); } catch (e) { return { status: 'failed', cues: [], engine: eng.name, error: (e as Error).message.slice(0, 200) }; }
+    try { if (eng.cmd) { r = await run(eng.cmd, [...eng.args, wav, cfg.stt.model, sttLang(cfg, hint.language)], { timeoutMs: 4 * 60 * 60_000 }); parsed = parseSttJson(r.stdout); } else parsed = await runLocalCli(cfg, eng.name as 'whisper-cpp' | 'whisper-cli', wav, sttLang(cfg, hint.language)); } catch (e) { return { status: 'failed', cues: [], engine: eng.name, error: (e as Error).message.slice(0, 200) }; }
     if (r.code !== 0) return { status: 'failed', cues: [], engine: eng.name, error: `engine exit ${r.code}` };
     if (!parsed.cues.length) return { status: 'no_speech', cues: [], engine: eng.name, language: parsed.language };
     writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(parsed.cues));

@@ -14,7 +14,7 @@ export interface Config {
   };
   edit: {
     width: number; height: number; fps: number; crf: number; preset: string; encoder: 'auto' | 'libx264' | 'h264_nvenc' | 'h264_videotoolbox' | 'h264_mediacodec';
-    reframe: 'crop' | 'fit_blur'; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
+    reframe: 'crop' | 'fit_blur'; fitZoom?: number; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
     vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean };
     jumpCuts: boolean; emphasisZoom: boolean; hookTitle?: boolean; narration?: boolean; memeHook?: boolean; musicVolume?: number; speakerFollow?: boolean; cta?: string; captionLanguage?: 'auto' | 'hinglish' | 'hi' | 'en' | 'original'; pace: 'fast' | 'medium' | 'relaxed' | 'off';
   };
@@ -22,7 +22,7 @@ export interface Config {
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
   gates: { publishEnabled: boolean; commentsAutoPost: boolean; publicVisibilityAllowed: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number; renderConcurrency: number };
-  stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
+  stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; indiaFirst?: boolean; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
   storage: { remote: string; deleteLocal: boolean; purgeAfterDays: number };
