@@ -64,6 +64,10 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const c = store.get<{ id: number; video_id: number; start_sec: number; end_sec: number; category: string; status: string }>('SELECT id, video_id, start_sec, end_sec, category, status FROM candidates WHERE id=?', candidateId);
   if (!c) throw new Error(`Unknown candidate ${candidateId}`);
   const prior = ro.variant ? undefined : store.get<{ id: number; output_id: string; edited_path: string; qc_pass: number }>('SELECT id, output_id, edited_path, qc_pass FROM clips WHERE candidate_id=? AND variant=0', candidateId);
+  { // the folder may have been moved/renamed (stored paths absolute): a finished file of this clip under the CURRENT output folder is the same result
+    const here = prior ? join(cfg.dirs.editedShorts, `${prior.output_id}.mp4`) : null;
+    if (prior && prior.edited_path && here && !existsSync(prior.edited_path) && existsSync(here) && statSync(here).size > 10_000) { store.exec('UPDATE clips SET edited_path=? WHERE id=?', here, prior.id); prior.edited_path = here; info('clip path re-pointed after folder move', { clip: prior.id }); }
+  }
   if (prior && prior.edited_path && existsSync(prior.edited_path)) return { clipId: prior.id, outputId: prior.output_id, editedPath: prior.edited_path, qcPass: !!prior.qc_pass, reused: true };
   const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', c.video_id)!;
   await ensureLocal(store, cfg, v.path); // original may live in the cloud archive
@@ -72,13 +76,17 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
 
   const dur = c.end_sec - c.start_sec;
   const baseId = `clip_${String(c.video_id).padStart(3, '0')}_${String(c.id).padStart(4, '0')}_${shortHash(`${v.path}:${c.start_sec}:${c.end_sec}`, 6)}`;
-  const outputId = ro.variant ? `${baseId}_v${ro.variant}` : prior?.output_id ?? baseId;
+  let outputId = ro.variant ? `${baseId}_v${ro.variant}` : prior?.output_id ?? baseId;
   mkdirSync(cfg.dirs.rawClips, { recursive: true }); mkdirSync(cfg.dirs.editedShorts, { recursive: true });
   const rawPath = join(cfg.dirs.rawClips, `${baseId}.mp4`);
-  const finalPath = join(cfg.dirs.editedShorts, `${outputId}.mp4`);
-  if (existsSync(finalPath)) { // reached only when no finished clip row owns this file → a leftover of an interrupted attempt of ours (never a source/original): replace it
-    if (store.get('SELECT 1 FROM clips WHERE edited_path=?', finalPath)) throw new Error(`Refusing to overwrite existing output ${finalPath}`);
-    rmSync(finalPath, { force: true }); warn('removed stale output of an interrupted render', { file: finalPath });
+  let finalPath = join(cfg.dirs.editedShorts, `${outputId}.mp4`);
+  if (existsSync(finalPath)) {
+    const owner = store.get<{ id: number; candidate_id: number }>('SELECT id, candidate_id FROM clips WHERE edited_path=?', finalPath);
+    if (!owner) { rmSync(finalPath, { force: true }); warn('removed stale output of an interrupted render', { file: finalPath }); } // leftover of an interrupted attempt of ours (never a source/original)
+    else { // a finished clip row owns this file (never delete it, never fail the job): render this one under a fresh name instead
+      for (let n = 2; n < 50 && existsSync(finalPath); n++) { outputId = `${prior?.output_id ?? baseId}_r${n}`; finalPath = join(cfg.dirs.editedShorts, `${outputId}.mp4`); }
+      warn('output name already owned by another clip: rendering under a new name', { outputId, owner: owner.id });
+    }
   }
   const th = String(cfg.resources.ffmpegThreads);
 

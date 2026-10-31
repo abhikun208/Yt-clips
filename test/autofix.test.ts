@@ -7,7 +7,7 @@ import { fitTitle, buildStyledAss } from '../src/edit/captions.ts';
 import { sttLang } from '../src/analysis/stt.ts';
 import { buildVideoGraph } from '../src/edit/filters.ts';
 import { envStatus } from '../src/ai/envkeys.ts';
-import { tmpDir, testConfig } from './helpers.ts';
+import { tmpDir, testConfig, makeFixture } from './helpers.ts';
 
 test('.env parser: BOM, CRLF, export, spaces, quotes, inline comments, odd keys', () => {
   const p = parseDotEnv('﻿# c\r\nGROQ_API_KEY = "gsk_abc123"\r\nexport GEMINI_API_KEY=AIzaXYZ # my key\r\nSINGLE=\'a b\'\r\nEMPTY=\r\nURL=http://x/?a=b#frag\r\nbad line\r\nMY-KEY=1\r\n');
@@ -67,4 +67,27 @@ test('scale: /api/channels with 60 channels answers 80 concurrent callers quickl
     await fetch(`${b}/api/channels`, { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Fresh One' }) });
     const j2 = await (await fetch(`${b}/api/channels`, { headers: H })).json() as { channels: { name: string }[] }; assert.ok(j2.channels.some((c) => c.name === 'Fresh One'), 'a write clears the cache');
   } finally { await app.stop(); }
+});
+
+import { Store } from '../src/db.ts';
+import { ingestLocal } from '../src/sources/local.ts';
+import { analyzeVideo } from '../src/analysis/analyzer.ts';
+import { renderCandidate } from '../src/edit/render.ts';
+
+import { existsSync } from 'node:fs';
+test('render:N never fails with "Refusing to overwrite": moved folder is re-pointed; a file owned by another clip gets a fresh name', { timeout: 280_000 }, async () => {
+  const d = tmpDir(); const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 2, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } }); const s = new Store(cfg.dbPath);
+  const src = join(d, 'v.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  const cand = s.get<{ id: number }>('SELECT id FROM candidates ORDER BY score DESC')!; const first = await renderCandidate(s, cfg, cand.id, {});
+  s.exec('UPDATE clips SET edited_path=? WHERE id=?', '/old/folder/data/edited/x.mp4', first.clipId); // data folder was moved/renamed
+  const moved = await renderCandidate(s, cfg, cand.id, {}); assert.equal(moved.reused, true); assert.equal(moved.editedPath, first.editedPath);
+  s.exec('PRAGMA foreign_keys=OFF'); s.exec('UPDATE clips SET candidate_id=999999 WHERE id=?', first.clipId); s.exec('PRAGMA foreign_keys=ON'); // the file is now owned by some other clip row
+  const other = await renderCandidate(s, cfg, cand.id, {}); assert.equal(other.reused, false); assert.notEqual(other.editedPath, first.editedPath); assert.ok(existsSync(first.editedPath), 'owner file untouched'); assert.ok(existsSync(other.editedPath));
+  s.close();
+});
+
+import { runDoctor } from '../src/ops/doctor.ts';
+test('doctor re-queues jobs that died with the old "Refusing to overwrite" error (fixed now)', async () => {
+  const s = new Store(':memory:'); s.exec(`INSERT INTO jobs(kind,key,state,attempts,run_after,last_error,payload_json,updated_at) VALUES('render','render:26','DEAD',5,0,'Refusing to overwrite existing output /x/y.mp4','{}','x')`);
+  await runDoctor(s, testConfig(), { fix: true }); assert.equal(s.get<{ state: string }>(`SELECT state FROM jobs WHERE key='render:26'`)!.state, 'PENDING');
 });

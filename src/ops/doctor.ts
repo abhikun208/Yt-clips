@@ -70,7 +70,7 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
   }
 
   // 4) dead jobs with a transient cause → one more go (after the disk/network fix above)
-  for (const j of store.all<{ id: number; kind: string; key: string; last_error: string | null }>(`SELECT id, kind, key, last_error FROM jobs WHERE state='DEAD' OR (state='RETRY' AND kind='render' AND last_error LIKE '%AV1%') ORDER BY id DESC LIMIT 20`)) {
+  for (const j of store.all<{ id: number; kind: string; key: string; last_error: string | null }>(`SELECT id, kind, key, last_error FROM jobs WHERE state='DEAD' OR (state='RETRY' AND kind='render' AND (last_error LIKE '%AV1%' OR last_error LIKE '%Refusing to overwrite%')) ORDER BY id DESC LIMIT 20`)) {
     const e = j.last_error ?? '';
     if (j.kind === 'meta' && /unknown clip/.test(e)) { if (fix) { store.exec(`UPDATE jobs SET state='DONE', last_error=NULL, updated_at=datetime('now') WHERE id=?`, j.id); add('job meta', e.slice(0, 60), 'the clip was deleted → job closed', 'fixed'); } continue; }
     if (j.kind === 'render' && DECODE_ERR.test(e)) { // the stored source cannot be decoded: fetch the same video again as H.264 (once a day per video)
@@ -81,7 +81,7 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
       continue;
     }
     const k = `doctor:job:${j.id}`; if (Number(kvGet(store, k) ?? 0) >= 2) continue;
-    if (/LOW_DISK|ENOSPC|ETIMEDOUT|ECONNRESET|fetch failed|network|timed out|SIGKILL|spawn|rate limit|HTTP 429|HTTP 5\d\d/i.test(e)) {
+    if (/Refusing to overwrite existing output|LOW_DISK|ENOSPC|ETIMEDOUT|ECONNRESET|fetch failed|network|timed out|SIGKILL|spawn|rate limit|HTTP 429|HTTP 5\d\d/i.test(e)) {
       if (fix) { store.exec(`UPDATE jobs SET state='PENDING', attempts=0, run_after=0, last_error=NULL, updated_at=datetime('now') WHERE id=?`, j.id); kvSet(store, k, String(Number(kvGet(store, k) ?? 0) + 1)); }
       add(`job ${j.kind}`, e.slice(0, 100), fix ? 'transient cause → job re-queued' : 'would re-queue', fix ? 'fixed' : 'manual');
     } else add(`job ${j.kind}`, e.slice(0, 100), 'not transient → see Home → Pipeline map for the error', 'manual');
