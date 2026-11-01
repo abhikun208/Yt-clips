@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b10">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<title>Studio</title>
+<style>
+:root{--bg:#0b0b10;--panel:#14141c;--panel2:#1b1b26;--line:#262633;--text:#ececf4;--mut:#8b8ba0;--acc:#8b5cf6;--acc2:#ec4899;--ok:#34d399;--bad:#f87171;--warn:#fbbf24;--r:14px;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{min-height:100vh;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:12px 16px;background:rgba(11,11,16,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.logo{font-weight:800;letter-spacing:.2px;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent;font-size:18px}
+.sp{flex:1}.chip{font-size:12px;color:var(--mut);border:1px solid var(--line);border-radius:99px;padding:3px 10px}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:6;display:flex;justify-content:space-around;background:rgba(20,20,28,.95);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+nav button{flex:1;background:none;border:0;color:var(--mut);font:inherit;font-size:11px;padding:6px 2px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;border-radius:10px;transition:color .15s,background .15s}
+nav button svg{width:22px;height:22px}nav button.on{color:#fff;background:linear-gradient(135deg,rgba(139,92,246,.25),rgba(236,72,153,.18))}
+main{max-width:1100px;margin:0 auto;padding:16px}
+.grid{display:grid;gap:16px}@media(min-width:900px){nav{position:sticky;top:57px;bottom:auto;max-width:1100px;margin:0 auto;border:0;background:none;backdrop-filter:none;justify-content:flex-start;gap:6px;padding:10px 16px 0}nav button{flex:none;flex-direction:row;font-size:14px;padding:8px 14px;gap:8px}body{padding-bottom:20px}.two{grid-template-columns:420px 1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+label{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.6px}
+select,input[type=text],input[type=password],textarea{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;outline:none;transition:border-color .15s}
+select:focus,input:focus,textarea:focus{border-color:var(--acc)}textarea{min-height:110px;resize:vertical}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.row>*{flex:1}
+.btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font:inherit;cursor:pointer;text-decoration:none;display:inline-block;text-align:center;transition:transform .1s,border-color .15s}.btn:hover{border-color:var(--acc)}.btn:active{transform:scale(.97)}
+.btn.pri{background:linear-gradient(135deg,var(--acc),var(--acc2));border:0;font-weight:700;color:#fff;width:100%;padding:14px;font-size:16px;margin-top:16px}.btn.pri:disabled{opacity:.5}
+.btn.sm{padding:6px 10px;font-size:13px}.btn.bad{color:var(--bad)}
+.badge{font-size:11px;border-radius:6px;padding:2px 7px;border:1px solid var(--line);color:var(--mut)}.badge.up{color:var(--acc2);border-color:var(--acc2)}.badge.tx{color:var(--ok);border-color:var(--ok)}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;color:var(--mut);cursor:pointer;transition:border-color .15s,background .15s}.drop.over,.drop:hover{border-color:var(--acc);background:rgba(139,92,246,.07)}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.thumb{position:relative;width:78px;height:78px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#000;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mut);padding:4px;text-align:center}
+.thumb img,.thumb video{width:100%;height:100%;object-fit:cover}.thumb b{position:absolute;top:2px;right:2px;background:rgba(0,0,0,.7);border-radius:50%;width:22px;height:22px;line-height:20px;text-align:center;cursor:pointer;color:#fff;font-weight:400}
+.res{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+.item{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;animation:in .25s ease}@keyframes in{from{opacity:0;transform:translateY(6px)}}
+.item .media{background:#000;display:flex;align-items:center;justify-content:center;min-height:120px}.item img,.item video{width:100%;display:block;max-height:420px;object-fit:contain}.item audio{width:92%;margin:20px 0}
+.item .meta{padding:10px 12px;font-size:13px;color:var(--mut)}.item .meta p{margin:0 0 8px;color:var(--text);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.acts{display:flex;gap:6px;flex-wrap:wrap;padding:0 12px 12px}.acts .btn{flex:1;min-width:70px}
+.spin{width:30px;height:30px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--acc);animation:sp 1s linear infinite;margin:30px auto}@keyframes sp{to{transform:rotate(1turn)}}
+.bar{height:3px;background:linear-gradient(90deg,var(--acc),var(--acc2),var(--acc));background-size:200% 100%;animation:bar 1.4s linear infinite}@keyframes bar{to{background-position:-200% 0}}
+.err{color:var(--bad);padding:12px;font-size:13px}.note{font-size:12px;color:var(--mut);margin-top:8px}.warn{color:var(--warn)}
+.seg{display:flex;background:var(--panel2);border-radius:10px;padding:3px;gap:3px}.seg button{flex:1;background:none;border:0;color:var(--mut);padding:8px;border-radius:8px;font:inherit;cursor:pointer}.seg button.on{background:var(--panel);color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:90px;background:#222233;border:1px solid var(--line);padding:10px 16px;border-radius:99px;z-index:20;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;font-size:14px}#toast.on{opacity:1}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--r);max-width:min(720px,94vw);width:100%;padding:16px}dialog::backdrop{background:rgba(0,0,0,.7)}
+#login{position:fixed;inset:0;background:var(--bg);z-index:30;display:none;align-items:center;justify-content:center;padding:20px}#login.on{display:flex}#login .card{max-width:380px;width:100%}
+h2{margin:0 0 4px;font-size:18px}.hide{display:none!important}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header><span class="logo">◆ Studio</span><span class="sp"></span><span class="chip" id="usage"></span></header>
+<nav id="nav"></nav>
+<main id="main"></main>
+<div id="toast"></div>
+<div id="login"><div class="card"><h2>Sign in</h2><p class="note">Paste the access token from your <code>.env</code> (YT_CLIPS_TOKEN). It is exchanged for a private session cookie; the token itself is not stored in the browser.</p><input type="password" id="tok" placeholder="access token" autocomplete="current-password"><button class="btn pri" id="go">Sign in</button><div class="err" id="lerr"></div></div></div>
+<dialog id="dlg"></dialog>
+<script>
+'use strict';
+const $=(s,r=document)=>r.querySelector(s);
+const h=(t,a={},...c)=>{const e=document.createElement(t);for(const[k,v]of Object.entries(a)){if(k==='class')e.className=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else if(v!==false&&v!==null&&v!==undefined)e.setAttribute(k,v===true?'':v)}for(const x of c.flat())if(x!==null&&x!==undefined&&x!==false)e.append(x.nodeType?x:document.createTextNode(x));return e};
+const ICON={image:'<path d="M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M9 9.5h.01"/>',video:'<path d="M3 6h13v12H3zM16 10l5-3v10l-5-3"/>',lipsync:'<path d="M12 3a4 4 0 0 1 4 4v3a4 4 0 0 1-8 0V7a4 4 0 0 1 4-4zM5 11a7 7 0 0 0 14 0M12 18v3"/>',cinema:'<path d="M4 8h16v11H4zM4 8l3-4h3l-3 4M11 8l3-4h3l-3 4M17 8l3-4"/>',history:'<path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2"/>',settings:'<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12l2-1-1-3-2 .5-1.5-1.5.5-2-3-1-1 2h-2l-1-2-3 1 .5 2L6 8.5 4 8l-1 3 2 1v2l-2 1 1 3 2-.5L7.5 19l-.5 2 3 1 1-2h2l1 2 3-1-.5-2 1.5-1.5 2 .5 1-3-2-1z"/>'};
+const svg=n=>{const s=document.createElementNS('http://www.w3.org/2000/svg','svg');s.setAttribute('viewBox','0 0 24 24');s.setAttribute('fill','none');s.setAttribute('stroke','currentColor');s.setAttribute('stroke-width','1.6');s.setAttribute('stroke-linecap','round');s.setAttribute('stroke-linejoin','round');s.innerHTML=ICON[n];return s};
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('on'),3200)}
+async function api(path,o={}){const r=await fetch(path,{credentials:'same-origin',...o,headers:{'x-ytc':'1',...(o.headers||{})}});if(r.status===401){$('#login').classList.add('on');throw new Error('sign in required')}let j={};try{j=await r.json()}catch{}if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j}
+const post=(p,b)=>api(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})});
+$('#go').onclick=async()=>{try{const r=await fetch('/api/login',{method:'POST',headers:{authorization:'Bearer '+$('#tok').value.trim(),'x-ytc':'1'}});if(!r.ok)throw new Error('wrong token');$('#tok').value='';$('#login').classList.remove('on');boot()}catch(e){$('#lerr').textContent=e.message}};
+
+const S={models:[],keyOk:false,used:0,limit:0,cinema:{},tab:'image',form:{},jobs:new Map()};
+const STUDIOS=[['image','Image'],['video','Video'],['lipsync','Lip Sync'],['cinema','Cinema'],['history','History'],['settings','Settings']];
+function nav(){const n=$('#nav');n.replaceChildren(...STUDIOS.map(([id,l])=>h('button',{class:S.tab===id?'on':'',onclick:()=>{S.tab=id;nav();view()}},svg(id),l)))}
+const fmtErr=e=>String(e&&e.message||e);
+
+async function boot(){try{const j=await api('/api/studio/models');Object.assign(S,{models:j.models,keyOk:j.keyConfigured,used:j.usedToday,limit:j.dailyLimit,cinema:j.cinema});$('#usage').textContent=`${j.usedToday}/${j.dailyLimit} today`;nav();view()}catch(e){if(!/sign in/.test(fmtErr(e)))toast(fmtErr(e))}}
+function view(){const m=$('#main');m.replaceChildren();({image:studio,video:studio,lipsync:studio,cinema:studio,history:history,settings:settings})[S.tab](m)}
+
+/* ---------- studio (image / video / lip sync / cinema share one form) ---------- */
+const KIND_LABEL={t2i:'Text → Image',i2i:'Image edit',t2v:'Text → Video',i2v:'Image → Video',lipsync_image:'Portrait + audio',lipsync_video:'Video + audio'};
+function formFor(tab){return S.form[tab]??(S.form[tab]={prompt:'',model:null,params:{},images:[],audio:null,video:null,cam:{},ctype:'image',lsKind:'lipsync_image'})}
+function eligible(tab,f){const hasUp=f.images.length||f.audio||f.video;
+  if(tab==='image')return S.models.filter(m=>m.studio==='image'&&(hasUp?m.kind==='i2i':m.kind==='t2i'));
+  if(tab==='video')return S.models.filter(m=>m.studio==='video'&&(hasUp?m.kind==='i2v':m.kind==='t2v'));
+  if(tab==='lipsync')return S.models.filter(m=>m.kind===f.lsKind);
+  const st=f.ctype==='image'?'image':'video';return S.models.filter(m=>m.studio===st&&(hasUp?(m.kind==='i2i'||m.kind==='i2v'):(m.kind==='t2i'||m.kind==='t2v')))}
+function ensureModel(tab,f,quiet){const list=eligible(tab,f);if(!list.some(m=>m.id===f.model)){const was=f.model;f.model=list[0]?.id||null;f.params={};if(was&&!quiet)toast(`Switched to ${f.images.length||f.audio||f.video?'upload':'text'} mode`)}return list}
+function studio(root){const tab=S.tab,f=formFor(tab);let list=ensureModel(tab,f,true);const model=()=>S.models.find(m=>m.id===f.model);
+  const left=h('div',{class:'card'});const right=h('div',{id:'out'});
+  const redraw=()=>{left.replaceChildren();list=ensureModel(tab,f);const m=model();const hasUp=f.images.length||f.audio||f.video;
+    left.append(h('div',{class:'row'},h('h2',{},STUDIOS.find(x=>x[0]===tab)[1]),h('span',{class:'badge '+(hasUp||tab==='lipsync'?'up':'tx'),style:'flex:none'},hasUp||tab==='lipsync'?'Upload mode':'Text mode')));
+    if(tab==='cinema')left.append(h('div',{class:'seg',style:'margin-top:10px'},['image','video'].map(t=>h('button',{class:f.ctype===t?'on':'',onclick:()=>{f.ctype=t;redraw()}},t==='image'?'Cinema still':'Cinema video'))));
+    if(tab==='lipsync')left.append(h('div',{class:'seg',style:'margin-top:10px'},[['lipsync_image','Portrait + audio'],['lipsync_video','Video + audio']].map(([k,l])=>h('button',{class:f.lsKind===k?'on':'',onclick:()=>{f.lsKind=k;f.images=[];f.video=null;redraw()}},l))));
+    left.append(h('label',{},'Model'),h('select',{onchange:e=>{f.model=e.target.value;f.params={};redraw()}},list.map(x=>h('option',{value:x.id,selected:x.id===f.model},`${x.label}${x.verified==='unverified'?' (unverified)':''}`))));
+    if(m&&m.verified!=='fields')left.append(h('div',{class:'note'},m.verified==='slug'?'Model name confirmed on Muapi; extra options not confirmed (only prompt/inputs are sent).':'Model name from memory: if it fails, check the name in Settings → models.'));
+    if(!list.length)left.append(h('div',{class:'err'},'No model for this mode. Add one in data/studio-models.json.'));
+    // inputs
+    const wantImg=!m||m.image!=='none'||tab==='image'||tab==='video'||tab==='cinema';
+    if(wantImg&&!(m&&m.kind==='lipsync_video'))left.append(h('label',{},m&&m.image==='multi'?'Images (multi)':'Image (optional: switches to upload mode)'),pickBox('image',f,redraw,m&&m.image==='multi'));
+    if(m&&m.audio)left.append(h('label',{},'Audio'),pickBox('audio',f,redraw,false));
+    if(m&&m.video)left.append(h('label',{},'Video'),pickBox('video',f,redraw,false));
+    left.append(h('label',{},tab==='lipsync'?'Prompt (optional)':'Prompt'),h('textarea',{placeholder:tab==='cinema'?'Describe the scene…':'Describe what you want…',oninput:e=>{f.prompt=e.target.value;if(tab==='cinema')prevDebounce()}},f.prompt));
+    if(m)for(const p of m.params)left.append(h('label',{},p.label),paramInput(p,f));
+    if(tab==='cinema')left.append(camPanel(f));
+    const btn=h('button',{class:'btn pri',id:'gen',disabled:!m||!S.keyOk,onclick:()=>generate(tab,f,m,btn)},S.keyOk?'Generate':'Add API key in Settings');
+    left.append(btn,h('div',{class:'note'},'Each generation uses your Muapi credits.'));};
+  const prevDebounce=(()=>{let t;return()=>{clearTimeout(t);t=setTimeout(async()=>{try{const j=await post('/api/studio/cinema-preview',{prompt:f.prompt,camera:f.cam});const el=$('#prev');if(el)el.textContent=j.prompt}catch{}},300)}})();
+  redraw();root.append(h('div',{class:'grid two'},left,right));paintJobs(right,tab)}
+function paramInput(p,f){const v=f.params[p.name]??p.default??'';f.params[p.name]=v;
+  if(p.type==='select')return h('select',{onchange:e=>f.params[p.name]=e.target.value},p.options.map(o=>h('option',{value:o,selected:String(o)===String(v)},o)));
+  if(p.type==='int')return h('input',{type:'text',inputmode:'numeric',value:v,onchange:e=>f.params[p.name]=e.target.value});
+  return h('input',{type:'text',value:v,onchange:e=>f.params[p.name]=e.target.value})}
+function camPanel(f){const sel=(k,l)=>[h('label',{},l),h('select',{onchange:e=>{if(e.target.value)f.cam[k]=e.target.value;else delete f.cam[k];prev()}},[h('option',{value:''},'— auto —'),...(S.cinema[k]||[]).map(o=>h('option',{value:o,selected:f.cam[k]===o},o.replace(/-/g,' ')))])];
+  const prev=async()=>{try{const j=await post('/api/studio/cinema-preview',{prompt:f.prompt||'…',camera:f.cam});$('#prev').textContent=j.prompt}catch{}};
+  const fl=h('span',{},f.cam.focalMm?f.cam.focalMm+'mm':'auto'),ap=h('span',{},f.cam.aperture?'f/'+f.cam.aperture:'auto');
+  const box=h('div',{style:'margin-top:6px;border-top:1px solid var(--line);padding-top:6px'},h('h2',{style:'margin-top:10px'},'Camera'),...sel('lens','Lens'),h('label',{},'Focal length ',fl),h('input',{type:'range',min:8,max:200,step:1,value:f.cam.focalMm||35,oninput:e=>{f.cam.focalMm=+e.target.value;fl.textContent=f.cam.focalMm+'mm';prev()}}),h('label',{},'Aperture ',ap),h('input',{type:'range',min:1,max:22,step:.2,value:f.cam.aperture||2.8,oninput:e=>{f.cam.aperture=+(+e.target.value).toFixed(1);ap.textContent='f/'+f.cam.aperture;prev()}}),...sel('body','Camera body'),...sel('shot','Shot size'),...sel('angle','Angle'),...sel('move','Movement'),...sel('light','Lighting'),...sel('grade','Colour grade'),h('label',{},'Prompt sent'),h('div',{class:'note',id:'prev',style:'color:var(--text)'},'…'));setTimeout(prev,0);return box}
+function pickBox(kind,f,redraw,multi){const box=h('div');
+  const cur=()=>kind==='image'?f.images:(f[kind]?[f[kind]]:[]);
+  const add=u=>{if(kind==='image'){if(!multi)f.images=[];if(f.images.length>=8)return toast('Max 8 images');f.images.push(u)}else f[kind]=u;redraw()};
+  const input=h('input',{type:'file',accept:kind==='image'?'image/*':kind==='audio'?'audio/*':'video/*',multiple:!!multi,class:'hide',onchange:async e=>{for(const file of e.target.files)await upload(file,add)}});
+  const drop=h('div',{class:'drop',onclick:()=>input.click()},`Tap to choose ${kind}${multi?'s':''} or drop here`);
+  drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};drop.ondragleave=()=>drop.classList.remove('over');drop.ondrop=async e=>{e.preventDefault();drop.classList.remove('over');for(const file of e.dataTransfer.files)await upload(file,add)};
+  box.append(drop,input,h('div',{class:'row',style:'margin-top:8px'},h('button',{class:'btn sm',onclick:()=>pickFromUploads(kind,add)},'From my uploads')),h('div',{class:'thumbs'},cur().map(u=>h('div',{class:'thumb'},kind==='image'?h('img',{src:u.url,alt:u.name}):u.name,h('b',{onclick:()=>{if(kind==='image')f.images=f.images.filter(x=>x.id!==u.id);else f[kind]=null;redraw()}},'×')))));return box}
+async function upload(file,cb){try{toast('Uploading…');const r=await fetch('/api/studio/upload?name='+encodeURIComponent(file.name),{method:'POST',credentials:'same-origin',headers:{'x-ytc':'1'},body:file});const j=await r.json();if(!r.ok)throw new Error(j.error);cb(j.upload);toast('Uploaded')}catch(e){toast(fmtErr(e))}}
+async function pickFromUploads(kind,cb){const d=$('#dlg');d.replaceChildren(h('h2',{},'My '+kind+' uploads'),h('div',{class:'spin'}));d.showModal();try{const j=await api('/api/studio/uploads?kind='+kind);d.replaceChildren(h('div',{class:'row'},h('h2',{},'My '+kind+' uploads'),h('button',{class:'btn sm',style:'flex:none',onclick:()=>d.close()},'Close')),j.uploads.length?h('div',{class:'thumbs'},j.uploads.map(u=>h('div',{class:'thumb',style:'cursor:pointer;width:110px;height:110px',onclick:()=>{d.close();cb(u)}},kind==='image'?h('img',{src:u.url}):u.name))):h('p',{class:'note'},'Nothing uploaded yet.'))}catch(e){d.replaceChildren(h('div',{class:'err'},fmtErr(e)))}}
+
+async function generate(tab,f,m,btn){btn.disabled=true;try{const body={modelId:m.id,prompt:f.prompt,params:f.params,imageIds:f.images.map(x=>x.id),audioId:f.audio?f.audio.id:undefined,videoId:f.video?f.video.id:undefined};if(tab==='cinema')body.camera=f.cam;const j=await post('/api/studio/generate',body);S.jobs.set(j.id,{tab,id:j.id});S.used++;$('#usage').textContent=`${S.used}/${S.limit} today`;paintJobs($('#out'),tab);pollJob(j.id)}catch(e){toast(fmtErr(e))}finally{btn.disabled=!S.keyOk}}
+const pending=new Set();
+function pollJob(id){if(pending.has(id))return;pending.add(id);const tick=async()=>{try{const j=await api('/api/studio/generations/'+id);S.jobs.set(id,{...S.jobs.get(id),g:j.generation});const out=$('#out');if(out)paintJobs(out,S.tab);if(j.generation.state==='DONE'||j.generation.state==='FAILED'){pending.delete(id);if(j.generation.state==='FAILED')toast('Failed: '+(j.generation.error||'').slice(0,80));return}}catch{}setTimeout(tick,2500)};tick()}
+function paintJobs(root,tab){if(!root)return;const ids=[...S.jobs.keys()].reverse().filter(id=>{const j=S.jobs.get(id);return j.tab===tab||(tab!=='history'&&false)});root.replaceChildren(h('div',{class:'res'},ids.map(id=>card(S.jobs.get(id).g||{id,state:'QUEUED',files:[],prompt:'…'}))));if(!ids.length)root.append(h('div',{class:'card note'},'Results appear here. Full-resolution files are kept on your server.'))}
+function card(g){const run=g.state==='QUEUED'||g.state==='RUNNING';
+  const media=run?h('div',{},h('div',{class:'bar'}),h('div',{class:'spin'}),h('div',{class:'note',style:'text-align:center;padding-bottom:12px'},g.state==='QUEUED'?'Sending…':'Generating… you can leave this page')):g.state==='FAILED'?h('div',{class:'err'},g.error||'failed'):g.files.map(x=>x.type.startsWith('image')?h('img',{src:x.url,alt:g.prompt,loading:'lazy'}):x.type.startsWith('video')?h('video',{src:x.url,controls:true,loop:true,playsinline:true,preload:'metadata'}):h('audio',{src:x.url,controls:true}));
+  const acts=g.state==='DONE'?h('div',{class:'acts'},g.files.map(x=>h('a',{class:'btn sm',href:x.download},'⬇ Full-res'+(g.files.length>1?' '+x.n:''))),g.files.filter(x=>x.type.startsWith('image')||x.type.startsWith('audio')||x.type.startsWith('video')).slice(0,1).map(x=>h('button',{class:'btn sm',onclick:()=>useAsInput(g,x)},'Use as input'))):null;
+  return h('div',{class:'item'},h('div',{class:'media'},media),h('div',{class:'meta'},h('p',{},g.prompt||''),h('span',{class:'badge'},g.model)),acts)}
+async function useAsInput(g,x){try{const j=await post(`/api/studio/generations/${g.id}/use/${x.n}`);const u=j.upload;const kind=u.kind;const tab=kind==='image'?(S.tab==='cinema'?'cinema':'video'):'lipsync';const f=formFor(tab);if(kind==='image'){f.images=[u];if(tab==='lipsync')f.lsKind='lipsync_image'}else if(kind==='audio')f.audio=u;else f.video=u;S.tab=tab;nav();view();toast('Added as input')}catch(e){toast(fmtErr(e))}}
+
+/* ---------- history + uploads ---------- */
+async function history(root){root.append(h('div',{class:'card'},h('div',{class:'spin'})));try{const [g,u]=await Promise.all([api('/api/studio/generations?limit=100'),api('/api/studio/uploads')]);root.replaceChildren(h('h2',{},'Generation history'),h('div',{class:'res',style:'margin-top:10px'},g.generations.length?g.generations.map(x=>{const c=card(x);const del=h('button',{class:'btn sm bad',onclick:async()=>{if(!confirm('Delete this result and its files?'))return;try{await api('/api/studio/generations/'+x.id,{method:'DELETE'});view()}catch(e){toast(fmtErr(e))}}},'Delete');const a=c.querySelector('.acts')||c.appendChild(h('div',{class:'acts'}));a.append(del);return c}):h('div',{class:'card note'},'Nothing generated yet.')),h('h2',{style:'margin-top:24px'},'Upload history'),h('div',{class:'thumbs',style:'margin-top:10px'},u.uploads.length?u.uploads.map(x=>h('div',{class:'thumb',style:'width:110px;height:110px'},x.kind==='image'?h('img',{src:x.url,loading:'lazy'}):x.name,h('b',{onclick:async()=>{await api('/api/studio/uploads/'+x.id,{method:'DELETE'});view()}},'×'))):h('div',{class:'note'},'No uploads.')))}catch(e){root.replaceChildren(h('div',{class:'err'},fmtErr(e)))}}
+
+/* ---------- settings ---------- */
+let deferred=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferred=e});
+function settings(root){const k=h('input',{type:'password',placeholder:S.keyOk?'•••••••• (saved on this server)':'Muapi API key',autocomplete:'off'});
+  root.append(h('div',{class:'grid two'},h('div',{class:'card'},h('h2',{},'Muapi API key'),h('p',{class:'note'},'Stored encrypted on your own server (data/secrets). It is never sent back to the browser or written to logs. Get one at muapi.ai.'),k,h('div',{class:'row',style:'margin-top:10px'},h('button',{class:'btn',onclick:async()=>{try{await post('/api/studio/key',{key:k.value.trim()});k.value='';toast('Key saved');boot()}catch(e){toast(fmtErr(e))}}},'Save'),h('button',{class:'btn bad',onclick:async()=>{await api('/api/studio/key',{method:'DELETE'});toast('Key removed');boot()}},'Remove')),h('p',{class:'note'},`Safety limit: ${S.limit} generations/day (studio.dailyLimit in data/config.json).`),h('button',{class:'btn',style:'margin-top:10px;width:100%',onclick:async()=>{if(deferred){deferred.prompt();deferred=null}else toast('Use your browser menu: Install app / Add to Home screen')}},'Install as app')),
+    h('div',{class:'card'},h('h2',{},'Models'),h('p',{class:'note'},'Add, rename or hide models in data/studio-models.json (same format as src/studio/models.json; {"id":"x","disabled":true} hides one). No restart needed.'),h('div',{style:'max-height:420px;overflow:auto;margin-top:8px'},S.models.map(m=>h('div',{class:'row',style:'padding:6px 0;border-bottom:1px solid var(--line);font-size:13px'},h('span',{style:'flex:3'},m.label),h('span',{class:'badge',style:'flex:none'},KIND_LABEL[m.kind]||m.kind),h('span',{class:'badge',style:'flex:none;color:'+(m.verified==='fields'?'var(--ok)':m.verified==='slug'?'var(--warn)':'var(--bad)')},m.verified)))))))}
+
+if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+boot();
+</script>
+</body>
+</html>

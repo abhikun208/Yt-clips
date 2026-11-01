@@ -115,3 +115,6 @@ Rights: sirf apni ya authorized content use karo. Views/ranking ki koi guarantee
 - `data/config.json` and `.env` are created with 0600 permissions.
 - Hindi/Hinglish: Whisper language defaults to Hindi (`stt.indiaFirst`, set false for English-only channels or set a channel `language`). Wide sources in fit mode are trimmed 10% per side (`edit.fitZoom`, 1 = off).
 - Optional VoiceStudio voice-over: `YT_CLIPS_VOICESTUDIO_URL=http://127.0.0.1:<port>` (unverified route).
+
+## Studio (image / video / lip sync / cinema)
+Open `http://<server>:8080/studio` (or the ✨ Studio button in the dashboard). Settings → paste your Muapi API key (stored encrypted on your server; `MUAPI_API_KEY` in `.env` also works). Each generation spends your Muapi credits; `studio.dailyLimit` (default 40/day) in `data/config.json` is a safety stop. Results are saved in `data/studio/`. Add or hide models in `data/studio-models.json`. Install as an app from the browser menu (PWA). Model entries marked *unverified* are from memory: if one fails, fix its name in the file.

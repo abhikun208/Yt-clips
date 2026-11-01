@@ -25,6 +25,9 @@ import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
 import { enqueue } from '../db.ts';
 import { UI_HTML } from './ui.ts';
+import { STUDIO_HTML, MANIFEST, SW, iconPng } from '../studio/assets.ts';
+import { handleStudio } from '../studio/routes.ts';
+import { resumeStudio, type Deps as StudioDeps } from '../studio/service.ts';
 import { isPace } from '../edit/pace.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
@@ -44,7 +47,7 @@ import { titleTestTick, funnelTick, listTitleTests } from '../publish/titletest.
 import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPosted } from '../publish/direct.ts';
 import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ALLOWED_PLATFORMS } from '../channels.ts';
 
-export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown> }
+export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown>; studioDeps?: StudioDeps }
 export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean; applyEnv?(force?: boolean): Promise<unknown>; bootstrap?(): Promise<unknown> }
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
@@ -136,9 +139,13 @@ export function createApp(o: AppOptions = {}): App {
     const dirs: Record<string, string> = { edited: cfg.dirs.editedShorts, thumb: cfg.dirs.thumbnails, captions: join(cfg.dataDir, 'captions'), export: join(cfg.dataDir, 'exports') };
     const dir = dirs[kind]; if (!dir || !/^[\w.-]+$/.test(name)) return json(res, 404, { error: 'not found' });
     const full = resolve(dir, name); if (!full.startsWith(resolve(dir) + sep) || !existsSync(full) || !statSync(full).isFile()) return json(res, 404, { error: 'not found' });
-    const size = statSync(full).size; const ext = name.slice(name.lastIndexOf('.')); const type = MIME[ext] ?? 'application/octet-stream';
+    sendPath(req, res, full, MIME[name.slice(name.lastIndexOf('.'))] ?? 'application/octet-stream');
+  }
+
+  function sendPath(req: IncomingMessage, res: ServerResponse, full: string, type: string, download?: string) {
+    const size = statSync(full).size;
     const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
-    const base = { 'content-type': type, 'accept-ranges': 'bytes', 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=60' };
+    const base = { 'content-type': type, ...(download ? { 'content-disposition': `attachment; filename="${download.replace(/[^\w.-]/g, '_')}"` } : {}), 'accept-ranges': 'bytes', 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=60' };
     if (range && (range[1] || range[2])) {
       let a = range[1] ? Number(range[1]) : size - Number(range[2]); let b = range[1] && range[2] ? Number(range[2]) : size - 1;
       if (!(a >= 0 && a < size && b >= a)) { res.writeHead(416, { 'content-range': `bytes */${size}` }); return void res.end(); }
@@ -170,6 +177,13 @@ export function createApp(o: AppOptions = {}): App {
         g('ytclips_free_disk_mb', 'free disk in MB', [['', freeMb(cfg.dataDir)]]); g('ytclips_running', 'worker loop active', [['', running ? 1 : 0]]);
         res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' }); return void res.end(L.join('\n') + '\n'); }
       if (p === '/' && m === 'GET') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...SEC_HEADERS, ...(req.headers['x-forwarded-proto'] === 'https' ? { 'strict-transport-security': 'max-age=31536000' } : {}), 'content-security-policy': "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }); return void res.end(UI_HTML); }
+      if (m === 'GET' && (p === '/studio' || p === '/manifest.webmanifest' || p === '/sw.js' || p === '/icon-192.png' || p === '/icon-512.png')) { // static shell of the Studio app (no secrets: all data comes from the authenticated API)
+        const hs = { ...SEC_HEADERS, ...(req.headers['x-forwarded-proto'] === 'https' ? { 'strict-transport-security': 'max-age=31536000' } : {}) };
+        if (p === '/studio') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', ...hs, 'content-security-policy': "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; worker-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }); return void res.end(STUDIO_HTML); }
+        if (p === '/manifest.webmanifest') { res.writeHead(200, { 'content-type': 'application/manifest+json', ...hs }); return void res.end(MANIFEST); }
+        if (p === '/sw.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'service-worker-allowed': '/', ...hs }); return void res.end(SW); }
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400', ...hs }); return void res.end(iconPng(p === '/icon-192.png' ? 192 : 512));
+      }
       const cbm = /^\/api\/oauth\/(facebook|tiktok)\/callback$/.exec(p);
       if (cbm && m === 'GET') { // browser redirect from the provider: protected by the one-time server-side `state`, not by cookie (SameSite=Strict cookies are not sent on cross-site redirects)
         let msg = ''; try { const r = await handleCallback(store, cfg, cbm[1] as SocialApp, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') }, publicBase(req)); msg = `Connected: ${r.connected.join(', ')}${r.note ? ' (' + r.note + ')' : ''}`; }
@@ -354,6 +368,7 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/analytics/collect' && m === 'POST') return json(res, 200, { results: await collectAnalytics(store, analyticsProviders(store, cfg)) });
       if (p === '/api/analytics' && m === 'GET') return json(res, 200, { platforms: analyticsSummary(store, cfg.timezone, (pl) => hourStats(store, cfg.timezone, pl)) });
       if (p === '/api/analytics/import' && m === 'POST') return json(res, 200, importAnalyticsCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'), url.searchParams.get('platform') ?? undefined));
+      if (await handleStudio({ req, res, p, m, url, store, cfg, deps: o.studioDeps ?? {}, json, readBody, sendPath })) return;
       if (p === '/api/channels' && m === 'GET') {
         if (chCache && Date.now() - chCache.t < 15_000) return json(res, 200, chCache.body); // planning slots per channel is CPU heavy (≈20 ms each): with hundreds of channels + a busy dashboard it starved the server, so the answer is shared for 15 s and any write clears it
         const from = new Date(); if (!chPending) chPending = (async () => { const out = []; for (const ch of listChannels(store)) { out.push((() => {
@@ -484,6 +499,7 @@ export function createApp(o: AppOptions = {}): App {
     server, cfg, store, runOnce, bootstrap: async () => { try { return await bootstrapTools(store, cfg); } catch { return null; } }, get running() { return running; }, applyEnv: async (force) => { try { const r = await runEnvApply(!!force); for (const x of r) info('env key', { provider: x.provider, var: x.var, ok: x.ok, model: x.model, detail: x.ok ? undefined : x.detail }); return r; } catch (e) { warn('env apply failed', { err: (e as Error).message }); return []; } },
     start: () => new Promise<number>((ok, bad) => {
       server.once('error', bad);
+      try { resumeStudio(store, cfg, o.studioDeps); } catch { /* studio tables missing is impossible after migrate; never block start */ }
       server.listen(o.port ?? Number(process.env.PORT ?? 8080), host, () => {
         const port = (server.address() as { port: number }).port;
         if (o.autoRun ?? process.env.AUTO_RUN !== '0') { const every = (o.loopSeconds ?? Number(process.env.LOOP_SECONDS ?? 30)) * 1000; timer = setInterval(() => { if (!stopping) void runOnce(); }, every); void runOnce(); }

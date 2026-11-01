@@ -1,0 +1,380 @@
+{
+ "_note": "Built-in Muapi models. Add/override/disable models in data/studio-models.json (same shape; {\"id\":\"x\",\"disabled\":true} hides one). verified: fields = slug and request fields read from Muapi's API page; slug = slug seen in Muapi's model list, extra fields unknown (only prompt/image/audio/video are sent); unverified = from memory, may be wrong.",
+ "models": [
+  {
+   "id": "flux-dev-image",
+   "label": "FLUX Dev",
+   "studio": "image",
+   "kind": "t2i",
+   "verified": "fields",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": [
+    {
+     "name": "width",
+     "label": "Width",
+     "type": "select",
+     "options": [
+      "512",
+      "768",
+      "1024",
+      "1280"
+     ],
+     "default": "1024"
+    },
+    {
+     "name": "height",
+     "label": "Height",
+     "type": "select",
+     "options": [
+      "512",
+      "768",
+      "1024",
+      "1280",
+      "1920"
+     ],
+     "default": "1024"
+    },
+    {
+     "name": "num_images",
+     "label": "Images",
+     "type": "int",
+     "min": 1,
+     "max": 4,
+     "default": 1,
+     "note": "each image is billed separately"
+    }
+   ]
+  },
+  {
+   "id": "flux-schnell-image",
+   "label": "FLUX Schnell (fast)",
+   "studio": "image",
+   "kind": "t2i",
+   "verified": "unverified",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "nano-banana",
+   "label": "Nano Banana",
+   "studio": "image",
+   "kind": "t2i",
+   "verified": "unverified",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "midjourney-v7-text-to-image",
+   "label": "Midjourney v7",
+   "studio": "image",
+   "kind": "t2i",
+   "verified": "unverified",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "flux-kontext-dev-i2i",
+   "label": "FLUX Kontext Dev (edit)",
+   "studio": "image",
+   "kind": "i2i",
+   "verified": "unverified",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "flux-kontext-pro-i2i",
+   "label": "FLUX Kontext Pro (edit)",
+   "studio": "image",
+   "kind": "i2i",
+   "verified": "unverified",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "nano-banana-edit",
+   "label": "Nano Banana Edit (multi-image)",
+   "studio": "image",
+   "kind": "i2i",
+   "verified": "unverified",
+   "image": "multi",
+   "audio": false,
+   "video": false,
+   "params": [],
+   "imageField": "images_list"
+  },
+  {
+   "id": "veo3-text-to-video",
+   "label": "Veo 3",
+   "studio": "video",
+   "kind": "t2v",
+   "verified": "unverified",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "kling-v2.1-master-t2v",
+   "label": "Kling 2.1 Master",
+   "studio": "video",
+   "kind": "t2v",
+   "verified": "unverified",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "seedance-pro-t2v",
+   "label": "Seedance Pro",
+   "studio": "video",
+   "kind": "t2v",
+   "verified": "unverified",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "wan2.2-text-to-video",
+   "label": "Wan 2.2",
+   "studio": "video",
+   "kind": "t2v",
+   "verified": "unverified",
+   "image": "none",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "kling-v3-turbo-standard-image-to-video",
+   "label": "Kling 3 Turbo Standard",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "fields",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": [
+    {
+     "name": "duration",
+     "label": "Seconds",
+     "type": "int",
+     "min": 3,
+     "max": 15,
+     "default": 5
+    }
+   ]
+  },
+  {
+   "id": "kling-v2.1-master-i2v",
+   "label": "Kling 2.1 Master",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "kling-v2.6-pro-i2v",
+   "label": "Kling 2.6 Pro",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "veo3-image-to-video",
+   "label": "Veo 3",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "veo3.1-fast-image-to-video",
+   "label": "Veo 3.1 Fast",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "seedance-pro-i2v",
+   "label": "Seedance Pro",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "wan2.2-image-to-video",
+   "label": "Wan 2.2",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "minimax-hailuo-2.3-standard-i2v",
+   "label": "Hailuo 2.3 Standard",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "ltx-2-19b-image-to-video",
+   "label": "LTX 2 19B",
+   "studio": "video",
+   "kind": "i2v",
+   "verified": "slug",
+   "image": "single",
+   "audio": false,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "infinitetalk-image-to-video",
+   "label": "InfiniteTalk (portrait + audio)",
+   "studio": "lipsync",
+   "kind": "lipsync_image",
+   "verified": "fields",
+   "image": "single",
+   "audio": true,
+   "video": false,
+   "params": [
+    {
+     "name": "resolution",
+     "label": "Resolution",
+     "type": "select",
+     "options": [
+      "480p",
+      "720p"
+     ],
+     "default": "480p"
+    }
+   ]
+  },
+  {
+   "id": "kling-v1-avatar-standard",
+   "label": "Kling Avatar Standard",
+   "studio": "lipsync",
+   "kind": "lipsync_image",
+   "verified": "slug",
+   "image": "single",
+   "audio": true,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "kling-v1-avatar-pro",
+   "label": "Kling Avatar Pro",
+   "studio": "lipsync",
+   "kind": "lipsync_image",
+   "verified": "slug",
+   "image": "single",
+   "audio": true,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "kling-v2-avatar-standard",
+   "label": "Kling 2 Avatar Standard",
+   "studio": "lipsync",
+   "kind": "lipsync_image",
+   "verified": "slug",
+   "image": "single",
+   "audio": true,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "omnihuman-1-5",
+   "label": "OmniHuman 1.5",
+   "studio": "lipsync",
+   "kind": "lipsync_image",
+   "verified": "slug",
+   "image": "single",
+   "audio": true,
+   "video": false,
+   "params": []
+  },
+  {
+   "id": "creatify-lipsync",
+   "label": "Creatify Lipsync (video + audio)",
+   "studio": "lipsync",
+   "kind": "lipsync_video",
+   "verified": "slug",
+   "image": "none",
+   "audio": true,
+   "video": true,
+   "params": []
+  },
+  {
+   "id": "sync-lipsync",
+   "label": "Sync Lipsync (video + audio)",
+   "studio": "lipsync",
+   "kind": "lipsync_video",
+   "verified": "slug",
+   "image": "none",
+   "audio": true,
+   "video": true,
+   "params": []
+  },
+  {
+   "id": "latent-sync",
+   "label": "LatentSync (video + audio)",
+   "studio": "lipsync",
+   "kind": "lipsync_video",
+   "verified": "slug",
+   "image": "none",
+   "audio": true,
+   "video": true,
+   "params": []
+  },
+  {
+   "id": "veed-lipsync",
+   "label": "VEED Lipsync (video + audio)",
+   "studio": "lipsync",
+   "kind": "lipsync_video",
+   "verified": "slug",
+   "image": "none",
+   "audio": true,
+   "video": true,
+   "params": []
+  }
+ ]
+}

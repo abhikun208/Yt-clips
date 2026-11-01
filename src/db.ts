@@ -89,6 +89,10 @@ const MIGRATIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS claims (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, source_id INTEGER, kind TEXT NOT NULL, ranges_json TEXT NOT NULL DEFAULT '[]', note TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
   // v11 (additive): indexes for many-channel installs (per-channel counts, queue lookups, source->videos)
   `CREATE INDEX IF NOT EXISTS idx_sources_channel ON sources(channel_id); CREATE INDEX IF NOT EXISTS idx_uploads_channel ON uploads(channel_id, state); CREATE INDEX IF NOT EXISTS idx_videos_source ON videos(source_id); CREATE INDEX IF NOT EXISTS idx_clips_cand ON clips(candidate_id);`,
+  // v12 (additive): Studio (image/video/lip-sync generation through Muapi): generation history + uploaded inputs
+  `CREATE TABLE IF NOT EXISTS studio_generations (id INTEGER PRIMARY KEY AUTOINCREMENT, studio TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, prompt TEXT NOT NULL DEFAULT '', params_json TEXT NOT NULL DEFAULT '{}', inputs_json TEXT NOT NULL DEFAULT '{}', state TEXT NOT NULL DEFAULT 'QUEUED', request_id TEXT, outputs_json TEXT NOT NULL DEFAULT '[]', files_json TEXT NOT NULL DEFAULT '[]', cost_json TEXT, error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
+   CREATE INDEX IF NOT EXISTS idx_studio_gen_state ON studio_generations(state, id);
+   CREATE TABLE IF NOT EXISTS studio_uploads (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL, mime TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, remote_url TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
 ];
 
 export type Row = Record<string, unknown>;
