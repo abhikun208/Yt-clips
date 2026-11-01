@@ -84,6 +84,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       }
       cands = out.sort((x, y) => x.start - y.start);
     }
+    if (cfg.clip.faceMood !== false && !o.whole && cands.length) { try { const { applyFaceMood, pythonFaceRunner } = await import('./facemood.ts'); const fm = await applyFaceMood(cands, v.path, pythonFaceRunner(cfg)); cands = fm.cands; if (fm.used) info('face mood used', { videoId, clips: fm.used }); } catch (e) { warn('face mood failed', { err: (e as Error).message.slice(0, 100) }); } }
     { const rr = await rerankCandidates(cands, llmChain(cfg)); cands = rr.cands; if (rr.used) info('llm rerank', { used: rr.used }); else if (rr.note) warn(rr.note); }
     let inserted = 0;
     store.tx(() => {

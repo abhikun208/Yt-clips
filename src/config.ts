@@ -9,7 +9,7 @@ export interface Config {
   timezone: string;
   clip: {
     minSec: number; maxSec: number; targetSec: number; maxClipsPerVideo: number;
-    minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number; skipHeadSec?: number; skipTailSec?: number;
+    minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number; skipHeadSec?: number; skipTailSec?: number; faceMood?: boolean;
     series?: { enabled: boolean; partSec: number; maxParts: number }; dupBlock?: number; dupFlag?: number;
   };
   edit: {
@@ -23,6 +23,8 @@ export interface Config {
   gates: { publishEnabled: boolean; commentsAutoPost: boolean; publicVisibilityAllowed: boolean };
   studio: { dailyLimit: number; pollMs: number; baseUrl: string };
   /** Offline CapCut/JianYing bridge: every rendered clip also gets an editable draft (src/capcut). */
+  /** Optional pre-upload audio check (AcoustID/Chromaprint, free key). */
+  copyright?: { acoustidKey?: string; minScore?: number; checkMusic?: boolean; checkFinal?: boolean };
   capcut: { enabled: boolean; draftsDir?: string; seedDraft?: string; template?: string; preview?: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number; renderConcurrency: number };
   stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; indiaFirst?: boolean; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };

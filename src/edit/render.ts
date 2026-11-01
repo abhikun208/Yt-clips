@@ -186,7 +186,10 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     } catch { emph = []; }
   }
   const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
-  const musicPick = pickMusicTrack(cfg.dirs.assets, { mood: c.category, seed: c.id }); const music = musicPick?.path;
+  let musicPick = pickMusicTrack(cfg.dirs.assets, { mood: c.category, seed: c.id }); let musicNote: string | null = null;
+  { const { acoustidKey, musicRisk } = await import('../media/acoustid.ts'); const key = acoustidKey(cfg); // pre-clear: an uncleared (no licence in library.json) track that matches a known commercial recording is not used
+    if (musicPick && key && cfg.copyright?.checkMusic !== false && !musicPick.license) { const hit = await musicRisk(musicPick.path, key, cfg.copyright?.minScore ?? 0.85).catch(() => null); if (hit) { musicNote = `music skipped: matches "${hit.title}" by ${hit.artist} (AcoustID ${hit.score.toFixed(2)}), no licence listed in library.json`; warn(musicNote); musicPick = undefined; } } }
+  const music = musicPick?.path;
   const vg = buildVideoGraph({ punch, fitZoom: cfg.edit.fitZoom ?? 0.8,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: musicPick?.volume ?? cfg.edit.musicVolume, duration: m.duration });
@@ -218,6 +221,9 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   rmSync(assPath ?? '', { force: true });
   const row = prior ? prior.id : store.exec('INSERT INTO clips(candidate_id, output_id, variant) VALUES (?,?,?)', candidateId, outputId, ro.variant ?? 0).lastId;
   store.exec(`UPDATE clips SET raw_path=?, edited_path=?, manifest_path=?, qc_json=?, qc_pass=?, state=? WHERE id=?`, rawPath, finalPath, manifestPath, JSON.stringify(qc), qc.pass ? 1 : 0, qc.pass ? 'QC_PASSED' : 'QC_FAILED', row);
+  { const { acoustidKey, fingerprint, lookup } = await import('../media/acoustid.ts'); const key = acoustidKey(cfg); // advisory: the finished clip's audio vs AcoustID; a match is shown to the owner in the review note (never auto-rejected)
+    if (key && cfg.copyright?.checkFinal !== false) { try { const fp = await fingerprint(finalPath, 120); const mt = fp ? await lookup(key, fp) : null; const note = mt && mt.score >= (cfg.copyright?.minScore ?? 0.85) ? `audio matches "${mt.title}" by ${mt.artist} (AcoustID ${mt.score.toFixed(2)}): copyright claim possible, check before publishing` : musicNote; if (note) store.exec(`UPDATE clips SET review_note=COALESCE(review_note || ' | ', '') || ? WHERE id=?`, note, row); } catch (e) { warn('audio check skipped', { err: (e as Error).message.slice(0, 80) }); } }
+    else if (musicNote) store.exec(`UPDATE clips SET review_note=COALESCE(review_note || ' | ', '') || ? WHERE id=?`, musicNote, row); }
   try { await dupCheck(store, cfg, row, c.id, finalPath, m.duration); } catch (e) { warn('duplicate check skipped', { err: (e as Error).message.slice(0, 80) }); }
   if (cfg.capcut?.enabled) { // offline CapCut bridge: an editable draft of this clip (never blocks or fails the render)
     try { const { makeClipDraft } = await import('../capcut/bridge.ts'); const src = (!cuts && !ramp ? cues : cuesRaw).filter((q) => q.end > c.start_sec && q.start < c.start_sec + m.duration).map((q) => ({ start: q.start - c.start_sec, end: q.end - c.start_sec, text: q.text }));
