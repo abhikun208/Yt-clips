@@ -91,3 +91,16 @@ test('doctor re-queues jobs that died with the old "Refusing to overwrite" error
   const s = new Store(':memory:'); s.exec(`INSERT INTO jobs(kind,key,state,attempts,run_after,last_error,payload_json,updated_at) VALUES('render','render:26','DEAD',5,0,'Refusing to overwrite existing output /x/y.mp4','{}','x')`);
   await runDoctor(s, testConfig(), { fix: true }); assert.equal(s.get<{ state: string }>(`SELECT state FROM jobs WHERE key='render:26'`)!.state, 'PENDING');
 });
+
+import { createChannel } from '../src/channels.ts';
+import { sttPrompt } from '../src/analysis/stt.ts';
+test('captions never exceed the screen width (chunks split), channel vocabulary reaches the Whisper prompt', () => {
+  const cues = [{ start: 0, end: 6, text: 'Bahashan madde bhai sunchukhao abhi tu aekdham chamka aage dahi nikalke laayega' }];
+  for (const preset of ['build', 'classic']) {
+    const ass = buildStyledAss(cues, 0, 6, null, { width: 1080, height: 1920, preset }).ass;
+    for (const l of ass.split('\n').filter((x) => x.startsWith('Dialogue') && x.includes(',Cap,'))) { const txt = l.split(',,').pop()!.replace(/\{[^}]*\}/g, ''); const size = preset === 'build' ? 84 : 80; assert.ok(txt.length * 0.6 * size <= 1080 - 60, `${preset}: "${txt}" too wide`); }
+  }
+  const s = new Store(':memory:'); const cfg = testConfig();
+  assert.throws(() => createChannel(s, { name: 'Bad', config: { vocabulary: 'x' } as never }, () => true), /vocabulary/);
+  assert.match(sttPrompt(cfg, ['Jethalal', 'Sodhi'])!, /Jethalal, Sodhi/); assert.equal(sttPrompt(cfg), undefined);
+});

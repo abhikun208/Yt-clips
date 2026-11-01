@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, readdirSync, mkdirSync, statSync, renameSync, rmSync } from 'node:fs';
 import { guessLanguage } from '../analysis/transcript.ts';
 import { realHook } from '../seo/hook.ts';
-import { transcribeVideo } from '../analysis/stt.ts';
+import { transcribeVideo, sttPrompt } from '../analysis/stt.ts';
 import { isInterlaced, hasBurnedSubs } from './sourcecheck.ts';
 import { ensureLocal } from '../storage/cloud.ts';
 import { join } from 'node:path';
@@ -143,7 +143,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     // The source was never transcribed (added before speech-to-text was available): transcribe just THIS clip (seconds, not hours) so captions are real, never invented.
     try {
       const sidecar = rawPath.replace(/\.[^.]+$/, ''); let rel = loadTranscript(sidecar);
-      if (!rel.length) { const tr = await transcribeVideo(cfg, rawPath, { language: chan0early.config.language }); rel = tr.cues; if (tr.status === 'failed') warn('clip transcription failed', { clip: outputId, err: tr.error }); }
+      if (!rel.length) { const tr = await transcribeVideo(cfg, rawPath, { language: chan0early.config.language, prompt: sttPrompt(cfg, chan0early.config.vocabulary) }); rel = tr.cues; if (tr.status === 'failed') warn('clip transcription failed', { clip: outputId, err: tr.error }); }
       cuesRaw = rel.map((q) => ({ ...q, start: q.start + c.start_sec, end: q.end + c.start_sec, ...(q.words ? { words: q.words.map((w) => ({ ...w, start: w.start + c.start_sec, end: w.end + c.start_sec })) } : {}) }));
     } catch (e) { warn('clip transcription error', { err: (e as Error).message.slice(0, 120) }); }
   } const cues0 = cuts ? remapCuesCuts(cuesRaw, c.start_sec, cuts) : cuesRaw;

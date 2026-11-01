@@ -130,7 +130,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return `${tags}${F(w.w)}`;
   }).filter(Boolean).join(' ');
 
-  const chunks = chunkWords(words, p.wordsPerChunk);
+  // WrapStyle 2 never wraps: a chunk wider than the screen is clipped at the edges (seen on the owner's TMKOC clip: "AEKDHAM CHAMKA AAGE" cut at the left). Split chunks so each fits the safe width.
+  const maxChars = Math.max(8, Math.floor((o.width * 0.89) / ((p.caps ? 0.62 : 0.55) * size)));
+  const chunks = chunkWords(words, p.wordsPerChunk).flatMap((ch) => { const out: TWord[][] = []; let cur: TWord[] = []; let len = 0; for (const w of ch) { const l = w.w.length + (cur.length ? 1 : 0); if (cur.length && len + l > maxChars) { out.push(cur); cur = []; len = 0; } cur.push(w); len += w.w.length + (cur.length > 1 ? 1 : 0); } if (cur.length) out.push(cur); return out; });
   chunks.forEach((chunk, ci) => {
     const nextStart = chunks[ci + 1]?.[0]?.a ?? Infinity;
     const last = chunk[chunk.length - 1]!;

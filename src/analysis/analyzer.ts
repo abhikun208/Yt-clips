@@ -1,3 +1,4 @@
+import { sttPrompt } from './stt.ts';
 import { channelOfVideo } from '../channels.ts';
 import { loadExternalSeries } from './external.ts';
 import { learnedCategoryPrior } from '../publish/service.ts';
@@ -45,7 +46,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       const m = await probe(v.path);
       // Speech-to-text only when no transcript sidecar exists and an engine is available. Failure is non-fatal (clips just lack captions).
       if (cfg.stt.mode === 'auto' && m.hasAudio && loadTranscript(v.path.replace(/\.[^.]+$/, '')).length === 0) {
-        const sc = channelOfVideo(store, videoId); const t = await transcribeVideo(cfg, v.path, { language: sc.config.language, prompt: cfg.stt.prompt ?? (sc.profile === 'gaming' ? 'Free Fire gameplay commentary in Hinglish: booyah, headshot, clutch, squad, zone, knocked, rush, 1v4.' : undefined) });
+        const sc = channelOfVideo(store, videoId); const t = await transcribeVideo(cfg, v.path, { language: sc.config.language, prompt: sttPrompt(cfg, sc.config.vocabulary) ?? (sc.profile === 'gaming' ? 'Free Fire gameplay commentary in Hinglish: booyah, headshot, clutch, squad, zone, knocked, rush, 1v4.' : undefined) });
         if (t.status === 'failed') warn('transcription failed; continuing without captions', { videoId, error: t.error });
       }
       const [silence, scenes, black, en] = await Promise.all([

@@ -78,11 +78,11 @@ export function parseWhisperCppJson(txt: string): { cues: Cue[]; language?: stri
 }
 
 /** Run one local engine on a 16 kHz mono wav. Returns cues or throws. VoiceStudio is handled by the caller (needs the video for chunking). */
-export async function runLocalCli(cfg: Config, id: LocalEngineId, wav: string, lang: string): Promise<{ cues: Cue[]; language?: string }> {
+export async function runLocalCli(cfg: Config, id: LocalEngineId, wav: string, lang: string, prompt?: string): Promise<{ cues: Cue[]; language?: string }> {
   const l = lang && lang !== 'auto' ? lang : 'auto';
   if (id === 'whisper-cpp') {
     const bin = await cppBin(); if (!bin) throw new Error('whisper.cpp binary nahi mila'); const prefix = wav.replace(/\.wav$/, '');
-    const base = ['-m', cppModelPath(cfg), '-f', wav, '-oj', '-of', prefix, '-l', l, '-np'];
+    const base = ['-m', cppModelPath(cfg), '-f', wav, '-oj', '-of', prefix, '-l', l, '-np', ...(prompt ? ['--prompt', prompt.slice(0, 400)] : [])];
     let r = await run(bin, [...base, '-ml', '1', '-sow'], { timeoutMs: 4 * 60 * 60_000 }); // word times; older builds without these flags: retry plain
     if (r.code !== 0) r = await run(bin, base, { timeoutMs: 4 * 60 * 60_000 });
     const jf = prefix + '.json'; try { if (r.code !== 0 || !existsSync(jf)) throw new Error(`whisper.cpp exit ${r.code}: ${r.stderr.slice(0, 150)}`); return parseWhisperCppJson(readFileSync(jf, 'utf8')); } finally { rmSync(jf, { force: true }); }
@@ -90,7 +90,7 @@ export async function runLocalCli(cfg: Config, id: LocalEngineId, wav: string, l
   if (id === 'whisper-cli') {
     const dir = wav.replace(/\.wav$/, '_out'); mkdirSync(dir, { recursive: true });
     try {
-      const args = [wav, '--model', cfg.stt.model, '--output_format', 'json', '--output_dir', dir, '--word_timestamps', 'True', '--fp16', 'False', ...(l !== 'auto' ? ['--language', l] : [])];
+      const args = [wav, '--model', cfg.stt.model, '--output_format', 'json', '--output_dir', dir, '--word_timestamps', 'True', '--fp16', 'False', ...(prompt ? ['--initial_prompt', prompt.slice(0, 400)] : []), ...(l !== 'auto' ? ['--language', l] : [])];
       const r = await run('whisper', args, { timeoutMs: 4 * 60 * 60_000 }); const f = readdirSync(dir).find((x) => x.endsWith('.json'));
       if (r.code !== 0 || !f) throw new Error(`whisper exit ${r.code}: ${r.stderr.slice(-150)}`);
       return parseSttJson(readFileSync(join(dir, f), 'utf8'));
