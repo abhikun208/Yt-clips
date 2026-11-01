@@ -57,8 +57,11 @@ async function doctor(): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (!cmd || cmd === 'help') { console.log('commands: doctor | smoke [--url <video>] [--upload <file> [--channel <slug>]] | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | analytics-collect | tick | platforms | set-token <instagram|facebook|tiktok> (token from stdin) | youtube-connect-full | comments | comments-collect | comment-approve <id> | comment-post <id> | comment <platform> <id> <text...> | autopilot status|on|off [--publish] [--approve] [--public] [--review] [--yes]  (server: npm start)'); return 0; }
+  if (!cmd || cmd === 'help') { console.log('commands: doctor | capcut <command> (offline CapCut/JianYing editor: capcut quickstart) | smoke [--url <video>] [--upload <file> [--channel <slug>]] | add <file> [--authorized] | watch <youtube-url> --authorized | poll | transcribe <videoId> | presets | preset <id> | run [maxJobs] | status | plan <n> | youtube-status | youtube-connect | uploads | queue <clipId> <platform> | advance <uploadId> [--approve] [--at ISO] | analytics-import <csv> | analytics-collect | tick | platforms | set-token <instagram|facebook|tiktok> (token from stdin) | youtube-connect-full | comments | comments-collect | comment-approve <id> | comment-post <id> | comment <platform> <id> <text...> | autopilot status|on|off [--publish] [--approve] [--public] [--review] [--yes]  (server: npm start)'); return 0; }
   if (cmd === 'doctor') return doctor();
+  if (cmd === 'capcut') { // offline CapCut/JianYing tool (src/capcut): inspect, edit, subtitles, shorts, preview, doctor ...
+    const { run: capRun } = await import('./capcut/cli.ts'); return capRun(rest, { out: (x) => console.log(x), err: (x) => console.error(x), color: !!process.stdout.isTTY });
+  }
   const s = new Store(cfg.dbPath);
   try {
     if (cmd === 'add') {

@@ -219,6 +219,10 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const row = prior ? prior.id : store.exec('INSERT INTO clips(candidate_id, output_id, variant) VALUES (?,?,?)', candidateId, outputId, ro.variant ?? 0).lastId;
   store.exec(`UPDATE clips SET raw_path=?, edited_path=?, manifest_path=?, qc_json=?, qc_pass=?, state=? WHERE id=?`, rawPath, finalPath, manifestPath, JSON.stringify(qc), qc.pass ? 1 : 0, qc.pass ? 'QC_PASSED' : 'QC_FAILED', row);
   try { await dupCheck(store, cfg, row, c.id, finalPath, m.duration); } catch (e) { warn('duplicate check skipped', { err: (e as Error).message.slice(0, 80) }); }
+  if (cfg.capcut?.enabled) { // offline CapCut bridge: an editable draft of this clip (never blocks or fails the render)
+    try { const { makeClipDraft } = await import('../capcut/bridge.ts'); const src = (!cuts && !ramp ? cues : cuesRaw).filter((q) => q.end > c.start_sec && q.start < c.start_sec + m.duration).map((q) => ({ start: q.start - c.start_sec, end: q.end - c.start_sec, text: q.text }));
+      const d = makeClipDraft(cfg, { videoPath: rawPath, name: outputId, cues: src }); info('capcut draft', { outputId, dir: d.dir, subtitles: d.subtitles, fixed: d.fixed.length, issues: d.remaining.length }); }
+    catch (e) { warn('capcut draft skipped', { err: (e as Error).message.slice(0, 120) }); } }
   store.exec(`UPDATE candidates SET status='rendered' WHERE id=?`, candidateId);
   store.logState('clip', row, null, qc.pass ? 'QC_PASSED' : 'QC_FAILED', `coverage ${cov.applied}/${cov.total}`);
   if (!qc.pass) warn('QC failed', { outputId, failures: qc.failures }); else info('rendered', { outputId, coverage: cov.coverage, size: statSync(finalPath).size });

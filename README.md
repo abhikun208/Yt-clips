@@ -118,3 +118,6 @@ Rights: sirf apni ya authorized content use karo. Views/ranking ki koi guarantee
 
 ## Studio (image / video / lip sync / cinema)
 Open `http://<server>:8080/studio` (or the ✨ Studio button in the dashboard). Settings → paste your Muapi API key (stored encrypted on your server; `MUAPI_API_KEY` in `.env` also works). Each generation spends your Muapi credits; `studio.dailyLimit` (default 40/day) in `data/config.json` is a safety stop. Results are saved in `data/studio/`. Add or hide models in `data/studio-models.json`. Install as an app from the browser menu (PWA). Model entries marked *unverified* are from memory: if one fails, fix its name in the file.
+
+## CapCut / JianYing (offline, built in)
+`node src/cli.ts capcut quickstart` (or `node bin/capcut.ts ...`): inspect, trim, speed, volume, subtitles (SRT/VTT), styles/templates, shorts, preview, doctor/fix. Every rendered clip also gets an editable draft in `data/capcut-drafts` (config `capcut`: `enabled`, `draftsDir`, `seedDraft`, `template`, `preview`). Clips are never cut from the first/last 90 s of a video (`clip.skipHeadSec` / `skipTailSec`). Drafts are not verified in the real CapCut app; JianYing 6+ is encrypted and unsupported.

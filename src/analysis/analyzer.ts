@@ -9,7 +9,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { probe } from '../media/probe.ts';
 import { detectSilence, detectScenes, audioEnergy, detectBlack, normalizeEnergy } from './signals.ts';
-import { detectBoundaries } from './boundaries.ts';
+import { detectBoundaries, applySkips } from './boundaries.ts';
 import { loadTranscript, textInRange, guessLanguage } from './transcript.ts';
 import { sentencesFromCues, sentencesIn } from './textsignals.ts';
 import { planSeries } from './series.ts';
@@ -58,6 +58,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       a = { videoId, duration: m.duration, introEnd: b.introEnd, outroStart: b.outroStart, boundaryReasons: b.reasons, energyStep: en.step, energy: norm, scenes, silence, hasTranscript: cues.length > 0, analyzedAt: new Date().toISOString() };
       writeFileSync(analysisPath, JSON.stringify(a));
     }
+    { const k = applySkips(a.duration, a.introEnd, a.outroStart, { skipHeadSec: cfg.clip.skipHeadSec, skipTailSec: cfg.clip.skipTailSec, override: o.override }); if (k.reasons.length) { a = { ...a, introEnd: k.introEnd, outroStart: k.outroStart, boundaryReasons: [...(a.boundaryReasons ?? []), ...k.reasons] }; } }
     const cues = loadTranscript(v.path.replace(/\.[^.]+$/, ''));
     const chan = channelOfVideo(store, videoId); const external = loadExternalSeries(v.path.replace(/\.[^.]+$/, ''), a.duration);
     if (chan.config.killfeed) { try { const kf = await scanKillfeed(v.path, a.duration, cfg.dirs.tmp, { region: chan.config.killfeed === true ? undefined : chan.config.killfeed }); if (kf) external.push(kf); } catch (e) { warn('killfeed scan failed', { err: (e as Error).message.slice(0, 80) }); } }

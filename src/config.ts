@@ -9,7 +9,7 @@ export interface Config {
   timezone: string;
   clip: {
     minSec: number; maxSec: number; targetSec: number; maxClipsPerVideo: number;
-    minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number;
+    minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number; skipHeadSec?: number; skipTailSec?: number;
     series?: { enabled: boolean; partSec: number; maxParts: number }; dupBlock?: number; dupFlag?: number;
   };
   edit: {
@@ -22,6 +22,8 @@ export interface Config {
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */
   gates: { publishEnabled: boolean; commentsAutoPost: boolean; publicVisibilityAllowed: boolean };
   studio: { dailyLimit: number; pollMs: number; baseUrl: string };
+  /** Offline CapCut/JianYing bridge: every rendered clip also gets an editable draft (src/capcut). */
+  capcut: { enabled: boolean; draftsDir?: string; seedDraft?: string; template?: string; preview?: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number; renderConcurrency: number };
   stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; indiaFirst?: boolean; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
@@ -48,11 +50,12 @@ const DEFAULTS = (rootDir: string): Config => {
     },
     dbPath: join(dataDir, 'yt-clips.sqlite'),
     timezone: 'Asia/Kolkata',
-    clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30, series: { enabled: true, partSec: 45, maxParts: 4 } },
+    clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30, skipHeadSec: 90, skipTailSec: 90, series: { enabled: true, partSec: 45, maxParts: 4 } },
     edit: { pace: 'medium', width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', encoder: 'auto', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: true, particles: true, lightLeak: true, flash: true, progress: true }, jumpCuts: true, emphasisZoom: true, hookTitle: true, cta: 'SUBSCRIBE KARO 🔔' },
     schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
     studio: { dailyLimit: 40, pollMs: 3000, baseUrl: 'https://api.muapi.ai' },
+    capcut: { enabled: true, preview: false },
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4, renderConcurrency: 1 },
     stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'auto' },
     youtube: { pollMinutes: 15, maxPerPoll: 3, maxDurationMin: 360, maxHeight: 720 },
