@@ -64,7 +64,10 @@ export function applyCueEdits(cues: Cue[], edits: CueEdit[]): Cue[] {
 }
 
 export function textInRange(cues: Cue[], start: number, end: number): string {
-  return cues.filter((c) => c.end > start && c.start < end).map((c) => c.text).join(' ').replace(/\s+/g, ' ').trim();
+  const cs = cues.filter((c) => c.end > start && c.start < end); let out = '';
+  cs.forEach((c, i) => { const t = c.text.replace(/\s+/g, ' ').trim(); if (!t) return; const prev = cs[i - 1]; // a real pause between two cues with no punctuation = sentence end (Whisper rarely punctuates short Hindi cues)
+    out += (out ? (prev && !/[.!?।…]$/.test(out) && c.start - prev.end >= 0.5 ? '. ' : ' ') : '') + t; });
+  return out.trim();
 }
 
 /** Crude script/language tag: devanagari -> hi, latin with common Hindi words -> hinglish, else en. */

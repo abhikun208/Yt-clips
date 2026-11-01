@@ -42,11 +42,11 @@ export function detectBoundaries(duration: number, o: {
 
 /**
  * Hard "no clips from the opening/closing" zones: the hook/intro/recap at the start and the subscribe/outro talk at the end.
- * Default 90 s each side, but never more than 20% of the video per side, and not at all under 5 minutes (short videos keep a usable middle), and an owner override always wins.
+ * Default 90 s each side, but never more than 20% of the video per side, and not at all under 2 minutes (short videos keep a usable middle), and an owner override always wins.
  */
 export function applySkips(duration: number, introEnd: number, outroStart: number, o: { skipHeadSec?: number; skipTailSec?: number; override?: { introEnd?: number; outroStart?: number } }): { introEnd: number; outroStart: number; reasons: string[] } {
   const reasons: string[] = []; let a = introEnd, b = outroStart;
-  if (duration < 300) return { introEnd, outroStart, reasons }; // short videos: rely on detected boundaries only
+  if (duration < 120) return { introEnd, outroStart, reasons }; // short videos: rely on detected boundaries only
   const head = Math.min(o.skipHeadSec ?? 0, duration * 0.2), tail = Math.min(o.skipTailSec ?? 0, duration * 0.2);
   if (o.override?.introEnd === undefined && head > a) { a = head; reasons.push(`first ${Math.round(head)}s skipped (hook/intro)`); }
   if (o.override?.outroStart === undefined && duration - tail < b) { b = duration - tail; reasons.push(`last ${Math.round(tail)}s skipped (subscribe/outro)`); }

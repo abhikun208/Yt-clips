@@ -21,3 +21,8 @@ test('applyCaptionLanguage: original / English channel untouched; English→Hing
   const r = await applyCaptionLanguage(en, 'hinglish', 'hi', [{ baseUrl: 'http://x', apiKey: 'k', model: 'm' }], f);
   assert.equal(r.cues[0]!.text, 'kya zabardast clutch tha bhai'); assert.equal(r.cues[0]!.end, 2);
 });
+
+test('on-screen hook title is romanised like the captions (no Devanagari title above Roman captions)', async () => {
+  const { toHinglish, hasDevanagari } = await import('../src/ai/hinglish.ts');
+  const t = toHinglish('सच बोलूं तो ये बहुत खतरनाक था'); assert.equal(hasDevanagari(t), false); assert.ok(t.length > 10);
+});

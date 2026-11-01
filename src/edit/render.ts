@@ -156,6 +156,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     if (ro.title === undefined && cfg.edit.hookTitle === true) { const h = realHook(inClip); if (h) ro = { ...ro, title: h }; } }
   { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; // visible series label
     if (pn && pt) { const lbl = `PART ${pn}/${pt}`; ro = { ...ro, title: ro.title ? `${lbl} • ${ro.title}`.slice(0, 64) : lbl }; } }
+  if (ro.title && (toLang === 'auto' || toLang === 'hinglish')) { const { toHinglish, hasDevanagari } = await import('../ai/hinglish.ts'); if (hasDevanagari(ro.title)) ro = { ...ro, title: toHinglish(ro.title) }; } // the on-screen title uses the same script as the captions (Roman Hinglish), not Devanagari above Roman captions
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text
   if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
@@ -226,8 +227,8 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     else if (musicNote) store.exec(`UPDATE clips SET review_note=COALESCE(review_note || ' | ', '') || ? WHERE id=?`, musicNote, row); }
   try { await dupCheck(store, cfg, row, c.id, finalPath, m.duration); } catch (e) { warn('duplicate check skipped', { err: (e as Error).message.slice(0, 80) }); }
   if (cfg.capcut?.enabled) { // offline CapCut bridge: an editable draft of this clip (never blocks or fails the render)
-    try { const { makeClipDraft } = await import('../capcut/bridge.ts'); const src = (!cuts && !ramp ? cues : cuesRaw).filter((q) => q.end > c.start_sec && q.start < c.start_sec + m.duration).map((q) => ({ start: q.start - c.start_sec, end: q.end - c.start_sec, text: q.text }));
-      const d = makeClipDraft(cfg, { videoPath: rawPath, name: outputId, cues: src }); info('capcut draft', { outputId, dir: d.dir, subtitles: d.subtitles, fixed: d.fixed.length, issues: d.remaining.length }); }
+    try { const { makeClipDraft } = await import('../capcut/bridge.ts'); const src = (ramp ? cues0 : cues).filter((q) => q.end > c.start_sec && q.start < c.start_sec + m.duration + (cuts?.saved ?? 0)).map((q) => ({ start: q.start - c.start_sec, end: q.end - c.start_sec, text: q.text }));
+      const d = makeClipDraft(cfg, { videoPath: rawPath, name: outputId, cues: src, keep: cuts?.keep }); info('capcut draft', { outputId, dir: d.dir, subtitles: d.subtitles, fixed: d.fixed.length, issues: d.remaining.length }); }
     catch (e) { warn('capcut draft skipped', { err: (e as Error).message.slice(0, 120) }); } }
   store.exec(`UPDATE candidates SET status='rendered' WHERE id=?`, candidateId);
   store.logState('clip', row, null, qc.pass ? 'QC_PASSED' : 'QC_FAILED', `coverage ${cov.applied}/${cov.total}`);

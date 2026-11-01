@@ -5,7 +5,7 @@ const STOP_LIST = `the a an and or of to in on is are was were be been being thi
 kya hai hain tha thi the ka ki ke ko se me mein par pe aur ya ye yeh woh wo vo nahi nahin nhi toh to bhi hi kar karo karna kare kiya kiye raha rahi rahe hota hoti hote hua hui hue ek hum tum aap mai main mera meri mere tera teri tere apna apni apne iss uss isko usko jo jab tab agar lekin magar kyunki isliye abhi bas sirf bahut kuch koi kaun kab kahan kaise kyu kyun waise phir fir aise jaise wala wali wale liye saath sath baad pehle upar neeche andar bahar
 है हैं था थी थे का की के को से में पर और या ये यह वह वो नहीं भी ही कर करो करना किया रहा रही रहे होता होती होते हुआ हुई हुए एक हम तुम आप मैं मेरा मेरी मेरे अपना अपनी अपने जो जब तब अगर लेकिन मगर क्योंकि इसलिए अभी बस सिर्फ बहुत कुछ कोई कौन कब कहाँ कैसे क्यों फिर ऐसे जैसे वाला वाली वाले लिए साथ बाद पहले`.split(/\s+/);
 const STOP = new Set(STOP_LIST);
-const FILLER = new Set('um uh umm hmm like basically actually literally yaar bhai guys dosto toh matlab'.split(' '));
+const FILLER = new Set('um uh umm hmm like basically actually literally yaar bhai guys dosto toh matlab gaya gayi gaye gaye baat baten baatein dekho dekh dekha suno sun bolo bol bolu boloon batata batao bata hoga hogi hoga raha ho ye'.split(' ').concat('गया गयी गए बात बातें देखो सुनो बोलो बोलूं बताता बताओ होगा होगी'.split(' ')));
 
 export const tokenize = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{M}\p{N}'\s]/gu, ' ').split(/\s+/).filter(Boolean);
 const isContent = (w: string) => !STOP.has(w) && !FILLER.has(w) && w.length >= 3 && !/^\d+$/.test(w);
@@ -51,7 +51,8 @@ const PAT = {
 export interface LocalMeta { titles: string[]; title: string; description: string; tags: string[]; keyphrases: string[]; thumbnailText: string }
 /** Build titles/description/tags from the clip's own transcript. Titles are scored (length, keyphrase, hook, emoji) and the best 3+ returned. */
 export function localMetadata(o: { transcript: string; category: string; language: Lang; hook?: string; channelName?: string; sourceTitle?: string; hashtags: string[] }): LocalMeta {
-  const L = PAT[o.language] ?? PAT.unknown; const emo = EMOJI[o.category] ?? '👀';
+  const dev = (o.transcript.match(/[ऀ-ॿ]/g) ?? []).length, lat = (o.transcript.match(/[A-Za-z]/g) ?? []).length; const lang: Lang = (o.language === 'hi' || o.language === 'hinglish') ? (dev >= lat ? 'hi' : 'hinglish') : o.language; // templates follow the script of the actual text
+  const L = PAT[lang] ?? PAT.unknown; const emo = EMOJI[o.category] ?? '👀';
   const kp = keyphrases(o.transcript, 8); const top = kp[0]?.phrase;
   const sents = splitSentences(o.transcript); const hookSent = [o.hook, ...sents.slice(0, 3)].filter((x): x is string => !!x).map((s) => ({ s, h: hookScore(s) })).sort((a, b) => b.h - a.h)[0]?.s ?? '';
   const cands: string[] = [];
@@ -59,7 +60,7 @@ export function localMetadata(o: { transcript: string; category: string; languag
   if (top) { cands.push(L.truth(top)); cands.push(L.q(top)); }
   if (kp[1]) cands.push(L.truth(`${kp[0]!.phrase} ${kp[1].phrase}`.slice(0, 40)));
   if (o.sourceTitle) cands.push(`${shorten(o.sourceTitle, 60)} | Best Moment`);
-  const score = (t: string) => { let v = 0; const n = t.length; v += n >= 30 && n <= 70 ? 1 : n < 30 ? 0.4 : 0.6; if (top && t.toLowerCase().includes(top)) v += 1; v += hookScore(t) * 0.8; if (/\p{Extended_Pictographic}/u.test(t)) v += 0.3; return v; };
+  const score = (t: string) => { let v = 0; const n = t.length; v += n >= 30 && n <= 70 ? 1 : n < 30 ? 0.4 : 0.6; if (top && t.toLowerCase().includes(top)) v += 0.6; if (core && t.startsWith(core)) v += 0.6; /* real speech beats a template */ v += hookScore(t) * 0.8; if (/\p{Extended_Pictographic}/u.test(t)) v += 0.3; return v; };
   const titles = [...new Set(cands.map((t) => shorten(t, 90)))].sort((a, b) => score(b) - score(a));
   if (!titles.length) titles.push(`Ye Moment Miss Mat Karna ${emo}`);
   const tags = [...new Set([...kp.map((k) => k.phrase), ...(o.category !== 'general' ? [o.category] : []), 'shorts', 'best moments', ...(o.channelName ? [o.channelName] : [])])].slice(0, 15);

@@ -77,7 +77,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       for (const c of [...cands].sort((x, y) => y.score - x.score)) {
         if (occupied.some((o) => overlapRatio([c.start, c.end], o) > 0.2)) continue;
         const spans = planSeries(c.start, c.end, sents, { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, partSec: cfg.clip.series.partSec, maxParts: cfg.clip.series.maxParts, hi: a.outroStart });
-        if (!spans) { out.push(c); occupied.push([c.start, c.end]); continue; }
+        if (!spans || occupied.some((o) => overlapRatio([spans[0]!.start, spans[spans.length - 1]!.end], o) > 0.2)) { out.push(c); occupied.push([c.start, c.end]); continue; } // a multi-part series must not swallow a clip already taken (or it would repeat that moment)
         const key = `s${videoId}_${Math.round(c.start)}`; occupied.push([spans[0]!.start, spans[spans.length - 1]!.end]);
         spans.forEach((sp, i) => { const txt = textInRange(cues, sp.start, sp.end); const inS = sentencesIn(sents, sp.start, sp.end); const fp = shortHash(`${videoId}:${Math.round(sp.start)}:${Math.round(sp.end)}`, 16);
           out.push({ ...c, start: sp.start, end: sp.end, duration: +(sp.end - sp.start).toFixed(2), score: +(c.score * (i === 0 ? 1 : 0.97)).toFixed(4), transcript: txt, language: guessLanguage(txt), hook: (inS[0]?.text ?? c.hook).slice(0, 140), reason: `${c.reason}; part ${i + 1}/${spans.length} of one story`, fingerprint: fp }); partOf.set(fp, { no: i + 1, total: spans.length, key }); });

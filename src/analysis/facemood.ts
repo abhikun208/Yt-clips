@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type { Config } from '../config.ts';
 import type { Candidate } from './select.ts';
 import { run, which } from '../util/proc.ts';
-import { warn } from '../util/log.ts';
+import { info } from '../util/log.ts';
 
 export interface FaceMood { faces: number; samples: number; smile: number; surprise: number; sad: number; anger: number; error?: string }
 export type FaceRunner = (video: string, start: number, end: number) => Promise<FaceMood | { error: string }>;
@@ -32,5 +32,5 @@ export async function applyFaceMood(cands: Candidate[], video: string, runner: F
     const r = moodFromFace(f as FaceMood, c); if (!r.label) continue; used++;
     c.score = +Math.min(1, r.score).toFixed(4); c.category = r.category; c.reason = `${c.reason}; ${r.label}`; c.signals = { ...c.signals, face_smile: (f as FaceMood).smile, face_surprise: (f as FaceMood).surprise };
   }
-  void keep; if (note) warn(note); return { cands, used, note };
+  void keep; if (note) info(note); return { cands, used, note };
 }
