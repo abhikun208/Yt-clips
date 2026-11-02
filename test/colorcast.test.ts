@@ -32,3 +32,15 @@ test('caption templates: 280+ original presets render valid ASS; underline style
   const u = buildStyledAss(cues, 0, 3, null, { width: 1080, height: 1920, preset: 'underline-sun' }).ass; assert.match(u, /Style: Cap,[^,]*,\d+,[^,]*,[^,]*,[^,]*,[^,]*,-?1,0,-1,0,/);
   const e = buildStyledAss(cues, 0, 3, null, { width: 1080, height: 1920, preset: 'classic-sun' }).ass; const emph = getPreset('classic-sun')!.palette.emphasis.replace('#', '').toUpperCase(); assert.ok(e.toUpperCase().includes(emph.slice(4, 6) + emph.slice(2, 4) + emph.slice(0, 2)), 'emphasis colour (BGR) used for amounts');
 });
+
+test('regression: luma-only blends keep the COLOURS of saturated footage (an earlier version turned colour footage grey; grey test footage could not catch it)', async () => {
+  const sat = async (vfx: boolean, glow: boolean): Promise<number> => {
+    const g = buildVideoGraph({ inW: 1280, inH: 720, outW: 540, outH: 960, fps: 30, duration: 2, mood: 'funny' as never, reframe: 'crop', zoom: false, glow, fade: false, vfx: vfx ? { ...VFX_DEFAULTS, grain: false, flashAt: [] } : { lut: false, grain: false, particles: false, lightLeak: false, flash: false, progress: false, flashAt: [] } } as never).graph;
+    const out = join(tmpDir(), 's.mp4');
+    const r = await run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'smptebars=size=1280x720:rate=30:duration=2', '-filter_complex', g, '-map', '[vout]', '-t', '2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out], { timeoutMs: 120_000 }); assert.equal(r.code, 0, r.stderr);
+    const s = await run('ffmpeg', ['-v', 'error', '-i', out, '-vf', 'signalstats,metadata=print:file=-', '-f', 'null', '-'], { timeoutMs: 60_000 });
+    const a = [...s.stdout.matchAll(/SATAVG=([\d.]+)/g)].map((x) => Number(x[1])); return a.reduce((x, y) => x + y, 0) / a.length;
+  };
+  const plain = await sat(false, false), full = await sat(true, true);
+  assert.ok(plain > 30, 'fixture must be colourful: ' + plain); assert.ok(full > plain * 0.8, `effects must not wash out colour: plain ${plain.toFixed(1)} vs effects ${full.toFixed(1)}`);
+});

@@ -1,0 +1,19 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { tmpDir } from './helpers.ts';
+
+const hasCv2 = spawnSync('python3', ['-I', '-c', 'import cv2']).status === 0;
+test('face tools: with a detector present the crop track follows the face (stub detector walks left to right); without any detector they report no_detector instead of crashing', { skip: !hasCv2 }, () => {
+  const d = tmpDir(); const tools = join(d, 'tools'); mkdirSync(tools);
+  for (const f of ['face_center.py', 'face_track.py']) copyFileSync(join(process.cwd(), 'tools', f), join(tools, f));
+  const vid = join(d, 'v.mp4'); assert.equal(spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=25:duration=6', '-pix_fmt', 'yuv420p', vid]).status, 0);
+  copyFileSync(join(process.cwd(), 'tools', 'facedet.py'), join(tools, 'facedet.py')); // real module: on OpenCV 5 without model => no_detector
+  const real = spawnSync('python3', ['-I', join(tools, 'face_track.py'), vid, '5'], { encoding: 'utf8' }); const j0 = JSON.parse(real.stdout.trim().split('\n').pop()!); assert.ok(j0.error === 'no_detector' || j0.faces >= 0, real.stdout + real.stderr);
+  writeFileSync(join(tools, 'facedet.py'), 'n = [0]\ndef load(cv2):\n    def d(fr):\n        n[0] += 1\n        return [(20 + n[0] * 8, 60, 60, 60)]\n    return d\n');
+  const r = spawnSync('python3', ['-I', join(tools, 'face_track.py'), vid, '5'], { encoding: 'utf8' }); const j = JSON.parse(r.stdout.trim().split('\n').pop()!); assert.ok(j.faces > 0, r.stdout + r.stderr); assert.ok(j.track.length > 3);
+  assert.ok(j.track[j.track.length - 1][1] > j.track[0][1] + 0.1, 'track moves with the face: ' + JSON.stringify(j.track.slice(0, 3)));
+  const c = spawnSync('python3', ['-I', join(tools, 'face_center.py'), vid, '6'], { encoding: 'utf8' }); const jc = JSON.parse(c.stdout.trim().split('\n').pop()!); assert.ok(jc.cx > 0 && jc.cx < 1, c.stdout + c.stderr);
+});

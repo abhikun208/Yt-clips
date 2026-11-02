@@ -115,7 +115,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
       cuts = planCuts(await detectSilence(rawPath, -35, 0.55), m.duration); cutNote = cuts ? '' : 'no long silences / clip too short';
       if (cuts) {
         const cp = join(cfg.dirs.tmp, `${outputId}.cut.mp4`); tmpFiles.push(cp);
-        const cr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', cutFilter(cuts!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 16, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', cp], { timeoutMs: 20 * 60_000 }));
+        const cr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', cutFilter(cuts!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 15, preset: 'ultrafast' }), '-c:a', 'aac', '-b:a', '192k', cp], { timeoutMs: 20 * 60_000 }));
         if (cr.code !== 0) { cuts = null; cutNote = 'ffmpeg cut failed; rendered without'; } else {
           const mc = await probe(cp); if (Math.abs(mc.duration - (m.duration - cuts.saved)) > 0.6) { cuts = null; cutNote = 'cut duration mismatch; rendered without'; } else { srcPath = cp; m = mc; }
         }
@@ -129,7 +129,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
       const peaks = pickPeaks(await audioEnergy(srcPath, 0.25), { duration: m.duration, max: 1 }); ramp = planRamp(peaks[0], m.duration); rampNote = ramp ? '' : 'no strong peak / clip too short';
       if (ramp) {
         const rp = join(cfg.dirs.tmp, `${outputId}.ramp.mp4`);
-        const rr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', srcPath, '-filter_complex', rampFilter(ramp!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 16, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', rp], { timeoutMs: 20 * 60_000 }));
+        const rr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', srcPath, '-filter_complex', rampFilter(ramp!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 15, preset: 'ultrafast' }), '-c:a', 'aac', '-b:a', '192k', rp], { timeoutMs: 20 * 60_000 }));
         if (rr.code !== 0) { ramp = null; rampNote = 'ffmpeg ramp failed; rendered without'; } else {
           const mr = await probe(rp); if (Math.abs(mr.duration - rampedDuration(m.duration, ramp)) > 0.5) { ramp = null; rampNote = 'ramped duration mismatch; rendered without'; rmSync(rp, { force: true }); } else { editSrc = rp; m = mr; }
         }
@@ -172,7 +172,8 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const chan = channelOfVideo(store, c.video_id); const facecam = ro.facecam ?? chan.config.facecam;
   let reframe: VideoGraphOpts['reframe'] = ro.reframe ?? (chan.config.layout === 'gamer_stack' && facecam ? 'gamer_stack' : chan.config.layout === 'split_gameplay' ? 'split_gameplay' : cfg.edit.reframe); let reframeNote = '';
   const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
-  if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
+  let burnedSrc = false;
+  if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; burnedSrc = true; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
   const deint = await isInterlaced(editSrc, 0, m.duration);
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
   const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir) : [];
@@ -191,7 +192,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   { const { acoustidKey, musicRisk } = await import('../media/acoustid.ts'); const key = acoustidKey(cfg); // pre-clear: an uncleared (no licence in library.json) track that matches a known commercial recording is not used
     if (musicPick && key && cfg.copyright?.checkMusic !== false && !musicPick.license) { const hit = await musicRisk(musicPick.path, key, cfg.copyright?.minScore ?? 0.85).catch(() => null); if (hit) { musicNote = `music skipped: matches "${hit.title}" by ${hit.artist} (AcoustID ${hit.score.toFixed(2)}), no licence listed in library.json`; warn(musicNote); musicPick = undefined; } } }
   const music = musicPick?.path;
-  const vg = buildVideoGraph({ punch, fitZoom: cfg.edit.fitZoom ?? 0.8,  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
+  const vg = buildVideoGraph({ punch, fitZoom: burnedSrc ? 1 : (cfg.edit.fitZoom ?? 0.8), /* source with its own subtitles: never trim the sides (that cuts the source text) */  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: musicPick?.volume ?? cfg.edit.musicVolume, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;

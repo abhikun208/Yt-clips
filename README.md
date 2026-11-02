@@ -123,5 +123,6 @@ Open `http://<server>:8080/studio` (or the ✨ Studio button in the dashboard). 
 `node src/cli.ts capcut quickstart` (or `node bin/capcut.ts ...`): inspect, trim, speed, volume, subtitles (SRT/VTT), styles/templates, shorts, preview, doctor/fix. Every rendered clip also gets an editable draft in `data/capcut-drafts` (config `capcut`: `enabled`, `draftsDir`, `seedDraft`, `template`, `preview`). Clips are never cut from the first/last 90 s of a video (`clip.skipHeadSec` / `skipTailSec`). Drafts are not verified in the real CapCut app; JianYing 6+ is encrypted and unsupported.
 
 ### Optional extras (all off/quiet when the tool is missing)
-- Facial mood: `pip install mediapipe opencv-python` (model downloads once). Disable: `clip.faceMood=false`.
+- Facial mood: `pip install mediapipe opencv-python` (model downloads once); on Termux plain OpenCV 4 gives a smile-only signal. Disable: `clip.faceMood=false`.
+- Face-follow crop needs OpenCV (setup.sh installs it); on OpenCV 5 a small YuNet model is downloaded once to data/models.
 - Copyright pre-check: free key at acoustid.org, put `ACOUSTID_KEY=...` in `.env` (or `copyright.acoustidKey`). Advisory only.

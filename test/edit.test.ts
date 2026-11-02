@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildVideoGraph, buildAudioGraph, treatmentCoverage, DIMENSIONS, escFilterPath } from '../src/edit/filters.ts';
+import { buildVideoGraph, reframeParts, buildAudioGraph, treatmentCoverage, DIMENSIONS, escFilterPath } from '../src/edit/filters.ts';
 import { buildAss } from '../src/edit/ass.ts';
 import { parseEbur128 } from '../src/edit/qc.ts';
 
@@ -44,4 +44,10 @@ test('ASS captions: relative timing, clipped to range, strips override braces, t
 test('ebur128 parser', () => {
   assert.deepEqual(parseEbur128('Summary:\n  Integrated loudness:\n    I:         -14.2 LUFS\n  True peak:\n    Peak:       -1.3 dBFS'), { lufs: -14.2, truePeak: -1.3 });
   assert.deepEqual(parseEbur128('nothing'), { lufs: null, truePeak: null });
+});
+
+test('fit_blur with fitZoom 1 keeps the full width (no side crop) while 0.8 trims sides', () => {
+  const base = { inW: 854, inH: 480, outW: 1080, outH: 1920, reframe: 'fit_blur' as const };
+  assert.doesNotMatch(reframeParts({ ...base, fitZoom: 1 }).parts.join(';'), /crop=w='trunc\(iw\*/);
+  assert.match(reframeParts({ ...base, fitZoom: 0.8 }).parts.join(';'), /crop=w='trunc\(iw\*0\.800/);
 });

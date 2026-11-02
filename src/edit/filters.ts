@@ -22,6 +22,10 @@ export function gradeFor(mood: Mood): { eq: string; balance: string; detail: str
 export function screenBlend(parts: string[], a: string, b: string, out: string, opacity: number): void {
   parts.push(`[${a}]format=gbrp[${a}_g];[${b}]format=gbrp[${b}_g];[${a}_g][${b}_g]blend=all_mode=screen:all_opacity=${opacity}:shortest=1[${out}]`);
 }
+/** Luma-only screen blend in yuv420p (no RGB round-trip: ~9x cheaper at 1080x1920). Chroma of the base picture is kept untouched, so no tint shift. Both inputs must be yuv420p, same size. Used for white-ish layers (bloom, dust). */
+export function screenBlendLuma(parts: string[], a: string, b: string, out: string, opacity: number): void {
+  parts.push(`[${a}]format=yuv420p[${a}_y];[${b}]format=yuv420p[${b}_y];[${a}_y][${b}_y]blend=c0_mode=screen:c0_opacity=${opacity}:c1_expr=A:c2_expr=A:shortest=1[${out}]`); // `curves`/LUT can leave RGB planes: force yuv so plane 0 really is luma
+}
 export interface VideoGraphOpts {
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
   reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; fitZoom?: number; cropXFrac?: number; cropTrack?: [number, number][]; // 0..1 center of subject horizontally (from face tracking), default .5
@@ -96,9 +100,9 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
   if (o.glow) {
     const a = `v${n++}`; const b = `v${n++}`; const c = `v${n++}`;
     parts.push(`[${cur}]split=2[${a}][${b}]`);
-    parts.push(`[${b}]gblur=sigma=18,eq=brightness=-0.15[${c}]`);
+    parts.push(`[${b}]scale=iw/4:ih/4:flags=bilinear,gblur=sigma=4.5,eq=brightness=-0.15,scale=${o.outW}:${o.outH}:flags=bicubic,format=yuv420p[${c}]`); // blur at 1/4 size (same look, a fraction of the cost)
     const out = `v${n++}`;
-    screenBlend(parts, a, c, out, 0.28);
+    screenBlendLuma(parts, a, c, out, 0.28);
     cur = out; t.push({ dimension: 'glow', applied: true, detail: 'soft bloom (screen blend, 28%)' });
   } else t.push({ dimension: 'glow', applied: false, detail: 'disabled' });
 

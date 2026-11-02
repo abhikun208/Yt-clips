@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Sample frames from a video and print JSON {"cx": float|null, "faces": int, "samples": int}.
-cx = median horizontal centre (0..1) of the largest detected face per sample. Uses OpenCV Haar cascade (offline)."""
+cx = median horizontal centre (0..1) of the largest detected face per sample. Uses OpenCV Haar cascade (offline) or, on OpenCV 5, YuNet (tools/facedet.py)."""
 import json, sys
 try:
     import cv2
@@ -14,18 +14,21 @@ total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 w = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0
 if total <= 0 or w <= 0:
     print(json.dumps({"cx": None, "faces": 0, "samples": 0, "error": "unreadable"})); sys.exit(0)
-try:
-    casc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-except Exception:  # e.g. OpenCV 5 builds without the legacy cascade API
-    print(json.dumps({"cx": None, "faces": 0, "samples": 0, "error": "no_cascade"})); sys.exit(0)
+import os, sys as _s
+_s.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from facedet import load as _load
+detect = _load(cv2)
+if detect is None:
+    print(json.dumps({"cx": None, "faces": 0, "samples": 0, "error": "no_detector"})); sys.exit(0)
 xs = []
 for i in range(n):
     cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (i + 0.5) / n))
     ok, fr = cap.read()
     if not ok: continue
     scale = 480.0 / fr.shape[1] if fr.shape[1] > 480 else 1.0
-    g = cv2.cvtColor(cv2.resize(fr, None, fx=scale, fy=scale) if scale != 1.0 else fr, cv2.COLOR_BGR2GRAY)
-    faces = casc.detectMultiScale(g, 1.2, 5, minSize=(30, 30))
+    fr2 = cv2.resize(fr, None, fx=scale, fy=scale) if scale != 1.0 else fr
+    g = cv2.cvtColor(fr2, cv2.COLOR_BGR2GRAY)
+    faces = detect(fr2)
     if len(faces):
         x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])
         xs.append((x + fw / 2.0) / g.shape[1])
