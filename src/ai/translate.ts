@@ -42,7 +42,7 @@ export async function translateCues(cues: Cue[], to: Lang, chain: AiCreds[], fet
  * out in Devanagari, else untouched. Hinglish never needs an LLM for Devanagari text (rule-based romanisation is the fallback);
  * English speech → Hinglish needs the LLM chain and is skipped (with a note) when none works.
  */
-export async function applyCaptionLanguage(cues: Cue[], target: CaptionTarget, channelLang: string | undefined, chain: AiCreds[], fetchFn: typeof fetch = fetch): Promise<{ cues: Cue[]; used: string | null; note?: string }> {
+export async function applyCaptionLanguage(cues: Cue[], target: CaptionTarget, channelLang: string | undefined, chain: AiCreds[], fetchFn: typeof fetch = fetch, engine: 'rules' | 'llm' = 'rules'): Promise<{ cues: Cue[]; used: string | null; note?: string }> {
   if (!cues.length || target === 'original') return { cues, used: null };
   const text = cues.map((c) => c.text).join(' ');
   const hindiChannel = channelLang === 'hi' || channelLang === 'hinglish';
@@ -51,11 +51,13 @@ export async function applyCaptionLanguage(cues: Cue[], target: CaptionTarget, c
   if (to === 'hinglish') {
     const g = hasDevanagari(text) ? 'hi' : guessLanguage(text);
     if (g === 'hinglish') return { cues, used: null };
-    if (hasDevanagari(text) && !chain.length) return { cues: cues.map((c) => ({ start: c.start, end: c.end, text: toHinglish(c.text) })), used: 'rule-based romanisation' };
+    // Devanagari → Hinglish is done by the offline romaniser (no key, no network, deterministic) and KEEPS per-word timing, so karaoke highlighting stays in sync. An LLM only reads better for names, so it is opt-in (hinglishEngine: 'llm').
+    const rom = (): Cue[] => cues.map((c) => ({ ...c, text: toHinglish(c.text), ...(c.words ? { words: c.words.map((w) => ({ ...w, text: toHinglish(w.text) })) } : {}) }));
+    if (hasDevanagari(text) && (!chain.length || engine !== 'llm')) return { cues: rom(), used: 'rule-based romanisation' };
     if (g === 'en' && !hindiChannel && target === 'auto') return { cues, used: null };
     const r = await translateCues(cues, 'hinglish', chain, fetchFn);
     if (r.used) return r;
-    if (hasDevanagari(text)) return { cues: cues.map((c) => ({ start: c.start, end: c.end, text: toHinglish(c.text) })), used: 'rule-based romanisation', note: r.note };
+    if (hasDevanagari(text)) return { cues: rom(), used: 'rule-based romanisation', note: r.note };
     return r;
   }
   if (to === 'hi' && !hasDevanagari(text) && guessLanguage(text) === 'hi') return { cues, used: null };

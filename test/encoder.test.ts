@@ -25,3 +25,10 @@ test('parallel lanes: renderConcurrency=3 never double-claims a job', async () =
   const r = await work(store, cfg, { maxJobs: 6 }); assert.equal(r.failed, 6);
   assert.deepEqual(store.all<{ attempts: number }>('SELECT attempts FROM jobs').map((j) => j.attempts), [1, 1, 1, 1, 1, 1]);
 });
+
+test('rerender of a clip that no longer exists is closed quietly (no retries, no DEAD job)', async () => {
+  const store = new Store(':memory:'); const cfg = loadConfig(process.cwd(), { dataDir: tmpDir() });
+  enqueue(store, 'rerender', 'rerender:99:1');
+  const r = await work(store, cfg, { maxJobs: 1 }); assert.equal(r.failed, 0); assert.equal(r.done, 1);
+  assert.equal(store.get<{ state: string }>('SELECT state FROM jobs')!.state, 'DONE');
+});
