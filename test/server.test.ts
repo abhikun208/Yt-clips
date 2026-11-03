@@ -103,3 +103,21 @@ test('UI: served script is valid JavaScript and contains the publishing/comments
     for (const p of ['/api/uploads', '/api/comments', '/api/analytics', '/api/schedule?n=2', '/api/youtube', '/api/platforms']) assert.equal((await fetch(`${base}${p}`, { headers: auth })).status, 200, p);
   } finally { await app.stop(); }
 });
+
+test('owner can remove a source, archive a channel and cancel a queued upload (and re-add a removed link)', async () => {
+  const { app, base } = await boot();
+  try {
+    const j = async (m: string, p: string, b?: unknown) => { const r = await fetch(`${base}${p}`, { method: m, headers: { ...auth, 'content-type': 'application/json' }, ...(b ? { body: JSON.stringify(b) } : {}) }); return { s: r.status, j: await r.json() as any }; };
+    const url = 'https://www.youtube.com/watch?v=abcdefghijk';
+    const a = await j('POST', '/api/sources', { url, authorized: true }); const id = a.j.id;
+    assert.ok((await j('GET', '/api/sources')).j.sources.some((x: any) => x.id === id));
+    assert.equal((await j('DELETE', `/api/sources/${id}`)).s, 200);
+    assert.ok(!(await j('GET', '/api/sources')).j.sources.some((x: any) => x.id === id));
+    const b = await j('POST', '/api/sources', { url, authorized: true }); assert.equal(b.j.id, id); assert.equal(b.j.duplicate, false); // removed link added again is switched back on
+    assert.equal((await j('DELETE', '/api/sources/99999')).s, 400);
+    const ch = await j('POST', '/api/channels', { name: 'Test Two' }); const slug = ch.j.channel.slug;
+    assert.equal((await j('POST', `/api/channels/${slug}`, { archived: true })).s, 200);
+    assert.ok(!(await j('GET', '/api/channels')).j.channels.some((c: any) => c.slug === slug));
+    assert.equal((await j('DELETE', '/api/uploads/12345')).s, 400);
+  } finally { await app.stop(); }
+});

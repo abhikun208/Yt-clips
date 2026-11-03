@@ -70,8 +70,8 @@ export function addYoutubeSource(store: Store, rawUrl: string, authorized: boole
   if (!authorized) throw new Error('authorization required: confirm you own or have permission to reuse this content');
   const p = parseYoutubeUrl(rawUrl);
   const kind = p.kind === 'channel' ? 'youtube_channel' : 'youtube_video';
-  const ex = store.get<{ id: number }>('SELECT id FROM sources WHERE uri=?', p.url);
-  if (ex) return { id: ex.id, kind: p.kind, duplicate: true };
+  const ex = store.get<{ id: number; status: string }>('SELECT id, status FROM sources WHERE uri=?', p.url);
+  if (ex) { if (ex.status === 'removed') store.exec(`UPDATE sources SET status=?, meta_json=?, channel_id=COALESCE(?, channel_id) WHERE id=?`, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0 } : {}), channelId ?? null, ex.id); return { id: ex.id, kind: p.kind, duplicate: ex.status !== 'removed' }; } // a removed link added again is switched back on
   const chId = channelId ?? store.get<{ id: number }>(`SELECT id FROM channels WHERE slug='main'`)!.id;
   const r = store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', kind, p.url, p.url, 1, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0 } : {}), chId);
   return { id: r.lastId, kind: p.kind, duplicate: false };

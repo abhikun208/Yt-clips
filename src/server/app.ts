@@ -278,6 +278,13 @@ export function createApp(o: AppOptions = {}): App {
         }
         return json(res, 200, { automation: cfg.automation, gates: cfg.gates, note: 'Gates + autoApprove can only be changed on the server (CLI: npm run cli -- autopilot ...).' });
       }
+      { const rm = /^\/api\/sources\/(\d+)(?:\/remove)?$/.exec(p); if (rm && (m === 'DELETE' || (m === 'POST' && p.endsWith('/remove')))) { // owner removes a source: it stops being watched and disappears from the lists; videos/clips already made are kept
+        const id = Number(rm[1]); if (!store.get('SELECT 1 FROM sources WHERE id=?', id)) return json(res, 400, { error: `Unknown source ${id}` });
+        store.tx(() => { store.exec(`UPDATE sources SET status='removed' WHERE id=? OR json_extract(COALESCE(meta_json,'{}'),'$.channelSource')=?`, id, id); }); chCache = null; return json(res, 200, { ok: true }); } }
+      { const rm = /^\/api\/uploads\/(\d+)(?:\/cancel)?$/.exec(p); if (rm && (m === 'DELETE' || (m === 'POST' && p.endsWith('/cancel')))) { // take an upload out of the queue; only while nothing is on the platform yet
+        const id = Number(rm[1]); const u = store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', id); if (!u) return json(res, 400, { error: `Unknown upload ${id}` });
+        if (!['READY_FOR_QC', 'QC_PASSED', 'UPLOAD_PENDING', 'FAILED', 'QC_FAILED'].includes(u.state)) return json(res, 400, { error: `Ye upload ab ${u.state} state me hai (platform par pahunch chuka): wahan se platform ke Studio me hatao.` });
+        store.exec('DELETE FROM uploads WHERE id=?', id); chCache = null; return json(res, 200, { ok: true }); } }
       const sp = /^\/api\/sources\/(\d+)\/status$/.exec(p);
       if (sp && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { status?: string }; if (b.status !== 'active' && b.status !== 'paused' && b.status !== 'pending') return json(res, 400, { error: 'invalid: status active|paused|pending' }); const r = store.exec(`UPDATE sources SET status=?, meta_json=json_set(COALESCE(meta_json,'{}'),'$.tries',0) WHERE id=? AND kind<>'local'`, b.status, Number(sp[1])); if (!r.changes) return json(res, 400, { error: 'Unknown source' }); return json(res, 200, { ok: true }); }
       if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, pace: cfg.edit.pace, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, palette: x.palette.id, tags: x.tags, mode: x.mode })) });
@@ -313,7 +320,7 @@ export function createApp(o: AppOptions = {}): App {
         updateOwnerConfig(cfg, { youtube: patch }); Object.assign(cfg.youtube, patch); return json(res, 200, cfg.youtube);
       }
       if (p === '/api/sources/poll' && m === 'POST') { if (!(await ytdlpAvailable())) return json(res, 200, { error: 'yt-dlp install nahi hai: pkg install python && pip install -U yt-dlp' }); return json(res, 200, await pollSources(store, cfg)); }
-      if (p === '/api/sources' && m === 'GET') return json(res, 200, { poll: (() => { try { return JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)?.v ?? 'null'); } catch { return null; } })(), ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id ORDER BY s.id DESC LIMIT 200`) });
+      if (p === '/api/sources' && m === 'GET') return json(res, 200, { poll: (() => { try { return JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)?.v ?? 'null'); } catch { return null; } })(), ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id WHERE s.status<>'removed' ORDER BY s.id DESC LIMIT 200`) });
       if (p === '/api/sources' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean; channel?: string };
         const r = addYoutubeSource(store, String(b.url ?? ''), b.authorized === true, b.channel ? getChannel(store, String(b.channel)).id : undefined); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, ...r, ytdlp: await ytdlpAvailable() });
