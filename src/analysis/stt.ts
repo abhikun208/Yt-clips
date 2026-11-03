@@ -55,16 +55,30 @@ export const noteApiSttError = (err: string) => { lastApiSttError = { at: Date.n
 /** Whisper's initial prompt: the owner's own words (channel `vocabulary`: character names, brands) make names come out spelled right. */
 export const sttPrompt = (cfg: Config, vocab?: string[]): string | undefined => { const base = cfg.stt.prompt; const v = vocab?.length ? `Names and words: ${vocab.join(', ')}.` : ''; return [base, v].filter(Boolean).join(' ') || undefined; };
 export const sttLang = (cfg: Config, hint?: string): string => { const l = hint ?? cfg.stt.language; return (!l || l === 'auto') && cfg.stt.indiaFirst !== false ? 'hi' : (l || 'auto'); };
+/** Keys the cloud service rejected (401/403): skipped for 6 h so every clip does not hit them again; the log says once how to fix them. */
+const deadKeys = new Map<string, number>(); const keyId = (c: { baseUrl: string; apiKey: string }) => `${c.baseUrl}|${c.apiKey.slice(-6)}`;
+export const resetDeadSttKeys = () => deadKeys.clear();
+const fixHint = (host: string): string => /groq/.test(host) ? 'console.groq.com/keys se naya free key banao, .env me GROQ_API_KEY badlo' : /openai/.test(host) ? 'platform.openai.com me credits daalo ya Groq (free) key use karo' : 'is provider ki key/credits check karo';
+/** Cloud engines first, then local; when the local engine also fails, a saved Gemini key listens to the audio (approximate timing) so a bad day for one provider never means no captions. */
 export async function transcribeVideo(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
+  const r = await transcribeCore(cfg, videoPath, hint);
+  if ((r.status === 'failed' || r.status === 'unavailable') && cfg.stt.engine !== 'local' && cfg.stt.engine !== 'api' && !process.env.YT_CLIPS_STT_CMD) {
+    for (const g of llmChain(cfg).filter((x) => /generativelanguage\.googleapis\.com/.test(x.baseUrl))) {
+      try { const t = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: sttLang(cfg, hint.language) }); if (!t.cues.length) continue; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(t.cues)); info('transcribed', { engine: 'gemini-audio', cues: t.cues.length, why: `${r.engine ?? 'engines'} failed: ${(r.error ?? r.status).slice(0, 60)}` }); return { status: 'ok', cues: t.cues, engine: 'gemini-audio' }; } catch (e) { warn('gemini stt failed', { err: (e as Error).message.slice(0, 120) }); }
+    }
+  }
+  return r;
+}
+async function transcribeCore(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
   if (!process.env.YT_CLIPS_STT_CMD && cfg.stt.engine !== 'local') {
-    const cands = Date.now() - apiDownAt < 10 * 60_000 ? [] : sttCandidates(cfg); // circuit breaker: after a network failure the cloud engine is skipped for 10 min (no 1-minute wait per clip)
+    const cands = Date.now() - apiDownAt < 10 * 60_000 ? [] : sttCandidates(cfg).filter((c) => (deadKeys.get(keyId(c)) ?? 0) < Date.now()); // circuit breaker: after a network failure the cloud engine is skipped for 10 min (no 1-minute wait per clip)
     for (const api of cands) { // saved STT key first, then any other Groq/OpenAI key this install knows: one rejected / out-of-credit key must not silence captions while another works
       try {
         const r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: sttLang(cfg, hint.language), prompt: hint.prompt ?? cfg.stt.prompt });
         if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'api', language: r.language };
         lastApiSttError = null; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'api', model: api.model, host: (() => { try { return new URL(api.baseUrl).host; } catch { return '?'; } })(), cues: r.cues.length, language: r.language });
         return { status: 'ok', cues: r.cues, language: r.language, engine: 'api' };
-      } catch (e) { noteApiSttError((e as Error).message); warn('api stt failed', { host: (() => { try { return new URL(api.baseUrl).host; } catch { return '?'; } })(), err: (e as Error).message.slice(0, 160), next: cands.indexOf(api) < cands.length - 1 ? 'next key tried' : 'local engine' }); const netErr = /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|timed? ?out|network|socket|aborted/i.test((e as Error).message + String((e as { cause?: unknown }).cause ?? '')); if (netErr) { apiDownAt = Date.now(); break; } /* offline: no other cloud key can help, go local */ /* key/credit problem: try the next candidate, then a local engine */ if (cfg.stt.engine === 'api' && cands.indexOf(api) === cands.length - 1) return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; }
+      } catch (e) { noteApiSttError((e as Error).message); warn('api stt failed', { host: (() => { try { return new URL(api.baseUrl).host; } catch { return '?'; } })(), err: (e as Error).message.slice(0, 160), next: cands.indexOf(api) < cands.length - 1 ? 'next key tried' : 'local engine' }); const host0 = (() => { try { return new URL(api.baseUrl).host; } catch { return ''; } })(); if (/AUTH_REVOKED|HTTP 40[13]|no credits|insufficient_quota/i.test((e as Error).message)) { deadKeys.set(keyId(api), Date.now() + 6 * 3600_000); warn('STT key band', { host: host0, fix: fixHint(host0) }); } const netErr = /fetch failed|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|timed? ?out|network|socket|aborted/i.test((e as Error).message + String((e as { cause?: unknown }).cause ?? '')); if (netErr) { apiDownAt = Date.now(); break; } /* offline: no other cloud key can help, go local */ /* key/credit problem: try the next candidate, then a local engine */ if (cfg.stt.engine === 'api' && cands.indexOf(api) === cands.length - 1) return { status: 'failed', cues: [], engine: 'api', error: (e as Error).message.slice(0, 200) }; }
     }
   }
   if (cfg.stt.engine === 'api' && !sttCreds(cfg)) return { status: 'unavailable', cues: [], error: 'stt.engine=api but no API key saved' };
