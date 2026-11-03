@@ -170,3 +170,13 @@ test('STT slot: an out-of-credit OpenAI key must not replace Groq whisper (repai
   await applyEnvKeys(cfg, { env, fetchFn: f });
   assert.match(sttCreds(cfg)!.baseUrl, /api\.groq\.com/); assert.equal(sttCreds(cfg)!.apiKey, 'gsk_envkey1234567890');
 });
+
+test('STT candidates: saved slot first, then env Groq key, Groq/OpenAI keys from the LLM slots; no duplicates', async () => {
+  const { sttCandidates, saveAi } = await import('../src/ai/settings.ts'); const cfg = testConfig();
+  const old = process.env.GROQ_API_KEY; process.env.GROQ_API_KEY = 'gsk_envkey1234567890';
+  try {
+    saveAi(cfg, 'stt', { apiKey: 'sk-proj-deadkey1234567890', baseUrl: 'https://api.openai.com/v1', model: 'whisper-1' });
+    saveAi(cfg, 'llm', { apiKey: 'gsk_envkey1234567890', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', slot: 1 });
+    const c = sttCandidates(cfg); assert.deepEqual(c.map((x) => new URL(x.baseUrl).host + ':' + x.apiKey), ['api.openai.com:sk-proj-deadkey1234567890', 'api.groq.com:gsk_envkey1234567890']);
+  } finally { if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old; }
+});

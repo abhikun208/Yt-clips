@@ -44,6 +44,15 @@ function pick(cfg: Config, kind: 'stt' | 'llm', slot = 1): AiCreds | null {
 }
 export const sttCreds = (cfg: Config) => pick(cfg, 'stt');
 export const llmCreds = (cfg: Config) => pick(cfg, 'llm');
+/** Cloud speech-to-text candidates in order: the saved STT slot, then GROQ_API_KEY from the environment, then any saved key on a Groq / OpenAI base (their /audio/transcriptions models). Deduplicated by base+key. */
+export function sttCandidates(cfg: Config): AiCreds[] {
+  const out: AiCreds[] = []; const add = (c: AiCreds | null) => { if (c && !out.some((x) => x.baseUrl === c.baseUrl && x.apiKey === c.apiKey)) out.push(c); };
+  add(sttCreds(cfg));
+  if (process.env.GROQ_API_KEY?.trim()) add({ apiKey: process.env.GROQ_API_KEY.trim().replace(/^bearer\s+/i, ''), baseUrl: 'https://api.groq.com/openai/v1', model: DEFAULT_STT_MODEL });
+  for (const c of llmChain(cfg)) { if (/api\.groq\.com/.test(c.baseUrl)) add({ ...c, model: DEFAULT_STT_MODEL }); }
+  for (const c of llmChain(cfg)) { if (/api\.openai\.com/.test(c.baseUrl)) add({ ...c, model: 'whisper-1' }); }
+  return out;
+}
 export const llmSlot = (cfg: Config, slot: number) => pick(cfg, 'llm', slot);
 /** Ordered fallback chain: slot 1 (primary), then 2 and 3. Callers try each until one works. */
 export const MAX_SLOTS = 6;
