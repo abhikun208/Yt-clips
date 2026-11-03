@@ -31,7 +31,12 @@ export const ytdlpAvailable = () => which('yt-dlp');
 let jsRt: string[] | null = null;
 /** Newer yt-dlp needs a JS runtime for YouTube; we hand it node (already required by this project) when the installed yt-dlp supports the flag. Cookies file via YT_DLP_COOKIES (for "confirm you're not a bot"). */
 export async function prepareYtdlp(): Promise<void> { if (jsRt) return; jsRt = []; if (/--js-runtimes/.test(process.env.YT_DLP_EXTRA_ARGS ?? '')) return; const h = await run('yt-dlp', ['--help'], { timeoutMs: 20_000 }).catch(() => null); if (h && /--js-runtimes/.test(h.stdout)) jsRt = ['--js-runtimes', 'node']; }
-const extra = (): string[] => [...(jsRt ?? []), ...(process.env.YT_DLP_COOKIES ? ['--cookies', process.env.YT_DLP_COOKIES] : []), ...(process.env.YT_DLP_EXTRA_ARGS ?? '').split(/\s+/).filter(Boolean)];
+/** Cookies file: YT_DLP_COOKIES, else `<data dir>/cookies.txt` if the owner dropped one there (Netscape format, exported from a logged-in browser). */
+const cookiesFile = (): string | null => { const e = process.env.YT_DLP_COOKIES; if (e) return e; const f = join(process.env.YT_CLIPS_DATA_DIR ?? 'data', 'cookies.txt'); return existsSync(f) ? f : null; };
+const extra = (): string[] => { const ck = cookiesFile(); return [...(jsRt ?? []), ...(ck ? ['--cookies', ck] : []), ...(process.env.YT_DLP_EXTRA_ARGS ?? '').split(/\s+/).filter(Boolean)]; };
+/** YouTube often answers "403 Forbidden" / "confirm you're not a bot" for one client type and not for another: after a failure the download is retried with other player clients before giving up. */
+export const YT_CLIENT_LADDER: string[][] = [[], ['--extractor-args', 'youtube:player_client=tv_simply,web_safari'], ['--extractor-args', 'youtube:player_client=android_vr'], ['--extractor-args', 'youtube:player_client=ios,mweb'], ['--force-ipv4', '--extractor-args', 'youtube:player_client=web_embedded']];
+export const RETRY_WITH_OTHER_CLIENT = /403|forbidden|not a bot|sign in|cookies|nsig|signature|player response|format is not available|requested format|unable to extract|po.?token/i;
 
 export interface Entry { id: string; title: string; duration: number | null }
 export function parseEntries(stdout: string): Entry[] {
@@ -59,10 +64,15 @@ export async function fetchSignals(url: string, base: string): Promise<{ chat: b
 export async function downloadVideo(url: string, dir: string, maxHeight: number, o: { strictH264?: boolean; name?: string } = {}): Promise<string> {
   mkdirSync(dir, { recursive: true });
   const fmt = o.strictH264 ? `bv*[height<=${maxHeight}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=${maxHeight}][vcodec!^=av01][vcodec!^=vp09]+ba/b[height<=${maxHeight}][vcodec^=avc1]` : `bv*[height<=${maxHeight}][vcodec!^=av01]+ba/bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`;
-  const r = await run('yt-dlp', [...extra(), '--no-playlist', '--no-warnings', '-f', fmt, '--merge-output-format', 'mp4', '-o', join(dir, o.name ?? '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
-  const path = r.stdout.trim().split('\n').filter(Boolean).pop();
-  if (r.code !== 0 || !path || !existsSync(path)) throw new Error(`yt-dlp download failed: ${r.stderr.trim().slice(-200)}`);
-  return path;
+  const isYt = /youtu\.?be/i.test(url); const ladder = isYt && !/extractor-args/.test(process.env.YT_DLP_EXTRA_ARGS ?? '') ? YT_CLIENT_LADDER : [[]]; let lastErr = '';
+  for (let i = 0; i < ladder.length; i++) {
+    const r = await run('yt-dlp', [...extra(), ...ladder[i]!, '--retries', '5', '--fragment-retries', '10', '--socket-timeout', '30', '--no-playlist', '--no-warnings', '-f', fmt, '--merge-output-format', 'mp4', '-o', join(dir, o.name ?? '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
+    const path = r.stdout.trim().split('\n').filter(Boolean).pop();
+    if (r.code === 0 && path && existsSync(path)) { if (i > 0) info('yt-dlp worked with another player client', { attempt: i + 1 }); return path; }
+    lastErr = r.stderr.trim().slice(-400);
+    if (!RETRY_WITH_OTHER_CLIENT.test(lastErr)) break; // network/DNS/removed-video errors: another client will not help
+  }
+  throw new Error(`yt-dlp download failed: ${lastErr}`);
 }
 
 /** Register a source. Owner must confirm authorization; nothing is fetched from an unauthorized source. Idempotent per URL. */
@@ -116,7 +126,7 @@ export async function pollSources(store: Store, cfg: Config): Promise<PollResult
     } catch (e) {
       const tries = (meta.tries ?? 0) + 1; const dead = tries >= cfg.resources.jobMaxAttempts;
       store.exec(`UPDATE sources SET status=?, meta_json=? WHERE id=?`, dead ? 'failed' : 'pending', JSON.stringify({ ...meta, tries, lastError: explainYtdlp((e as Error).message) }), v.id);
-      res.failed++; warn('download failed', { uri: v.uri, tries, err: (e as Error).message.slice(0, 150) });
+      res.failed++; warn('download failed', { uri: v.uri, tries, why: explainYtdlp((e as Error).message), err: (e as Error).message.slice(-150) });
     } finally { if (file) rmSync(file, { force: true }); }
   }
   store.exec(`INSERT INTO kv(k,v) VALUES('poll:last',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, JSON.stringify({ at: new Date().toISOString(), ...res }));

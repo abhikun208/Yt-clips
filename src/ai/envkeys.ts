@@ -1,6 +1,6 @@
 import type { Config } from '../config.ts';
 import { CATALOG, saveProviderKey, autoSetup, slotFor, providerFromKey, type AutoReport } from './autodetect.ts';
-import { llmSlot, SLOT_LIST } from './settings.ts';
+import { llmSlot, SLOT_LIST, sttCreds, saveAi, DEFAULT_STT_MODEL } from './settings.ts';
 
 /** Which env var names fill which provider (first one set wins). Only names are ever reported, never values. */
 export const ENV_KEYS: Record<string, string[]> = { groq: ['GROQ_API_KEY'], gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], openrouter: ['OPENROUTER_API_KEY'], xai: ['XAI_API_KEY', 'GROK_API_KEY'], mistral: ['MISTRAL_API_KEY'], cerebras: ['CEREBRAS_API_KEY'], sambanova: ['SAMBANOVA_API_KEY'], nvidia: ['NVIDIA_API_KEY', 'NGC_API_KEY'], huggingface: ['HF_TOKEN', 'HUGGINGFACE_API_KEY', 'HUGGING_FACE_HUB_TOKEN'], deepseek: ['DEEPSEEK_API_KEY'], openai: ['OPENAI_API_KEY'], together: ['TOGETHER_API_KEY'], llm7: ['LLM7_API_KEY', 'LLM7_TOKEN'], modelscope: ['MODELSCOPE_API_KEY', 'MODELSCOPE_TOKEN'], siliconflow: ['SILICONFLOW_API_KEY'], zai: ['ZAI_API_KEY', 'ZHIPU_API_KEY', 'BIGMODEL_API_KEY'], nebius: ['NEBIUS_API_KEY'], ai21: ['AI21_API_KEY'] };
@@ -29,5 +29,8 @@ export async function applyEnvKeys(cfg: Config, o: { force?: boolean; env?: Node
     if (!o.force && n) { out.push({ provider: s.provider, var: s.var, skipped: true }); continue; }
     out.push({ provider: s.provider, var: s.var, report: await saveProviderKey(cfg, s.provider, key, o.fetchFn, true) });
   }
+  // Speech-to-text: if a Groq key is in the environment, Groq's free whisper is THE cloud engine. An earlier version let the last key win (an out-of-credit OpenAI key replaced it: "HTTP 429 no credits") - repair that saved state here.
+  const gk = env.GROQ_API_KEY ? clean(env.GROQ_API_KEY) : ''; const cur = sttCreds(cfg);
+  if (gk && out.some((x) => x.provider === 'groq') && (!cur || !/api\.groq\.com/.test(cur.baseUrl) || cur.apiKey !== gk)) { try { saveAi(cfg, 'stt', { apiKey: gk, baseUrl: 'https://api.groq.com/openai/v1', model: DEFAULT_STT_MODEL }); } catch { /* optional */ } }
   return out;
 }

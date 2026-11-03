@@ -1,6 +1,6 @@
 import type { Config } from '../config.ts';
 import { readFileSync } from 'node:fs';
-import { PRESETS, saveAi, isLocalBase, llmSlot, SLOT_LIST } from './settings.ts';
+import { PRESETS, saveAi, isLocalBase, llmSlot, SLOT_LIST, sttCreds } from './settings.ts';
 
 export interface CatalogEntry { id: string; label: string; base: string; keyHint: string; getKey: string; models: string[]; stt: string[] }
 export const CATALOG: CatalogEntry[] = (JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8')) as { providers: CatalogEntry[] }).providers;
@@ -101,7 +101,7 @@ export async function autoSetup(cfg: Config, o: { apiKey?: string; provider?: st
     if (provider === 'openrouter' && /0 endpoints|data policy|privacy|guardrail/i.test(t.msg) && ++policyFails >= 3) { say(false, 'OpenRouter: aapke account ki privacy/guardrail setting free models ko block kar rahi hai. openrouter.ai/settings/privacy mein free endpoints allow karo (ya account par kuch credit rakho). Tab tak Gemini/Groq use karo.'); break; }
   }
   if (!rep.ok) say(false, 'Top models ne jawab nahi diya. Models list se manually chuno ("Models dikhao").');
-  const stt = rankStt(models)[0]; if (stt && key) { try { saveAi(cfg, 'stt', { apiKey: key, baseUrl: base, model: stt }); rep.stt = { model: stt }; say(true, `Speech-to-text bhi set: ${stt} (Test dabake pakka karo)`); } catch { /* optional */ } }
+  const stt = rankStt(models)[0]; const haveStt = sttCreds(cfg); /* one speech-to-text slot: never let a later (often paid, out-of-credit) key replace a working one; Groq's free whisper wins */ const keepStt = !!haveStt && provider !== 'groq'; if (stt && key && !keepStt) { try { saveAi(cfg, 'stt', { apiKey: key, baseUrl: base, model: stt }); rep.stt = { model: stt }; say(true, `Speech-to-text bhi set: ${stt} (Test dabake pakka karo)`); } catch { /* optional */ } }
   return rep;
 }
 

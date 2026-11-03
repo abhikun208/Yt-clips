@@ -161,3 +161,12 @@ test('cloud storage (rclone stand-in): finished source is copied + size-verified
     store.exec(`UPDATE kv SET v=json_set(v,'$.doneAt','2000-01-01T00:00:00.000Z') WHERE k LIKE 'cloud:video:%'`); const r2 = await storageTick(store, cfg); assert.equal(r2.purged, 1); assert.ok(!ex(join(root, 'studio', 'raw', String(done.vid))));
   } finally { process.env.PATH = old; }
 });
+
+test('STT slot: an out-of-credit OpenAI key must not replace Groq whisper (repairs the saved state from env)', async () => {
+  const { applyEnvKeys } = await import('../src/ai/envkeys.ts'); const { saveAi, sttCreds } = await import('../src/ai/settings.ts');
+  const cfg = testConfig(); const env = { GROQ_API_KEY: 'gsk_envkey1234567890' } as NodeJS.ProcessEnv;
+  saveAi(cfg, 'stt', { apiKey: 'sk-proj-dead', baseUrl: 'https://api.openai.com/v1', model: 'whisper-1' }); // state left behind by the old "last key wins" behaviour
+  const f = stubFetch({ goodKey: 'gsk_envkey1234567890', base: 'https://api.groq.com/openai/v1', models: ['llama-3.3-70b-versatile'] }) as typeof fetch;
+  await applyEnvKeys(cfg, { env, fetchFn: f });
+  assert.match(sttCreds(cfg)!.baseUrl, /api\.groq\.com/); assert.equal(sttCreds(cfg)!.apiKey, 'gsk_envkey1234567890');
+});
