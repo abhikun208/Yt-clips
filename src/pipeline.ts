@@ -58,7 +58,7 @@ export async function work(store: Store, cfg: Config, o: { maxJobs?: number; sho
       try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); }
       catch (e) {
         const st = failJob(store, job, (e as Error).message, cfg.resources.jobMaxAttempts);
-        failed++; if (st === 'DEAD') dead++;
+        failed++; if (st === 'DEAD') { dead++; void notify(store, cfg, `dead:${job.key}`, `Job ${job.key} ${job.attempts} koshish ke baad ruk gaya: ${(e as Error).message.slice(0, 160)}`).catch(() => undefined); } // dead-letter: stays visible (UI/doctor) and the owner is told once
         error('job failed', { key: job.key, attempt: job.attempts, state: st, err: (e as Error).message.slice(0, 200) });
         if (/LOW_DISK/.test((e as Error).message)) halt = true; // stop hard on disk pressure
         if (job.kind === 'render' && DECODE_ERR.test((e as Error).message)) { // undecodable source (AV1/corrupt): fetch it again as H.264 right now (max once per 6 h per video), then the job is re-queued

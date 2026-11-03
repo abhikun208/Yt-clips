@@ -114,3 +114,16 @@ test('music library: mood match first, deterministic rotation, only listed files
   const p = pickMusicTrack(d, { mood: 'comedy', seed: 7 })!; assert.ok(p.path.endsWith('b.mp3') && p.matchedMood && p.license === 'YT Audio Library' && p.volume === 1);
   assert.equal(pickMusicTrack(d, { mood: 'sad', seed: 0 })!.matchedMood, false); assert.equal(pickMusicTrack(join(d, 'none'), {}), undefined);
 });
+
+test('rejected STT key: skipped right after the failure (backoff), a different key is still tried, and the failure is not a crash', async () => {
+  const { transcribeVideo, resetApiBreaker, resetDeadSttKeys } = await import('../src/analysis/stt.ts'); const d = tmpDir(); const v = join(d, 'v.mp4'); await makeFixture(v, 4);
+  const keep = { K: process.env.STT_API_KEY, B: process.env.STT_API_BASE, G: process.env.GROQ_API_KEY }; const realFetch = globalThis.fetch; const seen: string[] = [];
+  process.env.STT_API_KEY = 'gsk_deadkey_1234567890'; process.env.STT_API_BASE = 'https://api.groq.com/openai/v1'; delete process.env.GROQ_API_KEY; resetApiBreaker(); resetDeadSttKeys();
+  globalThis.fetch = (async (u: string | URL | Request, i?: RequestInit) => { seen.push(String(u) + '|' + String((i?.headers as Record<string, string> | undefined)?.authorization ?? '')); return new Response('{"error":"bad key"}', { status: 401 }); }) as typeof fetch;
+  try {
+    const cfg = testConfig({ stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'api' } });
+    const r1 = await transcribeVideo(cfg, v); assert.equal(r1.status, 'failed'); const n1 = seen.length; assert.ok(n1 >= 1);
+    await transcribeVideo(cfg, v); assert.deepEqual(seen.filter((x) => /groq/.test(x)).length, 1, 'the rejected key is not hit again right away: ' + seen.join(' ; '));
+    process.env.STT_API_KEY = 'gsk_newkey_0987654321'; seen.length = 0; await transcribeVideo(cfg, v); assert.ok(seen.length >= 1, 'a new key is used immediately');
+  } finally { globalThis.fetch = realFetch; resetDeadSttKeys(); for (const [k, e] of [['STT_API_KEY', keep.K], ['STT_API_BASE', keep.B], ['GROQ_API_KEY', keep.G]] as const) { if (e === undefined) delete process.env[k]; else process.env[k] = e; } }
+});
