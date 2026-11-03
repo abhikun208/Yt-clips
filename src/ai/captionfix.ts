@@ -5,13 +5,13 @@ import type { AiCreds } from './settings.ts';
  * Contextual caption clean-up by the owner's LLM chain (free Groq/Gemini/OpenRouter or a local Ollama). The model only sees the caption lines, the
  * source video's title and the channel vocabulary, and is told to fix spelling / proper nouns (brand and person names) and nothing else.
  * Safety net - a line is accepted ONLY if it has exactly the same number of words and every word is close to the original (edit distance
- * <= 50 %): so meaning, line count and per-word timing can never be changed by a model that rewrites or hallucinates. Never throws.
+ * <= 3 characters and <= 50 %, digits identical): so meaning, line count and per-word timing can never be changed by a model that rewrites or hallucinates. Never throws.
  */
 export const lev = (a: string, b: string): number => { const m = a.length, n = b.length; if (!m) return n; if (!n) return m; let prev = Array.from({ length: n + 1 }, (_, j) => j); for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]!; };
 const norm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 export function acceptLine(orig: string, fixed: string): boolean {
   const a = orig.split(/\s+/).filter(Boolean), b = fixed.split(/\s+/).filter(Boolean); if (!a.length || a.length !== b.length) return false;
-  return a.every((w, i) => { const x = norm(w), y = norm(b[i]!); if (x === y) return true; if (!x || !y) return false; return lev(x, y) / Math.max(x.length, y.length) <= 0.5; });
+  return a.every((w, i) => { const x = norm(w), y = norm(b[i]!); if (x === y) return true; if (!x || !y) return false; if ((x.match(/\d/g) ?? []).join('') !== (y.match(/\d/g) ?? []).join('')) return false; /* numbers are never changed */ const d = lev(x, y); return d <= 3 && d / Math.max(x.length, y.length) <= 0.5; });
 }
 export async function llmFixCaptions(cues: Cue[], ctx: { title?: string; vocabulary?: string[]; lang?: string }, chain: AiCreds[], fetchFn: typeof fetch = fetch): Promise<{ cues: Cue[]; changed: number; used: string | null; note?: string }> {
   if (!cues.length || !chain.length) return { cues, changed: 0, used: null };

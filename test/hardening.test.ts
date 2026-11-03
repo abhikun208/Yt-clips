@@ -47,3 +47,8 @@ test('breaker is half-open: after the pause, 3 failures in a row re-open it with
   store.exec(`UPDATE kv SET v='0' WHERE k='queue:paused_until'`); store.exec(`UPDATE jobs SET run_after=0`); await work(store, cfg, { maxJobs: 6 });
   const second = Number(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='queue:paused_until'`)!.v) - Date.now(); assert.ok(second > 19 * 60_000, `escalated pause: ${second}`); resetBreaker();
 });
+
+test('LLM caption guard: numbers and synonym swaps are refused, tiny spelling fixes accepted', async () => {
+  const { acceptLine } = await import('../src/ai/captionfix.ts');
+  assert.equal(acceptLine('video dekho', 'clip dekho'), false); assert.equal(acceptLine('50 log aaye', '15 log aaye'), false); assert.equal(acceptLine('kia hua', 'kya hua'), true); assert.equal(acceptLine('Kolhi ne', 'Kohli ne'), true);
+});

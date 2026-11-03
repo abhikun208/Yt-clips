@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import type { Cue } from './transcript.ts';
 import { run } from '../util/proc.ts';
+import { VOICE_BAND } from './signals.ts';
 
 /**
  * Timing repair for captions whose timing is only approximate (Gemini audio fallback). Two steps, both local:
@@ -25,12 +26,12 @@ export function parseSilences(stderr: string, total: number): Region[] {
 }
 /** Silence threshold relative to how loud THIS recording is (soft-spoken speakers must not count as silence): max volume - 30 dB, clamped to -58..-26 dB. */
 export async function adaptiveNoiseDb(videoPath: string): Promise<number> {
-  const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', videoPath, '-vn', '-af', 'volumedetect', '-f', 'null', '-'], { timeoutMs: 10 * 60_000 }).catch(() => null);
+  const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', videoPath, '-vn', '-af', `${VOICE_BAND},volumedetect`, '-f', 'null', '-'], { timeoutMs: 10 * 60_000 }).catch(() => null);
   const mx = r ? Number(/max_volume:\s*(-?[\d.]+)\s*dB/.exec(r.stderr)?.[1]) : NaN; return Number.isFinite(mx) ? Math.min(-26, Math.max(-58, mx - 30)) : -32;
 }
 export async function speechRegions(videoPath: string, total: number, noiseDb?: number): Promise<Region[]> {
   noiseDb ??= await adaptiveNoiseDb(videoPath);
-  const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', videoPath, '-vn', '-af', `silencedetect=noise=${noiseDb}dB:d=0.18`, '-f', 'null', '-'], { timeoutMs: 10 * 60_000 });
+  const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', videoPath, '-vn', '-af', `${VOICE_BAND},silencedetect=noise=${noiseDb}dB:d=0.18`, '-f', 'null', '-'], { timeoutMs: 10 * 60_000 });
   return parseSilences(r.stderr, total);
 }
 const nearest = (v: number, cands: number[], maxD: number): number => { let best = v, bd = maxD; for (const c of cands) { const d = Math.abs(c - v); if (d <= bd) { bd = d; best = c; } } return best; };

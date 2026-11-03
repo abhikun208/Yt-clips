@@ -3,9 +3,11 @@ import { run } from '../util/proc.ts';
 export interface Interval { start: number; end: number }
 export interface Series { step: number; values: number[] }
 
+/** Voice band (250-3400 Hz, 24 dB/oct): bass-heavy music beds and hiss no longer hide the pauses between words/sentences. */
+export const VOICE_BAND = 'highpass=f=250,highpass=f=250,lowpass=f=3400,lowpass=f=3400';
 /** Silence intervals via ffmpeg silencedetect. Over the ENTIRE file. */
 export async function detectSilence(path: string, noiseDb = -35, minDur = 0.6): Promise<Interval[]> {
-  const r = await run('ffmpeg', ['-nostats', '-hide_banner', '-i', path, '-vn', '-af', `silencedetect=noise=${noiseDb}dB:d=${minDur}`, '-f', 'null', '-'], { timeoutMs: 30 * 60_000 });
+  const r = await run('ffmpeg', ['-nostats', '-hide_banner', '-i', path, '-vn', '-af', `${VOICE_BAND},silencedetect=noise=${noiseDb}dB:d=${minDur}`, '-f', 'null', '-'], { timeoutMs: 30 * 60_000 });
   return parseSilence(r.stderr);
 }
 export function parseSilence(stderr: string): Interval[] {
