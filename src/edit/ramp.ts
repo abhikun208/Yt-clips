@@ -1,11 +1,14 @@
 import type { Cue } from '../analysis/transcript.ts';
 
 /** One slow-motion window [a,b] (seconds in the ORIGINAL clip) played at `rate` (<1 = slower). */
+/** Owner rule: never play anything faster than 1.15x the original speed (speed-ups look rushed and distort voices). Slow motion is allowed down to 0.5x. */
+export const MAX_SPEED = 1.15, MIN_SPEED = 0.5;
+export const clampRate = (r: number): number => Math.min(MAX_SPEED, Math.max(MIN_SPEED, Number.isFinite(r) ? r : 1));
 export interface Ramp { a: number; b: number; rate: number }
 
 /** Plan a single slow-motion window around the strongest audio peak. Returns null when the clip is too short or has no peak (nothing is forced). */
 export function planRamp(peak: number | undefined, duration: number, o: { rate?: number; pre?: number; post?: number; minClipSec?: number } = {}): Ramp | null {
-  const rate = o.rate ?? 0.7, pre = o.pre ?? 0.4, post = o.post ?? 1.0;
+  const rate = clampRate(o.rate ?? 0.7), pre = o.pre ?? 0.4, post = o.post ?? 1.0;
   if (peak === undefined || duration < (o.minClipSec ?? 8)) return null;
   const a = Math.max(0.5, peak - pre), b = Math.min(duration - 0.5, peak + post);
   return b - a >= 0.6 ? { a, b, rate } : null;
@@ -22,8 +25,8 @@ export function remapCues(cues: Cue[], clipStart: number, r: Ramp): Cue[] {
 }
 /** ffmpeg args pieces: filter_complex producing [v]/[a] with the slow window (audio via atempo, pitch preserved). */
 export function rampFilter(r: Ramp, hasAudio: boolean): string {
-  const A = r.a.toFixed(3), B = r.b.toFixed(3), inv = (1 / r.rate).toFixed(4);
+  const rate = clampRate(r.rate); const A = r.a.toFixed(3), B = r.b.toFixed(3), inv = (1 / rate).toFixed(4);
   const v = `[0:v]split=3[v0][v1][v2];[v0]trim=0:${A},setpts=PTS-STARTPTS[x0];[v1]trim=${A}:${B},setpts=(PTS-STARTPTS)*${inv}[x1];[v2]trim=start=${B},setpts=PTS-STARTPTS[x2];[x0][x1][x2]concat=n=3:v=1:a=0[v]`;
   if (!hasAudio) return v;
-  return `${v};[0:a]asplit=3[a0][a1][a2];[a0]atrim=0:${A},asetpts=PTS-STARTPTS[y0];[a1]atrim=${A}:${B},asetpts=PTS-STARTPTS,atempo=${r.rate.toFixed(4)}[y1];[a2]atrim=start=${B},asetpts=PTS-STARTPTS[y2];[y0][y1][y2]concat=n=3:v=0:a=1[a]`;
+  return `${v};[0:a]asplit=3[a0][a1][a2];[a0]atrim=0:${A},asetpts=PTS-STARTPTS[y0];[a1]atrim=${A}:${B},asetpts=PTS-STARTPTS,atempo=${rate.toFixed(4)}[y1];[a2]atrim=start=${B},asetpts=PTS-STARTPTS[y2];[y0][y1][y2]concat=n=3:v=0:a=1[a]`;
 }

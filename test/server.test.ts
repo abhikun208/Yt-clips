@@ -121,3 +121,16 @@ test('owner can remove a source, archive a channel and cancel a queued upload (a
     assert.equal((await j('DELETE', '/api/uploads/12345')).s, 400);
   } finally { await app.stop(); }
 });
+
+test('SSE /api/stream: needs auth, pushes a snapshot with logs/queue state as text/event-stream', async () => {
+  const { app, base } = await boot();
+  try {
+    assert.equal((await fetch(`${base}/api/stream`)).status, 401);
+    const ac = new AbortController();
+    const r = await fetch(`${base}/api/stream`, { headers: auth, signal: ac.signal });
+    assert.equal(r.status, 200); assert.match(r.headers.get('content-type') ?? '', /text\/event-stream/);
+    const rd = r.body!.getReader(); const { value } = await rd.read(); ac.abort();
+    const txt = new TextDecoder().decode(value); assert.ok(txt.startsWith('data: '));
+    const snap = JSON.parse(txt.slice(6)); assert.ok(Array.isArray(snap.logs) && Array.isArray(snap.running) && typeof snap.pending === 'number');
+  } finally { await app.stop(); }
+});

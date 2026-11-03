@@ -10,6 +10,15 @@ import { transcribeViaGemini } from './geminiStt.ts';
 import { llmChain } from '../ai/settings.ts';
 import { pickLocal, runLocalCli, voiceStudioUrl } from './localStt.ts';
 
+/** Only ONE local model (whisper) may load/run at a time: parallel loads would exhaust RAM on small hosts. Queue is FIFO. */
+let localTail: Promise<void> = Promise.resolve();
+export let localSttActive = 0, localSttPeak = 0;
+export function acquireLocalStt(): Promise<() => void> {
+  let rel!: () => void; const mine = new Promise<void>((r) => { rel = r; });
+  const wait = localTail; localTail = wait.then(() => mine);
+  return wait.then(() => { localSttActive++; localSttPeak = Math.max(localSttPeak, localSttActive); let done = false; return () => { if (done) return; done = true; localSttActive--; rel(); }; });
+}
+export const resetLocalSttPeak = () => { localSttPeak = 0; };
 export interface SttResult { status: 'ok' | 'no_speech' | 'unavailable' | 'failed'; cues: Cue[]; language?: string; engine?: string; error?: string }
 
 /** Engine selection: YT_CLIPS_STT_CMD (custom command: `<cmd> <audio.wav> <model> <lang>` printing the JSON below) else faster-whisper via tools/transcribe.py. */
@@ -108,6 +117,7 @@ async function transcribeCore(cfg: Config, videoPath: string, hint: { language?:
     if (g) { try { const r = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: sttLang(cfg, hint.language) }); if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'gemini-audio' }; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'gemini-audio', cues: r.cues.length }); return { status: 'ok', cues: r.cues, engine: 'gemini-audio' }; } catch (e) { return { status: 'failed', cues: [], engine: 'gemini-audio', error: (e as Error).message.slice(0, 200) }; } }
   }
   if (!eng) return { status: 'unavailable', cues: [], error: 'no local STT engine (Setup -> Local speech-to-text shows what to install; or add a free Groq key)' };
+  const release = await acquireLocalStt();
   const wav = join(cfg.dirs.tmp, `stt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
   try {
     const ex = await run('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], { timeoutMs: 30 * 60_000 });
@@ -120,5 +130,5 @@ async function transcribeCore(cfg: Config, videoPath: string, hint: { language?:
     info('transcribed', { engine: eng.name, cues: parsed.cues.length, language: parsed.language });
     return { status: 'ok', cues: parsed.cues, language: parsed.language, engine: eng.name };
   } catch (e) { warn('stt crashed', { err: (e as Error).message }); return { status: 'failed', cues: [], engine: eng.name, error: (e as Error).message.slice(0, 200) }; }
-  finally { if (existsSync(wav)) rmSync(wav, { force: true }); }
+  finally { release(); if (existsSync(wav)) rmSync(wav, { force: true }); }
 }

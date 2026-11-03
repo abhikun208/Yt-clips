@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { planRamp, rampedDuration, mapTime, remapCues, rampFilter } from '../src/edit/ramp.ts';
+import { planRamp, rampedDuration, mapTime, remapCues, rampFilter, clampRate, MAX_SPEED } from '../src/edit/ramp.ts';
 import { run } from '../src/util/proc.ts';
 import { tmpDir, makeFixture } from './helpers.ts';
 
@@ -24,4 +24,13 @@ test('real ffmpeg: ramped output duration matches prediction, audio and video st
   const dur = Object.fromEntries(pr.stdout.trim().split('\n').map((l) => { const [t, x] = l.split(','); return [t!, Number(x)]; }));
   const src_dur = 18; const want = src_dur + (ramp.b - ramp.a) * (1 / ramp.rate - 1);
   assert.ok(Math.abs(dur.video! - want) < 0.3, `video ${dur.video} vs ${want}`); assert.ok(Math.abs(dur.audio! - want) < 0.3, `audio ${dur.audio} vs ${want}`);
+});
+
+test('speed cap: nothing plays faster than 1.15x, slow-mo floor 0.5x', () => {
+  assert.equal(MAX_SPEED, 1.15);
+  assert.equal(planRamp(5, 20, { rate: 2 })!.rate, 1.15);
+  assert.equal(planRamp(5, 20, { rate: 0.1 })!.rate, 0.5);
+  assert.equal(clampRate(NaN), 1);
+  const f = rampFilter({ a: 1, b: 3, rate: 3 }, true);
+  assert.ok(f.includes('atempo=1.1500') && !f.includes('atempo=3'));
 });

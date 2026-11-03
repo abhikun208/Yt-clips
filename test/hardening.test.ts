@@ -70,3 +70,12 @@ test('dashboard live log: recent log lines (redacted) and running jobs are serve
     assert.ok(Array.isArray(r.running) && typeof r.pending === 'number' && r.paused === false, JSON.stringify(r).slice(0, 200)); const l = r.logs.find((x: any) => x.msg === 'activity-probe'); assert.ok(l); assert.equal(l.ctx.api_key, '[REDACTED]'); }
   finally { await app.stop(); }
 });
+
+test('local STT lock: at most one local model run at a time (FIFO)', async () => {
+  const { acquireLocalStt, localSttPeak, resetLocalSttPeak } = await import('../src/analysis/stt.ts');
+  resetLocalSttPeak(); const order: number[] = [];
+  const job = async (i: number) => { const rel = await acquireLocalStt(); order.push(i); await new Promise((r) => setTimeout(r, 15)); rel(); rel(); };
+  await Promise.all([1, 2, 3, 4, 5].map(job));
+  const m = await import('../src/analysis/stt.ts');
+  assert.equal(m.localSttPeak, 1); assert.equal(m.localSttActive, 0); assert.deepEqual(order, [1, 2, 3, 4, 5]); void localSttPeak;
+});
