@@ -29,3 +29,21 @@ test('STT health check: a provider that rejects the key is skipped in ~no time a
   try { const t0 = Date.now(); await transcribeVideo(loadConfig(process.cwd(), { dataDir: d, overrides: { stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'api' } } }), v); assert.ok(Date.now() - t0 < 4000); assert.ok(urls.filter((x) => /groq|openai|together/.test(x)).every((x) => /\/models$/.test(x)), urls.join(',')); }
   finally { globalThis.fetch = realFetch; resetDeadSttKeys(); resetHealth(); for (const [k, e] of [['STT_API_KEY', keep.K], ['STT_API_BASE', keep.B], ['GROQ_API_KEY', keep.G]] as const) { if (e === undefined) delete process.env[k]; else process.env[k] = e; } }
 });
+
+test('LLM caption fix: brand/proper-noun fixes are applied (timing kept); rewrites, word-count changes and wild edits are refused', async () => {
+  const { llmFixCaptions, acceptLine } = await import('../src/ai/captionfix.ts');
+  assert.equal(acceptLine('somato se order kiya', 'Zomato se order kiya'), true); assert.equal(acceptLine('yeh baat hai', 'yeh baat bahut zaroori hai'), false); assert.equal(acceptLine('yeh baat hai', 'is topic ke baare'), false);
+  const cues = [{ start: 0, end: 2, text: 'somato se order kiya', words: [{ start: 0, end: .5, text: 'somato' }, { start: .5, end: 1, text: 'se' }, { start: 1, end: 1.5, text: 'order' }, { start: 1.5, end: 2, text: 'kiya' }] }, { start: 2, end: 4, text: 'yeh baat hai' }];
+  const f = (async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"lines":["Zomato se order kiya","yeh baat bahut zaroori hai"]}' } }] }))) as typeof fetch;
+  const r = await llmFixCaptions(cues, { title: 'Zomato review' }, [{ apiKey: 'k', baseUrl: 'http://x/v1', model: 'm' }], f);
+  assert.equal(r.changed, 1); assert.equal(r.cues[0]!.text, 'Zomato se order kiya'); assert.equal(r.cues[0]!.words![0]!.text, 'Zomato'); assert.equal(r.cues[0]!.words![0]!.end, .5); assert.equal(r.cues[1]!.text, 'yeh baat hai');
+  const bad = (async () => new Response('nope', { status: 500 })) as typeof fetch; assert.deepEqual((await llmFixCaptions(cues, {}, [{ apiKey: 'k', baseUrl: 'http://x/v1', model: 'm' }], bad)).cues, cues); // provider down: captions untouched
+  assert.deepEqual((await llmFixCaptions(cues, {}, [])).cues, cues); // no key: skipped
+});
+test('breaker is half-open: after the pause, 3 failures in a row re-open it with a LONGER pause; recovery closes it', async () => {
+  resetBreaker(); const store = new Store(':memory:'); const cfg = loadConfig(process.cwd(), { dataDir: tmpDir(), overrides: { resources: { renderConcurrency: 1, jobMaxAttempts: 9 } } });
+  for (let i = 0; i < 12; i++) enqueue(store, 'zzz', `a:${i}`); await work(store, cfg, { maxJobs: 12 });
+  const first = Number(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='queue:paused_until'`)!.v) - Date.now(); assert.ok(first > 9 * 60_000 && first <= 10 * 60_000);
+  store.exec(`UPDATE kv SET v='0' WHERE k='queue:paused_until'`); store.exec(`UPDATE jobs SET run_after=0`); await work(store, cfg, { maxJobs: 6 });
+  const second = Number(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='queue:paused_until'`)!.v) - Date.now(); assert.ok(second > 19 * 60_000, `escalated pause: ${second}`); resetBreaker();
+});

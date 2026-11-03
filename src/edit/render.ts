@@ -19,7 +19,7 @@ import { channelOfVideo } from '../channels.ts';
 import { encodeArgs, withEncoderFallback } from '../media/encoder.ts';
 import { cuesToSubtitles } from '../analysis/transcript.ts';
 import { installedFonts } from '../util/fonts.ts';
-import { pickPeaks } from './beats.ts';
+import { pickPeaks, planCloseups } from './beats.ts';
 import { planRamp, rampedDuration, remapCues, rampFilter, type Ramp } from './ramp.ts';
 import { audioEnergy } from '../analysis/signals.ts';
 import { findLut } from './vfx.ts';
@@ -38,7 +38,7 @@ import { clipHash, hashSimilarity } from '../media/phash.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
 
-export interface RenderOptions { pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -151,6 +151,9 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const chan0 = channelOfVideo(store, c.video_id); const toLang = ro.translateTo ?? chan0.config.translateTo ?? cfg.edit.captionLanguage ?? 'auto'; let translation: string | null = null;
   if (toLang && cues.length) { const tr = await applyCaptionLanguage(cues.filter((q) => q.end > c.start_sec && q.start < effEnd), toLang, chan0.config.language, llmChain(cfg)); if (tr.used) { cues = tr.cues; translation = `${toLang} via ${tr.used}`; } else if (tr.note) translation = `not translated: ${tr.note}`; }
   if (cues.length && toLang !== 'original') { const { loadCorrections, correctCues } = await import('../ai/corrections.ts'); cues = correctCues(cues, loadCorrections(cfg.dataDir)); } // one standard spelling for common Hinglish variants + the owner's own corrections.json
+  if (cues.length && toLang !== 'original' && cfg.edit.llmCaptionFix !== false) { // self-healing spelling/brand-name pass by the owner's LLM chain (guarded: same word count, close words only); no key = skipped
+    const ch = llmChain(cfg); if (ch.length) { const { llmFixCaptions } = await import('../ai/captionfix.ts'); const srcTitle = store.get<{ title: string | null }>('SELECT s.title FROM videos v LEFT JOIN sources s ON s.id=v.source_id WHERE v.id=?', c.video_id)?.title ?? undefined;
+      const fx = await llmFixCaptions(cues, { title: srcTitle, vocabulary: chan0.config.vocabulary }, ch).catch(() => null); if (fx && fx.changed) { cues = fx.cues; translation = `${translation ? translation + '; ' : ''}spelling fixed (${fx.changed} lines) via ${fx.used}`; info('captions fixed by LLM', { lines: fx.changed, model: fx.used }); } } }
   let assPath: string | undefined; let cap: CaptionResult | undefined;
   { const inClip = cues.filter((q) => q.end > c.start_sec && q.start < effEnd).map((q) => q.text).join(' ').trim();
     if (inClip) store.exec(`UPDATE candidates SET transcript=?, language=COALESCE(NULLIF(language,''),?) WHERE id=? AND (transcript IS NULL OR transcript='')`, inClip, guessLanguage(inClip), c.id); // so the metadata step works from the real speech
@@ -178,8 +181,8 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const deint = await isInterlaced(editSrc, 0, m.duration);
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
   const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir) : [];
-  let punch: number[] = [];
-  if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); } catch { punch = []; } }
+  let punch: number[] = []; let closeups: { start: number; end: number }[] = [];
+  if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); if ((ro.closeups ?? cfg.edit.closeups) !== false) closeups = planCloseups(punch, m.duration); } catch { punch = []; closeups = []; } }
   let emph: string[] = [];
   if ((ro.emphasisZoom ?? cfg.edit.emphasisZoom) && cues.length) {
     try {
@@ -193,7 +196,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   { const { acoustidKey, musicRisk } = await import('../media/acoustid.ts'); const key = acoustidKey(cfg); // pre-clear: an uncleared (no licence in library.json) track that matches a known commercial recording is not used
     if (musicPick && key && cfg.copyright?.checkMusic !== false && !musicPick.license) { const hit = await musicRisk(musicPick.path, key, cfg.copyright?.minScore ?? 0.85).catch(() => null); if (hit) { musicNote = `music skipped: matches "${hit.title}" by ${hit.artist} (AcoustID ${hit.score.toFixed(2)}), no licence listed in library.json`; warn(musicNote); musicPick = undefined; } } }
   const music = musicPick?.path;
-  const vg = buildVideoGraph({ punch, fitZoom: burnedSrc ? 1 : (cfg.edit.fitZoom ?? 0.8), /* source with its own subtitles: never trim the sides (that cuts the source text) */  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
+  const vg = buildVideoGraph({ punch, closeups, fitZoom: burnedSrc ? 1 : (cfg.edit.fitZoom ?? 0.8), /* source with its own subtitles: never trim the sides (that cuts the source text) */  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
     vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: musicPick?.volume ?? cfg.edit.musicVolume, duration: m.duration });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;

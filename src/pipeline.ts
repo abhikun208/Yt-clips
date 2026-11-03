@@ -51,9 +51,15 @@ const pausedUntil = (store: Store): number => Number(store.get<{ v: string }>(`S
 export const queuePaused = (store: Store, now = Date.now()): boolean => pausedUntil(store) > now;
 function noteOutcome(store: Store, cfg: Config, ok: boolean): boolean {
   const now = Date.now(); recent.push({ t: now, ok }); while (recent.length && now - recent[0]!.t > 10 * 60_000) recent.shift();
-  const bad = recent.filter((x) => !x.ok).length; if (recent.length >= 8 && bad / recent.length > 0.5) {
-    store.exec(`INSERT INTO kv(k,v) VALUES('queue:paused_until',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, String(now + 10 * 60_000)); recent.length = 0;
-    error('queue paused (circuit breaker)', { why: `${bad} of last jobs failed`, minutes: 10 }); void notify(store, cfg, `breaker:${Math.floor(now / 3600_000)}`, 'Queue 10 minute ke liye ruk gaya: zyaadatar jobs fail ho rahe hain (internet/key/disk check karo). Apne aap dobara chalega.').catch(() => undefined); return true;
+  const level = Number(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='queue:breaker_level'`)?.v ?? 0);
+  if (ok && level > 0 && recent.filter((x) => x.ok).length >= 3) store.exec(`UPDATE kv SET v='0' WHERE k='queue:breaker_level'`); // recovered: three successes close the breaker for good
+  const bad = recent.filter((x) => !x.ok).length;
+  const probing = level > 0 && recent.length < 8; // half-open: after a pause the next failures re-open it quickly (3 failures in a row), not after 8 more
+  const trip = (recent.length >= 8 && bad / recent.length > 0.5) || (probing && !ok && recent.length >= 3 && recent.slice(-3).every((x) => !x.ok));
+  if (trip) {
+    const mins = Math.min(120, 10 * 2 ** level); // 10, 20, 40, 80, 120 min: a provider that stays down is not hammered
+    store.exec(`INSERT INTO kv(k,v) VALUES('queue:paused_until',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, String(now + mins * 60_000)); store.exec(`INSERT INTO kv(k,v) VALUES('queue:breaker_level',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, String(level + 1)); recent.length = 0;
+    error('queue paused (circuit breaker)', { failed: bad, minutes: mins }); void notify(store, cfg, `breaker:${Math.floor(now / 3600_000)}`, `Queue ${mins} minute ke liye ruk gaya: zyaadatar jobs fail ho rahe hain (internet/key/disk check karo). Apne aap dobara try karega; jo job chal rahe the wo poore hote hain.`).catch(() => undefined); return true;
   }
   return false;
 }

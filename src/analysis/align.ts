@@ -23,7 +23,13 @@ export function parseSilences(stderr: string, total: number): Region[] {
   if (total - t > 0.12) speech.push({ start: t, end: total });
   return speech;
 }
-export async function speechRegions(videoPath: string, total: number, noiseDb = -32): Promise<Region[]> {
+/** Silence threshold relative to how loud THIS recording is (soft-spoken speakers must not count as silence): max volume - 30 dB, clamped to -58..-26 dB. */
+export async function adaptiveNoiseDb(videoPath: string): Promise<number> {
+  const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', videoPath, '-vn', '-af', 'volumedetect', '-f', 'null', '-'], { timeoutMs: 10 * 60_000 }).catch(() => null);
+  const mx = r ? Number(/max_volume:\s*(-?[\d.]+)\s*dB/.exec(r.stderr)?.[1]) : NaN; return Number.isFinite(mx) ? Math.min(-26, Math.max(-58, mx - 30)) : -32;
+}
+export async function speechRegions(videoPath: string, total: number, noiseDb?: number): Promise<Region[]> {
+  noiseDb ??= await adaptiveNoiseDb(videoPath);
   const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-i', videoPath, '-vn', '-af', `silencedetect=noise=${noiseDb}dB:d=0.18`, '-f', 'null', '-'], { timeoutMs: 10 * 60_000 });
   return parseSilences(r.stderr, total);
 }

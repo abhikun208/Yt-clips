@@ -51,3 +51,9 @@ test('fit_blur with fitZoom 1 keeps the full width (no side crop) while 0.8 trim
   assert.doesNotMatch(reframeParts({ ...base, fitZoom: 1 }).parts.join(';'), /crop=w='trunc\(iw\*/);
   assert.match(reframeParts({ ...base, fitZoom: 0.8 }).parts.join(';'), /crop=w='trunc\(iw\*0\.800/);
 });
+
+test('close-up inserts: planned from strong moments (<=2, >=4 s apart, none under 10 s) and encoded as held zoom windows', async () => {
+  const { planCloseups, zoomExpr } = await import('../src/edit/beats.ts');
+  assert.deepEqual(planCloseups([2, 3], 8), []); const c = planCloseups([2, 3, 9, 14], 20); assert.ok(c.length >= 1 && c.length <= 2); assert.ok(c.every((x) => x.start >= 0.6 && x.end <= 19.4 && x.end > x.start));
+  const e = zoomExpr(300, 30, false, [], [{ start: 2, end: 3.6 }]); assert.match(e, /0\.16\*clip\(min\(/); assert.match(e, /1\.3\)$/);
+});

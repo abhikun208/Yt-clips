@@ -29,7 +29,7 @@ export function screenBlendLuma(parts: string[], a: string, b: string, out: stri
 export interface VideoGraphOpts {
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
   reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; fitZoom?: number; cropXFrac?: number; cropTrack?: [number, number][]; // 0..1 center of subject horizontally (from face tracking), default .5
-  deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[];
+  deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[]; closeups?: { start: number; end: number }[];
   vfx?: Omit<VfxOpts, 'w' | 'h' | 'fps' | 'duration' | 'mood'>;
 }
 
@@ -84,11 +84,12 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
   const chain = (f: string) => { const nx = `v${n++}`; parts.push(`[${cur}]${f}[${nx}]`); cur = nx; };
 
   const punch = o.punch ?? [];
-  if (o.zoom || punch.length) {
+  if (o.zoom || punch.length || (o.closeups?.length ?? 0)) {
     const frames = Math.max(1, Math.round(o.duration * o.fps));
-    chain(`fps=${o.fps},zoompan=z='${zoomExpr(frames, o.fps, o.zoom, punch)}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${o.outW}x${o.outH}:fps=${o.fps}`);
+    chain(`fps=${o.fps},zoompan=z='${zoomExpr(frames, o.fps, o.zoom, punch, o.closeups ?? [])}':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${o.outW}x${o.outH}:fps=${o.fps}`);
     t.push({ dimension: 'dynamic_zoom', applied: o.zoom, detail: o.zoom ? 'slow push-in to 112%' : 'disabled' });
   } else t.push({ dimension: 'dynamic_zoom', applied: false, detail: 'disabled' });
+  if (o.closeups?.length) t.push({ dimension: 'closeup_inserts', applied: true, detail: `held +16% close-ups from the clip's own footage at ${o.closeups.map((c) => c.start.toFixed(1) + '-' + c.end.toFixed(1) + 's').join(', ')}` });
   t.push(punch.length ? { dimension: 'beat_effects', applied: true, detail: `punch-zoom (+6%, 0.4s) at audio peaks: ${punch.map((x) => x.toFixed(1) + 's').join(', ')}` } : { dimension: 'beat_effects', applied: false, detail: 'no strong audio peaks found (or disabled)' });
 
   chain(g.eq); chain(g.balance);

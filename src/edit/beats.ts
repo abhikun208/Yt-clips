@@ -18,9 +18,17 @@ export function pickPeaks(s: Series, o: { min?: number; spacing?: number; max?: 
   return out.sort((a, b) => a - b);
 }
 
-/** ffmpeg zoompan z-expression: slow push-in (optional) plus a short triangular punch (+6%) at each time. */
-export function zoomExpr(frames: number, fps: number, push: boolean, punch: number[]): string {
+/** Close-up "inserts" simulated from the clip's OWN footage (no stock, no copyright): a held +16% crop around each strong moment, eased in/out over 0.12 s. At most `max`, >= 4 s apart, never at the edges; none for clips under 10 s. */
+export interface Closeup { start: number; end: number }
+export function planCloseups(peaks: number[], duration: number, o: { max?: number; spacing?: number; lead?: number; hold?: number } = {}): Closeup[] {
+  if (duration < 10) return []; const max = o.max ?? 2, spacing = o.spacing ?? 4, lead = o.lead ?? 0.3, hold = o.hold ?? 1.6; const out: Closeup[] = [];
+  for (const t of peaks) { const a = Math.max(0.6, t - lead), b = Math.min(duration - 0.6, t + hold); if (b - a < 0.9) continue; if (out.length >= max) break; if (out.every((c) => a - c.end >= spacing - hold || Math.abs(c.start - a) >= spacing + hold)) out.push({ start: +a.toFixed(2), end: +b.toFixed(2) }); }
+  return out;
+}
+/** ffmpeg zoompan z-expression: slow push-in (optional), a short triangular punch (+6%) at each time, and held close-up windows (+16%). */
+export function zoomExpr(frames: number, fps: number, push: boolean, punch: number[], closeups: Closeup[] = []): string {
   const base = push ? `1.0+0.12*on/${frames}` : '1.0';
   const pulses = punch.map((t) => `0.06*max(0,1-abs(on/${fps}-${t.toFixed(2)})/0.2)`).join('+');
-  return `min(${base}${pulses ? '+' + pulses : ''},1.25)`;
+  const holds = closeups.map((c) => `0.16*clip(min((on/${fps}-${c.start.toFixed(2)})/0.12,(${c.end.toFixed(2)}-on/${fps})/0.12),0,1)`).join('+');
+  return `min(${base}${pulses ? '+' + pulses : ''}${holds ? '+' + holds : ''},${holds ? '1.3' : '1.25'})`;
 }

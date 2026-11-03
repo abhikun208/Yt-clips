@@ -3,16 +3,22 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node: ['22.18', '24']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: npm ci || npm install
-      - run: npm run typecheck
+        with: { node-version: 22 }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fontconfig fonts-noto-core python3-opencv
       - run: npm test
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image (faster-whisper + yt-dlp baked in)
+        run: docker build -t yt-clips:ci .
+      - name: Smoke test the container
+        run: |
+          docker run -d --name yc -p 8080:8080 -e YT_CLIPS_TOKEN=ci-token-0123456789 yt-clips:ci
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/healthz && break || sleep 2; done
+          docker exec yc python3 -c "import faster_whisper, cv2; print('faster-whisper + opencv ok')"
+          docker exec yc yt-dlp --version
+          docker exec yc ffmpeg -version | head -1

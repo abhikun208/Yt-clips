@@ -31,3 +31,10 @@ test('snapping is skipped for noisy/music audio (no clear pauses) and cue text/t
   const cues = [{ start: 0.4, end: 2.9, text: 'yeh baat hai' }]; const out = await refineApproxCues(process.cwd(), d, f, cues, 'hi', 6);
   assert.deepEqual(out.cues, cues); assert.match(out.how, /unchanged/);
 });
+
+test('soft-spoken audio: adaptive silence threshold still finds the speech (a fixed -32 dB would call it all silence)', async () => {
+  const { speechRegions } = await import('../src/analysis/align.ts'); const d = tmpDir(); const f = join(d, 'soft.mp4');
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=7', '-f', 'lavfi', '-i', "aevalsrc='if(between(t,1,2.2)+between(t,3.4,5), 0.012*sin(2*PI*220*t), 0)':s=16000:d=7", '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); assert.equal(r.status, 0);
+  const fixed = await speechRegions(f, 7, -32); assert.equal(fixed.length, 0); // the old fixed threshold sees nothing
+  const sp = await speechRegions(f, 7); assert.equal(sp.length, 2, JSON.stringify(sp)); assert.ok(Math.abs(sp[0]!.start - 1) < 0.3 && Math.abs(sp[1]!.end - 5) < 0.3);
+});
