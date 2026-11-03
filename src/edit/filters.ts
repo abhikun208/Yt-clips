@@ -161,8 +161,9 @@ export function treatmentCoverage(all: Treatment[]): { applied: number; total: n
 }
 
 /** ffmpeg expression for a piecewise-linear value over time t from [[t,v],...] keyframes (held flat before/after). Used for the speaker-follow crop. */
+/** ffmpeg rejects filter expressions longer than ~4 KB (measured: 100 keyframes = 4.5 KB failed, 75 = 3.5 KB worked), so at most 72 keyframes are used. */
 export function trackExpr(track: [number, number][], key = 't'): string {
-  const pts = track.length > 40 ? track.filter((_, i) => i % Math.ceil(track.length / 40) === 0 || i === track.length - 1) : track;
+  const pts = track.length > 72 ? track.filter((_, i) => i % Math.ceil(track.length / 72) === 0 || i === track.length - 1) : track;
   let e = pts[pts.length - 1]![1].toFixed(3);
   for (let i = pts.length - 2; i >= 0; i--) { const [t0, v0] = pts[i]!, [t1, v1] = pts[i + 1]!; const dt = Math.max(0.05, t1 - t0); e = `if(lt(${key},${t1.toFixed(2)}),${v0.toFixed(3)}+(${(v1 - v0).toFixed(4)})*(${key}-${t0.toFixed(2)})/${dt.toFixed(2)},${e})`; }
   return `if(lt(${key},${pts[0]![0].toFixed(2)}),${pts[0]![1].toFixed(3)},${e})`;

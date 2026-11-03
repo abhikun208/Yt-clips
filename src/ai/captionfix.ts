@@ -9,13 +9,14 @@ import type { AiCreds } from './settings.ts';
  */
 export const lev = (a: string, b: string): number => { const m = a.length, n = b.length; if (!m) return n; if (!n) return m; let prev = Array.from({ length: n + 1 }, (_, j) => j); for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]!; };
 const norm = (w: string) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-export function acceptLine(orig: string, fixed: string): boolean {
+export function acceptLine(orig: string, fixed: string, known: Set<string> = new Set()): boolean {
   const a = orig.split(/\s+/).filter(Boolean), b = fixed.split(/\s+/).filter(Boolean); if (!a.length || a.length !== b.length) return false;
-  return a.every((w, i) => { const x = norm(w), y = norm(b[i]!); if (x === y) return true; if (!x || !y) return false; if ((x.match(/\d/g) ?? []).join('') !== (y.match(/\d/g) ?? []).join('')) return false; /* numbers are never changed */ const d = lev(x, y); return d <= 3 && d / Math.max(x.length, y.length) <= 0.5; });
+  return a.every((w, i) => { const x = norm(w), y = norm(b[i]!); if (x === y) return true; if (!x || !y) return false; if ((x.match(/\d/g) ?? []).join('') !== (y.match(/\d/g) ?? []).join('')) return false; /* numbers are never changed */ const d = lev(x, y); if (known.has(y)) return d <= 5 && d / Math.max(x.length, y.length) <= 0.7; /* a name the owner listed (vocabulary) or that is in the video title may be corrected from a worse mishearing */ return d <= 3 && d / Math.max(x.length, y.length) <= 0.5; });
 }
 export async function llmFixCaptions(cues: Cue[], ctx: { title?: string; vocabulary?: string[]; lang?: string }, chain: AiCreds[], fetchFn: typeof fetch = fetch): Promise<{ cues: Cue[]; changed: number; used: string | null; note?: string }> {
   if (!cues.length || !chain.length) return { cues, changed: 0, used: null };
   const out = cues.map((c) => ({ ...c })); let changed = 0, used: string | null = null, note: string | undefined;
+  const known = new Set([...(ctx.vocabulary ?? []), ...(ctx.title ?? '').split(/\s+/)].map(norm).filter((w) => w.length >= 3));
   const hint = [ctx.title ? `Video title: "${ctx.title.slice(0, 120)}".` : '', ctx.vocabulary?.length ? `Known names/words: ${ctx.vocabulary.slice(0, 40).join(', ')}.` : ''].filter(Boolean).join(' ');
   for (let i = 0; i < cues.length; i += 40) {
     const batch = cues.slice(i, i + 40); let lines: string[] | null = null;
@@ -32,7 +33,7 @@ export async function llmFixCaptions(cues: Cue[], ctx: { title?: string; vocabul
     }
     if (!lines) continue;
     lines.forEach((fx, k) => {
-      const c = batch[k]!, idx = i + k; if (fx.trim() === c.text.trim() || !acceptLine(c.text, fx)) return;
+      const c = batch[k]!, idx = i + k; if (fx.trim() === c.text.trim() || !acceptLine(c.text, fx, known)) return;
       const nw = fx.split(/\s+/).filter(Boolean); out[idx] = { ...c, text: nw.join(' '), ...(c.words && c.words.length === nw.length ? { words: c.words.map((w, j) => ({ ...w, text: nw[j]! })) } : {}) }; changed++;
     });
   }

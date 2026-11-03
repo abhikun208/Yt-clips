@@ -52,3 +52,21 @@ test('LLM caption guard: numbers and synonym swaps are refused, tiny spelling fi
   const { acceptLine } = await import('../src/ai/captionfix.ts');
   assert.equal(acceptLine('video dekho', 'clip dekho'), false); assert.equal(acceptLine('50 log aaye', '15 log aaye'), false); assert.equal(acceptLine('kia hua', 'kya hua'), true); assert.equal(acceptLine('Kolhi ne', 'Kohli ne'), true);
 });
+
+test('LLM caption guard: a name from the channel vocabulary / video title may be corrected from a worse mishearing, unknown words may not', async () => {
+  const { acceptLine } = await import('../src/ai/captionfix.ts'); const known = new Set(['zomato', 'jethalal']);
+  assert.equal(acceptLine('jet bola', 'Jethalal bola'), false); assert.equal(acceptLine('jet bola', 'Jethalal bola', known), true); assert.equal(acceptLine('jet bola', 'Pizzeria bola', known), false);
+});
+test('baritone voice (100 Hz fundamental + harmonics) over a loud 60 Hz bass bed is still found as speech by the voice-band detector', async () => {
+  const { speechRegions } = await import('../src/analysis/align.ts'); const { spawnSync } = await import('node:child_process'); const f = join(tmpDir(), 'bar.mp4');
+  const voice = '(0.20*sin(2*PI*100*t)+0.16*sin(2*PI*200*t)+0.12*sin(2*PI*300*t)+0.09*sin(2*PI*400*t)+0.06*sin(2*PI*500*t)+0.04*sin(2*PI*600*t))';
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=7', '-f', 'lavfi', '-i', `aevalsrc='0.4*sin(2*PI*60*t)+if(between(t,1,2.2)+between(t,3.4,5), ${voice}, 0)':s=16000:d=7`, '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); assert.equal(r.status, 0);
+  const sp = await speechRegions(f, 7); assert.equal(sp.length, 2, JSON.stringify(sp)); assert.ok(Math.abs(sp[0]!.start - 1) < 0.3 && Math.abs(sp[1]!.end - 5) < 0.3);
+});
+test('dashboard live log: recent log lines (redacted) and running jobs are served', async () => {
+  const { createApp } = await import('../src/server/app.ts'); const { info } = await import('../src/util/log.ts');
+  const app = createApp({ host: '127.0.0.1', port: 0, token: 'test-token-0123456789', dataDir: tmpDir(), autoRun: false }); const port = await app.start();
+  try { info('activity-probe', { api_key: 'secret-value', n: 1 }); const r = await (await fetch(`http://127.0.0.1:${port}/api/logs?n=20`, { headers: { authorization: 'Bearer test-token-0123456789' } })).json() as any;
+    assert.ok(Array.isArray(r.running) && typeof r.pending === 'number' && r.paused === false, JSON.stringify(r).slice(0, 200)); const l = r.logs.find((x: any) => x.msg === 'activity-probe'); assert.ok(l); assert.equal(l.ctx.api_key, '[REDACTED]'); }
+  finally { await app.stop(); }
+});

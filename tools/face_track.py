@@ -75,5 +75,5 @@ for k in range(len(out)):
     seg = [o[1] for o in out[max(0, k - 2): k + 3]]; sm.append([out[k][0], round(sum(seg) / len(seg), 3)])
 thin = []; last = -9
 for t, c in sm:
-    if t - last >= 0.8: thin.append([t, c]); last = t
+    if t - last >= 0.4: thin.append([t, c]); last = t
 print(json.dumps({"track": thin, "faces": len(out), "speakers": len(tracks)}))

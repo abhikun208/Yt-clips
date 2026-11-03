@@ -6,7 +6,7 @@ import { join, basename, resolve, sep } from 'node:path';
 import { Store } from '../db.ts';
 import { loadConfig, updateOwnerConfig, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
-import { seedJobs, work } from '../pipeline.ts';
+import { seedJobs, work, queuePaused } from '../pipeline.ts';
 import { whyReport } from '../diagnose.ts';
 import { notify } from '../notify.ts';
 import { bootstrap as bootstrapTools } from '../ops/bootstrap.ts';
@@ -17,7 +17,7 @@ import { addYoutubeSource, pollSources, ytdlpAvailable } from '../sources/youtub
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
-import { info, warn, error } from '../util/log.ts';
+import { recentLogs, info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
 import { aiStatus, saveAi, sttCreds, llmChain, llmSlot, SLOT_LIST } from '../ai/settings.ts';
@@ -325,6 +325,7 @@ export function createApp(o: AppOptions = {}): App {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean; channel?: string };
         const r = addYoutubeSource(store, String(b.url ?? ''), b.authorized === true, b.channel ? getChannel(store, String(b.channel)).id : undefined); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, ...r, ytdlp: await ytdlpAvailable() });
       }
+      if (p === '/api/logs' && m === 'GET') return json(res, 200, { now: new Date().toISOString(), paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs: recentLogs(Math.min(200, Number(url.searchParams.get('n') ?? 60)), url.searchParams.get('level') === 'warn' ? 'warn' : 'info') });
       if (p === '/api/uploads' && m === 'GET') return json(res, 200, { uploads: listUploads(store) });
       if (p === '/api/uploads' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { clipId?: number; platform?: string };

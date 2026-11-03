@@ -77,6 +77,7 @@ nav .chip{position:absolute;top:2px;right:6px;padding:0 6px;font-size:10.5px;bac
  <div class="grid gc" id="chsum"></div>
  <div class="grid g4" id="stats"></div>
  <div class="grid g2" style="margin-top:14px">
+  <div class="card"><h2>Live log</h2><p class="mut" id="livehead">…</p><pre id="live" style="max-height:220px;overflow:auto;font-size:11px;white-space:pre-wrap;margin:0"></pre></div>
   <div class="card pipe"><h2>Pipeline map</h2><p class="mut">Har step par kitna kaam hai. Node dabao to us step ki failures dikhengi.</p><div class="flow" id="flow"></div><div id="flowd" class="mut"></div></div>
   <div class="card"><h2>Live pipeline</h2><div id="shim"></div><div class="feed" id="feed"><span class="mut">Abhi koi activity nahi.</span></div><p class="bad" id="failed"></p></div>
   <div class="card"><h2>Setup checklist</h2><div id="setup"></div></div>
@@ -253,7 +254,7 @@ function bindSched(){$$('[data-arch]').forEach(b=>b.onclick=guard(async()=>{if(!
 $('#chadd').onclick=guard(async()=>{await jpost('/api/channels',{name:$('#chn').value,profile:$('#chp').value});$('#chn').value='';toast('Channel add ho gaya');schLoad()});
 
 /* ---------- HOME ---------- */
-async function homeLoad(){
+async function homeLoad(){liveLoad();
  connLoad().then(()=>api('/api/channels')).then(r=>{CH=r.channels;CHP=r.platforms;TZ=r.timezone;const sel=$('#ych'),v=sel.value;sel.innerHTML=CH.map(c=>'<option value="'+esc(c.slug)+'">'+esc(c.name)+'</option>').join('');if(v)sel.value=v;
   $('#chsum').innerHTML=CH.map(c=>{const nx=c.nextSlots[0];return '<div class="card" style="border-left:4px solid '+chColor(c.slug)+';margin:0"><div class="row"><b class="grow">'+esc(c.name)+'</b><span class="chip">'+esc(c.profile)+'</span></div><div class="mut">YouTube: '+(c.youtube.connected?(CONN.results['youtube:'+c.slug]?(CONN.results['youtube:'+c.slug].ok?'<span class="ok">connected ✓</span>':'<span class="bad">login fail</span>'):'<span class="ok">login saved</span>'):'<span class="warn">login baaki</span>')+'</div><div class="mut">Agla slot: <b>'+(nx?esc(fmtAt(nx.at,TZ)):'—')+'</b></div><div class="mut">queued '+c.uploads.queued+' · scheduled '+c.uploads.scheduled+' · published '+c.uploads.published+'</div><div class="row" style="margin-top:6px"><button class="sec sm" data-gosch="1">Schedule</button></div></div>'}).join('');$$('[data-gosch]').forEach(b=>b.onclick=()=>go('schedule'))}).catch(()=>{});
  api('/api/todo').then(t=>{$('#todo').innerHTML=t.items.map(i=>'<div class="check '+(i.level==='ok'?'ok':i.level==='bad'?'bad':i.level==='warn'?'warn':'')+'" '+(i.go?'data-go="'+i.go+'" style="cursor:pointer"':'')+'><div class="d">'+({ok:'✓',bad:'!',warn:'•',info:'i'}[i.level])+'</div><div>'+esc(i.text)+(i.go?' <span class="mut">→ '+i.go+'</span>':'')+(i.fix?' <button class="sm" data-fix="'+esc(i.fix)+'">🔧 Auto fix</button>':'')+'</div></div>').join('');$$('#todo [data-fix]').forEach(b=>b.onclick=guard(async ev=>{ev.stopPropagation();b.disabled=true;b.textContent='Fix ho raha hai…';const r=await jpost('/api/ai/fix',{target:b.dataset.fix});toast((r.ok&&r.test&&r.test.ok?'✓ Fix ho gaya: ':'✕ ')+r.steps.slice(-2).map(x=>x.text).join(' · '),!(r.ok&&r.test&&r.test.ok));if(r.test)CONN.results[r.test.target]=r.test;setLoad()}));$$('#todo [data-go]').forEach(e=>e.onclick=()=>go(e.dataset.go))}).catch(()=>{});
@@ -441,6 +442,7 @@ $('#fbsave').onclick=appSave('facebook','#fbid','#fbsec');$('#gsave').onclick=ap
 const login=app=>guard(async()=>{const r=await api('/api/oauth/'+app+'/start');location.href=r.authUrl});$('#fblogin').onclick=login('facebook');$('#ttlogin').onclick=login('tiktok');
 
 async function init(){const h=(location.hash||'').slice(1);try{const r=await api('/api/presets');presets=r.presets}catch(e){}go(['home','clips','publish','schedule','insights','studio','settings'].includes(h)?h:'home');
- setInterval(()=>{if(document.hidden||$('#app').hidden||dialogOpen()||isEditing())return;if(tab==='publish')upsLoad().catch(()=>{});else if(tab==='home'||tab==='clips')load(tab)},6000)}
+ async function liveLoad(){try{const r=await api('/api/logs?n=40');$('#livehead').textContent=(r.paused?'⏸ Queue ruka hua (breaker) · ':'')+'Chal raha: '+(r.running.length?r.running.map(j=>j.kind+' '+j.key.split(':')[1]).join(', '):'kuch nahi')+' · Wait me: '+r.pending;$('#live').textContent=r.logs.map(l=>l.t.slice(11,19)+' '+(l.level==='info'?'':l.level.toUpperCase()+' ')+l.msg+(l.ctx?' '+JSON.stringify(l.ctx).slice(0,160):'')).join('\n');const el=$('#live');el.scrollTop=el.scrollHeight}catch(e){}}
+ setInterval(()=>{if(document.hidden||$('#app').hidden||dialogOpen()||isEditing())return;if(tab==='home')liveLoad();if(tab==='publish')upsLoad().catch(()=>{});else if(tab==='home'||tab==='clips')load(tab)},6000)}
 (async()=>{try{await api('/api/login',{method:'POST'});if(token){token='';try{localStorage.removeItem('ytc_token')}catch(e){}}show(true);init()}catch(e){show(false)}})();
 </script></body></html>

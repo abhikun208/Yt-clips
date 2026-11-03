@@ -19,10 +19,15 @@ export function redact(value: unknown, depth = 0): unknown {
 export type Level = 'debug' | 'info' | 'warn' | 'error';
 const ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
+/** Last lines kept in memory (already redacted) for the dashboard's live activity view. */
+const RING: { t: string; level: Level; msg: string; ctx?: unknown }[] = [];
+export const recentLogs = (n = 60, minLevel: Level = 'info') => RING.filter((x) => ORDER[x.level] >= ORDER[minLevel]).slice(-n);
+
 export function log(level: Level, msg: string, ctx?: Record<string, unknown>): void {
   const min = (process.env.LOG_LEVEL as Level | undefined) ?? 'info';
   if (ORDER[level] < (ORDER[min] ?? 20)) return;
-  const line = JSON.stringify({ t: new Date().toISOString(), level, msg, ...(ctx ? { ctx: redact(ctx) } : {}) });
+  const rec = { t: new Date().toISOString(), level, msg, ...(ctx ? { ctx: redact(ctx) } : {}) }; RING.push(rec); if (RING.length > 300) RING.splice(0, RING.length - 300);
+  const line = JSON.stringify(rec);
   (level === 'error' || level === 'warn' ? process.stderr : process.stdout).write(line + '\n');
 }
 export const info = (m: string, c?: Record<string, unknown>) => log('info', m, c);

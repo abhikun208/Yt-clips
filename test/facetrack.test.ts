@@ -17,3 +17,9 @@ test('face tools: with a detector present the crop track follows the face (stub 
   assert.ok(j.track[j.track.length - 1][1] > j.track[0][1] + 0.1, 'track moves with the face: ' + JSON.stringify(j.track.slice(0, 3)));
   const c = spawnSync('python3', ['-I', join(tools, 'face_center.py'), vid, '6'], { encoding: 'utf8' }); const jc = JSON.parse(c.stdout.trim().split('\n').pop()!); assert.ok(jc.cx > 0 && jc.cx < 1, c.stdout + c.stderr);
 });
+
+test('speaker-follow keyframes: denser (up to 72) yet the expression stays under ffmpeg\'s limit and really runs', async () => {
+  const { trackExpr } = await import('../src/edit/filters.ts'); const { spawnSync } = await import('node:child_process');
+  const tr: [number, number][] = Array.from({ length: 150 }, (_, i) => [i * 0.4, 0.5 + 0.3 * Math.sin(i / 5)]); const e = trackExpr(tr); assert.ok(e.length < 4000, String(e.length));
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:d=20:r=10', '-vf', `crop=w=202:h=360:x='max(0,min(iw-ow,(${e})*iw-ow/2))':y=0`, '-t', '20', '-f', 'null', '-']); assert.equal(r.status, 0, String(r.stderr));
+});
