@@ -19,7 +19,7 @@ Publishing / auto-comment / public visibility **env ya API se on nahi hote**. Si
 cp .env.example .env && nano .env        # YT_CLIPS_TOKEN set karo
 docker compose up -d --build              # UI: http://SERVER_IP:8080
 ```
-`docker-compose.yml` mein `WITH_YTDLP=1` (YouTube download) default on hai; transcripts ke liye `WITH_WHISPER: "1"` (build bada hota hai).
+**Production = Docker Compose** (dependencies image me pehle se: ffmpeg, yt-dlp, OpenCV, faster-whisper + `small` model; runtime pe koi pip install nahi). `setup.sh` sirf dev/Termux/seedhe VPS ke liye hai. `docker-compose.yml` me `WITH_YTDLP=1` aur `WITH_WHISPER=1` default on hain (build bada hota hai: `WITH_WHISPER=0` se hatao). Docker/compose maine yahan build karke nahi dekha (sandbox me daemon nahi): pehla `docker compose up -d --build` tum chalao aur `docker compose logs -f` bhejo.
 
 ## 2) VPS bina Docker (Ubuntu/Debian)
 ```bash

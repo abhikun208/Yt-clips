@@ -62,5 +62,8 @@ export async function refineApproxCues(rootDir: string, tmpDir: string, videoPat
     const ex = await run('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', wav], { timeoutMs: 10 * 60_000 });
     if (ex.code === 0) { const st = await alignWithStableTs(rootDir, wav, cues, lang); if (st?.length) return { cues: st, how: 'stable-ts alignment' }; }
   } finally { rmSync(wav, { force: true }); }
-  const sp = await speechRegions(videoPath, total).catch(() => []); return { cues: snapCues(cues, sp), how: 'speech-snap' };
+  const sp = await speechRegions(videoPath, total).catch(() => []);
+  // guard: loud music / continuous noise leaves no real pauses (speech regions cover almost everything) or none at all → snapping would only guess, so the cues stay as they are
+  const covered = sp.reduce((x, r) => x + (r.end - r.start), 0) / Math.max(1, total); if (sp.length < 2 || covered > 0.93) return { cues, how: 'unchanged (no clear pauses: noisy/music audio)' };
+  return { cues: snapCues(cues, sp), how: 'speech-snap' };
 }

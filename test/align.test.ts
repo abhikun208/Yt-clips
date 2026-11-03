@@ -24,3 +24,10 @@ test('speechRegions finds real tone bursts in a generated video (ffmpeg silenced
   assert.equal(sp.length, 2); assert.ok(Math.abs(sp[0]!.start - 1) < 0.25 && Math.abs(sp[0]!.end - 2.2) < 0.25 && Math.abs(sp[1]!.start - 3.4) < 0.25 && Math.abs(sp[1]!.end - 5) < 0.25, JSON.stringify(sp));
   writeFileSync(join(d, 'x'), '');
 });
+
+test('snapping is skipped for noisy/music audio (no clear pauses) and cue text/timing stay unchanged', async () => {
+  const { refineApproxCues } = await import('../src/analysis/align.ts'); const d = tmpDir(); const f = join(d, 'n.mp4');
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=6', '-f', 'lavfi', '-i', 'anoisesrc=d=6:c=pink:a=0.3:r=16000', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]); assert.equal(r.status, 0);
+  const cues = [{ start: 0.4, end: 2.9, text: 'yeh baat hai' }]; const out = await refineApproxCues(process.cwd(), d, f, cues, 'hi', 6);
+  assert.deepEqual(out.cues, cues); assert.match(out.how, /unchanged/);
+});

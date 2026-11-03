@@ -117,9 +117,9 @@ test('music library: mood match first, deterministic rotation, only listed files
 
 test('rejected STT key: skipped right after the failure (backoff), a different key is still tried, and the failure is not a crash', async () => {
   const { transcribeVideo, resetApiBreaker, resetDeadSttKeys } = await import('../src/analysis/stt.ts'); const d = tmpDir(); const v = join(d, 'v.mp4'); await makeFixture(v, 4);
-  const keep = { K: process.env.STT_API_KEY, B: process.env.STT_API_BASE, G: process.env.GROQ_API_KEY }; const realFetch = globalThis.fetch; const seen: string[] = [];
+  const keep = { K: process.env.STT_API_KEY, B: process.env.STT_API_BASE, G: process.env.GROQ_API_KEY }; const realFetch = globalThis.fetch; const seen: string[] = []; const { resetHealth } = await import('../src/analysis/stt.ts'); resetHealth();
   process.env.STT_API_KEY = 'gsk_deadkey_1234567890'; process.env.STT_API_BASE = 'https://api.groq.com/openai/v1'; delete process.env.GROQ_API_KEY; resetApiBreaker(); resetDeadSttKeys();
-  globalThis.fetch = (async (u: string | URL | Request, i?: RequestInit) => { seen.push(String(u) + '|' + String((i?.headers as Record<string, string> | undefined)?.authorization ?? '')); return new Response('{"error":"bad key"}', { status: 401 }); }) as typeof fetch;
+  globalThis.fetch = (async (u: string | URL | Request, i?: RequestInit) => { if (/\/models$/.test(String(u))) return new Response('{"data":[]}'); seen.push(String(u) + '|' + String((i?.headers as Record<string, string> | undefined)?.authorization ?? '')); return new Response('{"error":"bad key"}', { status: 401 }); }) as typeof fetch;
   try {
     const cfg = testConfig({ stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'api' } });
     const r1 = await transcribeVideo(cfg, v); assert.equal(r1.status, 'failed'); const n1 = seen.length; assert.ok(n1 >= 1);

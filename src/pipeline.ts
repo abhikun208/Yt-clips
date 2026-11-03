@@ -44,9 +44,24 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
   throw new Error(`unknown job kind ${job.kind}`);
 }
 
+/** Backpressure / circuit breaker: when most recent jobs fail (network down, key dead, disk), retrying every job only burns CPU and poisons the queue. After >=8 outcomes in 10 min with >50% failures the queue pauses for 10 min, the owner is told once, and the doctor's revivals stay quiet meanwhile. */
+const recent: { t: number; ok: boolean }[] = [];
+export const resetBreaker = () => { recent.length = 0; };
+const pausedUntil = (store: Store): number => Number(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='queue:paused_until'`)?.v ?? 0);
+export const queuePaused = (store: Store, now = Date.now()): boolean => pausedUntil(store) > now;
+function noteOutcome(store: Store, cfg: Config, ok: boolean): boolean {
+  const now = Date.now(); recent.push({ t: now, ok }); while (recent.length && now - recent[0]!.t > 10 * 60_000) recent.shift();
+  const bad = recent.filter((x) => !x.ok).length; if (recent.length >= 8 && bad / recent.length > 0.5) {
+    store.exec(`INSERT INTO kv(k,v) VALUES('queue:paused_until',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, String(now + 10 * 60_000)); recent.length = 0;
+    error('queue paused (circuit breaker)', { why: `${bad} of last jobs failed`, minutes: 10 }); void notify(store, cfg, `breaker:${Math.floor(now / 3600_000)}`, 'Queue 10 minute ke liye ruk gaya: zyaadatar jobs fail ho rahe hain (internet/key/disk check karo). Apne aap dobara chalega.').catch(() => undefined); return true;
+  }
+  return false;
+}
+
 /** Process jobs until the queue is empty (or `maxJobs`). Crash-safe: leases expire and jobs are re-claimed. */
 export async function work(store: Store, cfg: Config, o: { maxJobs?: number; shouldStop?: () => boolean } = {}): Promise<{ done: number; failed: number; dead: number }> {
   let done = 0, failed = 0, dead = 0, started = 0, halt = false;
+  if (queuePaused(store)) return { done, failed, dead }; // breaker is open: let things recover first
   const max = o.maxJobs ?? 1e9; const lanes = Math.max(1, Math.min(4, Math.floor(cfg.resources.renderConcurrency || 1)));
   // N lanes pull from the same lease-based queue (claim() is a single synchronous SQLite write, so two lanes never get the same job)
   const lane = async () => {
@@ -55,10 +70,10 @@ export async function work(store: Store, cfg: Config, o: { maxJobs?: number; sho
       const job = claim(store);
       if (!job) break;
       started++;
-      try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); }
+      try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); noteOutcome(store, cfg, true); }
       catch (e) {
         const st = failJob(store, job, (e as Error).message, cfg.resources.jobMaxAttempts);
-        failed++; if (st === 'DEAD') { dead++; void notify(store, cfg, `dead:${job.key}`, `Job ${job.key} ${job.attempts} koshish ke baad ruk gaya: ${(e as Error).message.slice(0, 160)}`).catch(() => undefined); } // dead-letter: stays visible (UI/doctor) and the owner is told once
+        failed++; if (noteOutcome(store, cfg, false)) halt = true; if (st === 'DEAD') { dead++; void notify(store, cfg, `dead:${job.key}`, `Job ${job.key} ${job.attempts} koshish ke baad ruk gaya: ${(e as Error).message.slice(0, 160)}`).catch(() => undefined); } // dead-letter: stays visible (UI/doctor) and the owner is told once
         error('job failed', { key: job.key, attempt: job.attempts, state: st, err: (e as Error).message.slice(0, 200) });
         if (/LOW_DISK/.test((e as Error).message)) halt = true; // stop hard on disk pressure
         if (job.kind === 'render' && DECODE_ERR.test((e as Error).message)) { // undecodable source (AV1/corrupt): fetch it again as H.264 right now (max once per 6 h per video), then the job is re-queued
