@@ -70,7 +70,7 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
   }
 
   // 4) dead jobs with a transient cause → one more go (after the disk/network fix above)
-  for (const j of store.all<{ id: number; kind: string; key: string; last_error: string | null }>(`SELECT id, kind, key, last_error FROM jobs WHERE state='DEAD' OR (state='RETRY' AND kind='render' AND (last_error LIKE '%AV1%' OR last_error LIKE '%Refusing to overwrite%')) ORDER BY id DESC LIMIT 20`)) {
+  for (const j of store.all<{ id: number; kind: string; key: string; last_error: string | null; updated_at: string }>(`SELECT id, kind, key, last_error, updated_at FROM jobs WHERE state='DEAD' OR (state='RETRY' AND kind='render' AND (last_error LIKE '%AV1%' OR last_error LIKE '%Refusing to overwrite%')) ORDER BY id DESC LIMIT 20`)) {
     const e = j.last_error ?? '';
     if ((j.kind === 'meta' || j.kind === 'rerender') && /unknown clip/.test(e)) { if (fix) { store.exec(`UPDATE jobs SET state='DONE', last_error=NULL, updated_at=datetime('now') WHERE id=?`, j.id); add('job meta', e.slice(0, 60), 'the clip was deleted → job closed', 'fixed'); } continue; }
     if (j.kind === 'render' && DECODE_ERR.test(e)) { // the stored source cannot be decoded: fetch the same video again as H.264 (once a day per video)
@@ -80,8 +80,10 @@ export async function runDoctor(store: Store, cfg: Config, o: { fix?: boolean; n
       if (fix) { kvSet(store, rk, String(now)); const rp = await (o.repair ?? repairVideo)(store, cfg, cand.video_id); add(`video ${cand.video_id}`, 'source cannot be decoded (AV1/corrupt)', rp.note, rp.ok ? 'fixed' : 'manual'); } else add(`video ${cand.video_id}`, 'source cannot be decoded (AV1/corrupt)', 'would re-download as H.264', 'manual');
       continue;
     }
-    const k = `doctor:job:${j.id}`; if (Number(kvGet(store, k) ?? 0) >= 2) continue;
-    if (/Refusing to overwrite existing output|LOW_DISK|ENOSPC|ETIMEDOUT|ECONNRESET|fetch failed|network|timed out|SIGKILL|spawn|rate limit|HTTP 429|HTTP 5\d\d/i.test(e)) {
+    const k = `doctor:job:${j.id}`; const revived = Number(kvGet(store, k) ?? 0); if (revived >= 3) continue;
+    // self-healing: a DEAD job with a provider/network cause is retried by itself after a cool-down that grows (30 min, 2 h, 6 h), up to 3 times - a fixed key, a back-online network or a recovered provider needs no human click
+    const waitMs = [30 * 60_000, 2 * 3600_000, 6 * 3600_000][revived]!; const age = Date.now() - Date.parse(j.updated_at.replace(' ', 'T') + 'Z'); const quick = /Refusing to overwrite existing output|LOW_DISK|ENOSPC|ETIMEDOUT|ECONNRESET|fetch failed|network|timed out|SIGKILL|spawn|rate limit|HTTP 429|HTTP 5\d\d/i.test(e); if (!quick && Number.isFinite(age) && age < waitMs) continue; // plain transient causes are retried at once; key/credit/provider causes wait for a human or the provider to recover
+    if (/Refusing to overwrite existing output|LOW_DISK|ENOSPC|ETIMEDOUT|ECONNRESET|fetch failed|network|timed out|SIGKILL|spawn|rate limit|HTTP 429|HTTP 5\d\d|AUTH_REVOKED|STT|speech|no credits|api key|gemini|busy|no local|unavailable|403|Forbidden|bot|No address/i.test(e)) {
       if (fix) { store.exec(`UPDATE jobs SET state='PENDING', attempts=0, run_after=0, last_error=NULL, updated_at=datetime('now') WHERE id=?`, j.id); kvSet(store, k, String(Number(kvGet(store, k) ?? 0) + 1)); }
       add(`job ${j.kind}`, e.slice(0, 100), fix ? 'transient cause → job re-queued' : 'would re-queue', fix ? 'fixed' : 'manual');
     } else add(`job ${j.kind}`, e.slice(0, 100), 'not transient → see Home → Pipeline map for the error', 'manual');

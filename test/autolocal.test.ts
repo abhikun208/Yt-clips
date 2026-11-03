@@ -180,3 +180,12 @@ test('STT candidates: saved slot first, then env Groq key, Groq/OpenAI keys from
     const c = sttCandidates(cfg); assert.deepEqual(c.map((x) => new URL(x.baseUrl).host + ':' + x.apiKey), ['api.openai.com:sk-proj-deadkey1234567890', 'api.groq.com:gsk_envkey1234567890']);
   } finally { if (old === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = old; }
 });
+
+test('STT failover list: extra providers from env (STT_API_KEY_2/BASE_2, TOGETHER_API_KEY) come after the saved and Groq keys', async () => {
+  const { sttCandidates, saveAi } = await import('../src/ai/settings.ts'); const cfg = testConfig(); const keep = { ...process.env };
+  try {
+    process.env.GROQ_API_KEY = 'gsk_envkey1234567890'; process.env.STT_API_KEY_2 = 'k2-abcdefghijkl'; process.env.STT_API_BASE_2 = 'https://stt.example.com/v1/'; process.env.TOGETHER_API_KEY = 'tg-abcdefghijkl';
+    saveAi(cfg, 'stt', { apiKey: 'gsk_envkey1234567890', baseUrl: 'https://api.groq.com/openai/v1', model: 'whisper-large-v3-turbo' });
+    assert.deepEqual(sttCandidates(cfg).map((c) => new URL(c.baseUrl).host), ['api.groq.com', 'stt.example.com', 'api.together.xyz']);
+  } finally { for (const k of ['GROQ_API_KEY', 'STT_API_KEY_2', 'STT_API_BASE_2', 'TOGETHER_API_KEY']) { if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k]; } }
+});

@@ -50,6 +50,9 @@ export function sttCandidates(cfg: Config): AiCreds[] {
   add(sttCreds(cfg));
   if (process.env.GROQ_API_KEY?.trim()) add({ apiKey: process.env.GROQ_API_KEY.trim().replace(/^bearer\s+/i, ''), baseUrl: 'https://api.groq.com/openai/v1', model: DEFAULT_STT_MODEL });
   for (const c of llmChain(cfg)) { if (/api\.groq\.com/.test(c.baseUrl)) add({ ...c, model: DEFAULT_STT_MODEL }); }
+  // more cloud engines (any OpenAI-compatible /audio/transcriptions): STT_API_KEY_2..5 + STT_API_BASE_n [+ STT_API_MODEL_n], and TOGETHER_API_KEY (Together's whisper-large-v3; endpoint from their docs, not called from this project's sandbox)
+  for (let n = 2; n <= 5; n++) { const k = process.env[`STT_API_KEY_${n}`]?.trim(), b = process.env[`STT_API_BASE_${n}`]?.trim().replace(/\/+$/, ''); if (k && b) add({ apiKey: k.replace(/^bearer\s+/i, ''), baseUrl: b, model: process.env[`STT_API_MODEL_${n}`]?.trim() || DEFAULT_STT_MODEL }); }
+  if (process.env.TOGETHER_API_KEY?.trim()) add({ apiKey: process.env.TOGETHER_API_KEY.trim(), baseUrl: 'https://api.together.xyz/v1', model: 'openai/whisper-large-v3' });
   for (const c of llmChain(cfg)) { if (/api\.openai\.com/.test(c.baseUrl)) add({ ...c, model: 'whisper-1' }); }
   return out;
 }

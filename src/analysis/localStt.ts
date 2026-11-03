@@ -1,3 +1,4 @@
+import { warn } from '../util/log.ts';
 import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from '../config.ts';
@@ -53,9 +54,10 @@ export async function detectLocalEngines(cfg: Config, fetchFn: typeof fetch = fe
 }
 
 /** First available local engine in preference order (explicit cfg.stt.localEngine wins). */
+const warnedMissing = new Set<string>();
 export async function pickLocal(cfg: Config, fetchFn: typeof fetch = fetch): Promise<EngineInfo | null> {
-  const all = await detectLocalEngines(cfg, fetchFn); const want = cfg.stt.localEngine;
-  if (want && want !== 'auto') { const w = all.find((e) => e.id === want && e.available); if (w) return w; /* the chosen engine is not usable here: fall back to whatever IS installed instead of giving up */ }
+  const all = await detectLocalEngines(cfg, fetchFn); const want = process.env.YT_CLIPS_STT_LOCAL?.trim() || cfg.stt.localEngine; // YT_CLIPS_STT_LOCAL=faster-whisper|whisper-cpp|... forces the local engine
+  if (want && want !== 'auto') { const w = all.find((e) => e.id === want && e.available); if (w) return w; if (!warnedMissing.has(want)) { warnedMissing.add(want); warn('chosen local STT engine is not available, using another one', { want, fix: want === 'faster-whisper' ? 'pip install faster-whisper (PC/VPS; not installable on Termux)' : 'see Setup -> Local speech-to-text' }); } /* the chosen engine is not usable here: fall back to whatever IS installed instead of giving up */ }
   const order: LocalEngineId[] = ['custom', 'faster-whisper', 'whisper-cpp', 'whisper-cli', 'voicestudio'];
   for (const id of order) { const e = all.find((x) => x.id === id && x.available); if (e) return e; } return null;
 }

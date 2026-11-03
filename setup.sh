@@ -32,6 +32,7 @@ have edge-tts && echo "ok" || { pipi edge-tts && echo installed || echo "WARN ed
 say "OpenCV (speaker-follow crop)"
 python3 -c 'import cv2' 2>/dev/null && echo "ok" || { if [ "$PM" = termux ]; then pkg install -y opencv-python python-numpy 2>/dev/null || pipi opencv-python-headless; else pipi opencv-python-headless numpy; fi; python3 -c 'import cv2' 2>/dev/null && echo installed || echo "WARN OpenCV missing: face-follow falls back to centred crop (optional)"; }
 
+if [ "$PM" != termux ]; then say "faster-whisper (PC/VPS: 4-6x faster local speech-to-text with word timing)"; python3 -c 'import faster_whisper' 2>/dev/null && echo "ok" || { pipi faster-whisper && echo installed || echo "WARN faster-whisper not installed (whisper.cpp below still works)"; }; fi
 say "whisper.cpp (free offline speech-to-text: real titles + word captions)"
 if [ -x "$HOME/whisper.cpp/build/bin/whisper-cli" ] && ls "$HOME"/whisper.cpp/models/ggml-*.bin >/dev/null 2>&1; then echo "ok (already built)"; else
   RAM=$(awk '/MemTotal/{printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null || echo 4)

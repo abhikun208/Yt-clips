@@ -127,3 +127,12 @@ test('rejected STT key: skipped right after the failure (backoff), a different k
     process.env.STT_API_KEY = 'gsk_newkey_0987654321'; seen.length = 0; await transcribeVideo(cfg, v); assert.ok(seen.length >= 1, 'a new key is used immediately');
   } finally { globalThis.fetch = realFetch; resetDeadSttKeys(); for (const [k, e] of [['STT_API_KEY', keep.K], ['STT_API_BASE', keep.B], ['GROQ_API_KEY', keep.G]] as const) { if (e === undefined) delete process.env[k]; else process.env[k] = e; } }
 });
+
+test('doctor revives a DEAD provider-cause job by itself after the cool-down (and not before)', async () => {
+  const { enqueue, Store } = await import('../src/db.ts'); const { runDoctor } = await import('../src/ops/doctor.ts'); void Store;
+  const store = new (await import('../src/db.ts')).Store(':memory:'); const cfg = testConfig();
+  enqueue(store, 'analyze', 'analyze:1'); store.exec(`UPDATE jobs SET state='DEAD', attempts=4, last_error='AUTH_REVOKED: STT API key rejected', updated_at=datetime('now','-5 minutes')`);
+  await runDoctor(store, cfg, { fix: true } as never).catch(() => undefined); assert.equal(store.get<{ state: string }>('SELECT state FROM jobs')!.state, 'DEAD', 'too early: cool-down not over');
+  store.exec(`UPDATE jobs SET updated_at=datetime('now','-40 minutes')`); await runDoctor(store, cfg, { fix: true } as never).catch(() => undefined);
+  assert.equal(store.get<{ state: string }>('SELECT state FROM jobs')!.state, 'PENDING');
+});
