@@ -23,3 +23,10 @@ test('speaker-follow keyframes: denser (up to 72) yet the expression stays under
   const tr: [number, number][] = Array.from({ length: 150 }, (_, i) => [i * 0.4, 0.5 + 0.3 * Math.sin(i / 5)]); const e = trackExpr(tr); assert.ok(e.length < 4000, String(e.length));
   const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=640x360:d=20:r=10', '-vf', `crop=w=202:h=360:x='max(0,min(iw-ow,(${e})*iw-ow/2))':y=0`, '-t', '20', '-f', 'null', '-']); assert.equal(r.status, 0, String(r.stderr));
 });
+
+test('motion smoothness (measured): camera moves EVERY frame between keyframes, no staircase', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const r = spawnSync('node', ['tools/motion_check.ts'], { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr);
+  const m = /ZERO movement \(marker visible\): (\d+)\/(\d+); max step (\d+)px/.exec(r.stdout); assert.ok(m, r.stdout);
+  assert.equal(Number(m[1]), 0); assert.ok(Number(m[2]) > 60); assert.ok(Number(m[3]) < 60, 'no jump bigger than ~40px/frame');
+});
