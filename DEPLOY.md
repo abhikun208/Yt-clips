@@ -49,3 +49,9 @@ Backup: sirf `YT_CLIPS_DATA_DIR` copy karo (SQLite WAL ke saath server band kark
 ## Verification status (sach)
 - VERIFIED (tests): process boot/SIGTERM, token guard, auth/CSRF/rate-limit, upload→pipeline→QC, range streaming, path traversal safe, config whitelist.
 - NOT VERIFIED yet (dev sandbox mein Docker daemon/internet nahi tha): `docker build`, systemd unit, `install-vps.sh`, PaaS deploys, asli yt-dlp aur faster-whisper models. Pehli baar chalate waqt ye dhyan se dekhna.
+
+## Logins that never expire (read once)
+- Logins are official OAuth refresh tokens (no passwords, no browser cookies). The server refreshes them by itself and alerts you on Telegram only if one really died.
+- **YouTube: publish the Google OAuth app ("OAuth consent screen" → *Publish app* / In production).** An app left in *Testing* makes Google expire the refresh token after 7 days - the #1 reason "login keeps expiring".
+- Uploads are paced for account safety: max 3/day per channel, 180 min apart, quiet hours 00-06, random jitter, platforms staggered; everything goes through the official upload APIs from one stable server IP (no scripted logins, so nothing looks like a bot).
+- Set `YT_CLIPS_SECRET_KEY` so saved tokens are encrypted on disk.

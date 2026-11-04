@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Store } from '../db.ts';
+import { enqueue, type Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
@@ -8,6 +8,7 @@ import { liveChildren } from '../util/proc.ts';
 import { notify } from '../notify.ts';
 import { deadSttKeyIds, keyId } from '../analysis/stt.ts';
 import { sttCandidates } from '../ai/settings.ts';
+import { keepAliveTick } from '../publish/keepalive.ts';
 import { info, warn } from '../util/log.ts';
 
 /**
@@ -56,7 +57,23 @@ export async function keySentinel(store: Store, cfg: Config): Promise<boolean> {
   return true;
 }
 export async function selfcareTick(store: Store, cfg: Config): Promise<{ tmp: number; usedPct: number; orphans: number; keysDead: boolean }> {
-  const tmp = sweepTmp(store, cfg); const d = await diskWatch(store, cfg); const orphans = sweepOrphans(cfg).length; const keysDead = await keySentinel(store, cfg).catch(() => false);
+  const tmp = sweepTmp(store, cfg); const d = await diskWatch(store, cfg); const orphans = sweepOrphans(cfg).length; await verifyOutputs(store, cfg).catch(() => null); await keepAliveTick(store, cfg).catch(() => null); const keysDead = await keySentinel(store, cfg).catch(() => false);
   if (tmp || orphans || d.freedMb || keysDead) info('selfcare', { tmp, usedPct: d.usedPct, orphans, keysDead });
   return { tmp, usedPct: d.usedPct, orphans, keysDead };
+}
+
+/**
+ * Half-written / corrupt outputs after a crash or kill: leftover `*.part.mp4` files are removed (never complete), and finished-but-not-yet-published clips are probed;
+ * a file that is missing, tiny or has no readable duration is deleted so the next render pass makes it again (nothing broken is ever uploaded).
+ */
+export async function verifyOutputs(store: Store, cfg: Config, now = Date.now()): Promise<{ parts: number; broken: number[] }> {
+  let parts = 0; const broken: number[] = [];
+  try { for (const n of readdirSync(cfg.dirs.editedShorts)) if (n.endsWith('.part.mp4')) { const f = join(cfg.dirs.editedShorts, n); try { if (now - statSync(f).mtimeMs > 3600_000) { rmSync(f, { force: true }); parts++; } } catch { /* raced */ } } } catch { /* no dir */ }
+  const { probe } = await import('../media/probe.ts');
+  for (const c of store.all<{ id: number; edited_path: string; candidate_id: number }>(`SELECT c.id, c.edited_path, c.candidate_id FROM clips c WHERE c.edited_path IS NOT NULL AND c.state IN ('QC_PASSED','QC_FAILED') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.state NOT IN ('FAILED','QC_FAILED')) ORDER BY c.id DESC LIMIT 25`)) {
+    let ok = existsSync(c.edited_path) && statSync(c.edited_path).size > 10_000; if (ok) { try { ok = (await probe(c.edited_path)).duration > 0.5; } catch { ok = false; } }
+    if (!ok) { rmSync(c.edited_path, { force: true }); store.exec(`UPDATE clips SET state='QC_FAILED', qc_pass=0, review_note=COALESCE(review_note || ' | ', '') || 'output file was missing/corrupt - removed, will be re-rendered' WHERE id=?`, c.id); broken.push(c.id); store.exec(`DELETE FROM jobs WHERE key=? AND state IN ('DONE','DEAD')`, `render:${c.candidate_id}`); enqueue(store, 'render', `render:${c.candidate_id}`); }
+  }
+  if (parts || broken.length) warn('half-written outputs cleaned', { parts, broken });
+  return { parts, broken };
 }

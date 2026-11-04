@@ -75,12 +75,27 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
 }
 
 /** Valid TikTok access token: refreshes with the refresh token when expired (access tokens last 24h per TikTok docs). */
-export async function tiktokAccessToken(cfg: Config): Promise<string | null> {
+export async function tiktokAccessToken(cfg: Config, force = false): Promise<string | null> {
   const sec = secretsOf(cfg); const t = sec.read<{ access_token?: string; refresh_token?: string; expires_at?: number }>('tiktok'); if (!t?.access_token) return null;
-  if (!t.expires_at || t.expires_at > Date.now() + 120_000) return t.access_token;
+  if (!force && (!t.expires_at || t.expires_at > Date.now() + 120_000)) return t.access_token;
   const c = appCreds(cfg, 'tiktok'); if (!c || !t.refresh_token) throw new Error('AUTH_REVOKED: TikTok token expired and cannot be refreshed (log in again)');
   const j = await getJ(`${ttApi()}/v2/oauth/token/`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_key: c.id, client_secret: c.secret, grant_type: 'refresh_token', refresh_token: t.refresh_token }) }).catch(() => { throw new Error('AUTH_REVOKED: TikTok refresh failed (log in again)'); });
   if (!j.access_token) throw new Error('AUTH_REVOKED: TikTok refresh failed (log in again)');
   sec.write('tiktok', { ...t, access_token: j.access_token, refresh_token: j.refresh_token ?? t.refresh_token, expires_at: Date.now() + (Number(j.expires_in) || 86400) * 1000 });
   return j.access_token;
+}
+
+/** Is the saved Facebook/Instagram token still accepted by Meta? (cheap GET /me; error code 190 = expired/revoked/password changed) */
+export async function metaTokenStatus(cfg: Config): Promise<{ name: string; ok: boolean; error?: string }[]> {
+  const sec = secretsOf(cfg); const out: { name: string; ok: boolean; error?: string }[] = [];
+  for (const name of ['facebook', 'instagram']) {
+    let t: { access_token?: string; page_token?: string } | null = null; try { t = sec.read(name); } catch { t = null; } const tok = t?.page_token ?? t?.access_token; if (!tok) continue;
+    try { const r = await fetch(`${graph()}/me?${new URLSearchParams({ fields: 'id', access_token: tok })}`, { signal: AbortSignal.timeout(15_000) }); const j = await r.json().catch(() => ({})) as { error?: { code?: number; message?: string } };
+      out.push(j.error ? { name, ok: false, error: `code ${j.error.code}: ${String(j.error.message ?? '').slice(0, 80)}` } : { name, ok: true }); } catch (e) { out.push({ name, ok: true, error: `network: ${(e as Error).message.slice(0, 40)}` }); } // a network blip is not a dead token
+  }
+  return out;
+}
+export function tiktokTokenInfo(cfg: Config): { connected: boolean; expiresAt?: number; refreshExpiresAt?: number } {
+  let t: { access_token?: string; expires_at?: number; refresh_expires_at?: number } | null = null; try { t = secretsOf(cfg).read('tiktok'); } catch { t = null; }
+  return t?.access_token ? { connected: true, expiresAt: t.expires_at, refreshExpiresAt: t.refresh_expires_at } : { connected: false };
 }
