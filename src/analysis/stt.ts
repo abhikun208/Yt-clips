@@ -39,7 +39,7 @@ function parseLooseJson(out: string): unknown {
   if (first >= 0) { try { return JSON.parse(lines.slice(first).join('\n')); } catch { /* fall through */ } }
   return JSON.parse(lines[lines.length - 1] ?? '');
 }
-interface RawSeg { start: number; end: number; text: string; words?: { start: number; end: number; word?: string; text?: string }[] }
+interface RawSeg { start: number; end: number; text: string; conf?: { logprob?: number; no_speech?: number }; words?: { start: number; end: number; word?: string; text?: string }[] }
 /** Validate + normalise engine output. Drops malformed segments/words; never invents timing. */
 export function parseSttJson(stdout: string): { cues: Cue[]; language?: string } {
   const j = parseLooseJson(stdout) as { error?: string; language?: string; segments?: RawSeg[] };
@@ -48,7 +48,8 @@ export function parseSttJson(stdout: string): { cues: Cue[]; language?: string }
   for (const s of j.segments ?? []) {
     if (!Number.isFinite(s.start) || !Number.isFinite(s.end) || s.end <= s.start || !String(s.text ?? '').trim()) continue;
     const words = (s.words ?? []).map((w) => ({ start: w.start, end: w.end, text: String(w.word ?? w.text ?? '').trim() })).filter((w) => Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start && w.text);
-    cues.push({ start: s.start, end: s.end, text: String(s.text).trim(), ...(words.length ? { words } : {}) });
+    const cf = s.conf && Number.isFinite(s.conf.logprob) ? { conf: { logprob: s.conf.logprob as number, no_speech: Number.isFinite(s.conf.no_speech) ? (s.conf.no_speech as number) : 0 } } : {};
+    cues.push({ start: s.start, end: s.end, text: String(s.text).trim(), ...(words.length ? { words } : {}), ...cf });
   }
   cues.sort((a, b) => a.start - b.start);
   return { cues, language: j.language };
@@ -65,8 +66,10 @@ export const noteApiSttError = (err: string) => { lastApiSttError = { at: Date.n
 export const sttPrompt = (cfg: Config, vocab?: string[]): string | undefined => { const base = cfg.stt.prompt; const v = vocab?.length ? `Names and words: ${vocab.join(', ')}.` : ''; return [base, v].filter(Boolean).join(' ') || undefined; };
 export const sttLang = (cfg: Config, hint?: string): string => { const l = hint ?? cfg.stt.language; return (!l || l === 'auto') && cfg.stt.indiaFirst !== false ? 'hi' : (l || 'auto'); };
 /** Keys the cloud service rejected (401/403/no credits): skipped with growing waits (1 min, 5 min, 1 h) so every clip does not hit them again, yet a topped-up key is used again within minutes; the log says how to fix them. */
-const deadKeys = new Map<string, { until: number; n: number }>(); /* exponential backoff 1 min → 5 min → 1 h per key; a successful call resets it, a different key is a different entry */ const BACKOFF_MS = [60_000, 5 * 60_000, 3600_000]; const keyId = (c: { baseUrl: string; apiKey: string }) => `${c.baseUrl}|${c.apiKey.slice(-6)}`;
+const deadKeys = new Map<string, { until: number; n: number }>(); /* exponential backoff 1 min → 5 min → 1 h per key; a successful call resets it, a different key is a different entry */ const BACKOFF_MS = [60_000, 5 * 60_000, 3600_000]; export const keyId = (c: { baseUrl: string; apiKey: string }) => `${c.baseUrl}|${c.apiKey.slice(-6)}`;
 export const resetDeadSttKeys = () => deadKeys.clear();
+/** How many saved/env cloud STT keys are in back-off right now (the runtime sentinel alerts the owner when ALL of them are). */
+export const deadSttKeyIds = (): string[] => [...deadKeys.entries()].filter(([, v]) => v.until > Date.now()).map(([k]) => k);
 const fixHint = (host: string): string => /groq/.test(host) ? 'console.groq.com/keys se naya free key banao, .env me GROQ_API_KEY badlo' : /openai/.test(host) ? 'platform.openai.com me credits daalo ya Groq (free) key use karo' : 'is provider ki key/credits check karo';
 /** 5-second health probe (GET /models) before a provider gets the audio upload: a dead/slow/rejecting provider costs 5 s, not minutes. Cached per key: 3 min when ok, 30 s when bad; any live failure drops the entry at once. 'net' = no network at all. */
 const health = new Map<string, { at: number; v: 'ok' | 'bad' | 'net' }>();
@@ -78,13 +81,32 @@ async function providerHealth(c: { baseUrl: string; apiKey: string }): Promise<'
   catch (e) { v = /abort|timeout|timed/i.test((e as Error).message + String((e as { name?: string }).name)) ? 'bad' : 'net'; }
   health.set(k, { at: Date.now(), v }); return v;
 }
-/** Cloud engines first, then local; when the local engine also fails, a saved Gemini key listens to the audio (approximate timing) so a bad day for one provider never means no captions. */
+/** A saved Gemini key listens to the audio (approximate timing, repaired locally) - the last line of defence so a bad day for one provider never means no captions. */
+async function geminiAudio(cfg: Config, videoPath: string, hint: { language?: string }, why: string): Promise<SttResult | null> {
+  for (const g of llmChain(cfg).filter((x) => /generativelanguage\.googleapis\.com/.test(x.baseUrl))) {
+    try {
+      const t = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: sttLang(cfg, hint.language) }); if (!t.cues.length) continue;
+      const { refineApproxCues } = await import('./align.ts'); const dur = Number((await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath], { timeoutMs: 60_000 })).stdout.trim());
+      const ref = await refineApproxCues(cfg.rootDir, cfg.dirs.tmp, videoPath, t.cues, sttLang(cfg, hint.language), dur).catch(() => null);
+      if (ref) { t.cues = ref.cues; if (/stable-ts/.test(ref.how)) info('gemini timing refined', { how: ref.how }); else warn('QUALITY REDUCED: caption timing is approximate (stable-ts forced alignment not installed/usable)', { how: ref.how, fix: 'PC/VPS: pip install stable-ts (or use the Docker image + a working cloud/local whisper so Gemini is not needed)' }); }
+      info('transcribed', { engine: 'gemini-audio', cues: t.cues.length, why: why.slice(0, 80) }); return { status: 'ok', cues: t.cues, engine: 'gemini-audio' };
+    } catch (e) { warn('gemini stt failed', { err: (e as Error).message.slice(0, 120) }); }
+  }
+  return null;
+}
+/** Cloud engines first, then local; Gemini audio when they fail OR when the result fails the self-check (hallucination loops, junk words, low engine confidence). */
 export async function transcribeVideo(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
-  const r = await transcribeCore(cfg, videoPath, hint);
-  if ((r.status === 'failed' || r.status === 'unavailable') && cfg.stt.engine !== 'local' && cfg.stt.engine !== 'api' && !process.env.YT_CLIPS_STT_CMD) {
-    for (const g of llmChain(cfg).filter((x) => /generativelanguage\.googleapis\.com/.test(x.baseUrl))) {
-      try { const t = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: sttLang(cfg, hint.language) }); if (!t.cues.length) continue; { const { refineApproxCues } = await import('./align.ts'); const dur = Number((await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath], { timeoutMs: 60_000 })).stdout.trim()); const ref = await refineApproxCues(cfg.rootDir, cfg.dirs.tmp, videoPath, t.cues, sttLang(cfg, hint.language), dur).catch(() => null); if (ref) { t.cues = ref.cues; if (/stable-ts/.test(ref.how)) info('gemini timing refined', { how: ref.how }); else warn('QUALITY REDUCED: caption timing is approximate (stable-ts forced alignment not installed/usable)', { how: ref.how, fix: 'PC/VPS: pip install stable-ts (or use the Docker image + a working cloud/local whisper so Gemini is not needed)' }); } } writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(t.cues)); info('transcribed', { engine: 'gemini-audio', cues: t.cues.length, why: `${r.engine ?? 'engines'} failed: ${(r.error ?? r.status).slice(0, 60)}` }); return { status: 'ok', cues: t.cues, engine: 'gemini-audio' }; } catch (e) { warn('gemini stt failed', { err: (e as Error).message.slice(0, 120) }); }
-    }
+  let r = await transcribeCore(cfg, videoPath, hint);
+  const mayGemini = cfg.stt.engine !== 'local' && cfg.stt.engine !== 'api' && !process.env.YT_CLIPS_STT_CMD;
+  if ((r.status === 'failed' || r.status === 'unavailable') && mayGemini) { const g = await geminiAudio(cfg, videoPath, hint, `${r.engine ?? 'engines'} failed: ${(r.error ?? r.status).slice(0, 60)}`); if (g) writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(g.cues)); return g ?? r; }
+  if (r.status === 'ok') {
+    const { checkTranscript } = await import('./sanity.ts'); const q = checkTranscript(r.cues);
+    if (q.removed) { info('transcript cleaned: repeated decoder-loop cues removed', { removed: q.removed }); r = { ...r, cues: q.cues }; }
+    if (q.badRatio > 0.3 && mayGemini && r.engine !== 'gemini-audio') {
+      warn('transcript looks unreliable - trying another engine', { engine: r.engine, badRatio: +q.badRatio.toFixed(2), junkCues: q.bad });
+      const g = await geminiAudio(cfg, videoPath, hint, `self-check: ${Math.round(q.badRatio * 100)}% junk cues from ${r.engine}`);
+      if (g && checkTranscript(g.cues).badRatio < q.badRatio) { writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(g.cues)); return g; }
+    } else if (q.badRatio > 0.3) warn('transcript looks unreliable and no other engine is available', { engine: r.engine, badRatio: +q.badRatio.toFixed(2) });
   }
   return r;
 }

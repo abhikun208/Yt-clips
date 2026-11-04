@@ -11,6 +11,7 @@ import { whyReport } from '../diagnose.ts';
 import { notify } from '../notify.ts';
 import { bootstrap as bootstrapTools } from '../ops/bootstrap.ts';
 import { recordClaim, claimSummary, type ClaimKind } from '../publish/claims.ts';
+import { selfcareTick } from '../ops/selfcare.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
 import { addYoutubeSource, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
@@ -85,7 +86,7 @@ export function createApp(o: AppOptions = {}): App {
   const maxUpload = (o.maxUploadMb ?? Number(process.env.MAX_UPLOAD_MB ?? 2048)) * 1024 * 1024;
   const uploadDir = join(cfg.dataDir, 'uploads'); mkdirSync(uploadDir, { recursive: true });
   const previewDir = join(cfg.dirs.tmp, 'preview');
-  let chCache: { t: number; body: unknown } | null = null; let chPending: Promise<unknown[]> | null = null; let lastPoll = 0; let lastEnvTry = Date.now(); let lastDoctor = 0; let lastAnalytics = 0; let lastComments = 0; let lastTt = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
+  let chCache: { t: number; body: unknown } | null = null; let chPending: Promise<unknown[]> | null = null; let lastPoll = 0; let lastCare = 0; let lastEnvTry = Date.now(); let lastDoctor = 0; let lastAnalytics = 0; let lastComments = 0; let lastTt = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
   const fails = new Map<string, { n: number; t: number }>();
 
   async function runOnce(): Promise<void> {
@@ -98,6 +99,7 @@ export function createApp(o: AppOptions = {}): App {
         if (cfg.automation.titleTest || cfg.automation.funnelComment) { if (Date.now() - lastTt >= 15 * 60_000) { lastTt = Date.now(); await titleTestTick(store, cfg).catch(() => null); await funnelTick(store, cfg).catch(() => null); } }
         if (cfg.comments.pollMinutes > 0 && Date.now() - lastComments >= cfg.comments.pollMinutes * 60_000) { lastComments = Date.now(); const cr = await collectYoutubeComments(store, cfg); if (cr.newComments || cr.error) info('comments collect', cr as unknown as Record<string, unknown>); }
         if (Date.now() - lastEnvTry >= 30 * 60_000) { lastEnvTry = Date.now(); void applyEnvKeys(cfg).catch(() => null); } // a key that failed its live test at start-up (network blip) is retried
+        if (Date.now() - lastCare >= 30 * 60_000) { lastCare = Date.now(); await selfcareTick(store, cfg).catch(() => null); } // temp GC, disk watch, orphan processes, key sentinel
         if (Date.now() - lastDoctor >= 10 * 60_000) { lastDoctor = Date.now(); const dr = await runDoctor(store, cfg).catch(() => null); if (dr && (dr.fixed || dr.manual)) info('doctor', { fixed: dr.fixed, manual: dr.manual, deferred: dr.deferred }); }
         { const tr = await automationTick(store, cfg); if (tr.queued || tr.advanced || tr.errors.length) info('automation tick', tr as unknown as Record<string, unknown>); }
         { const sr = await storageTick(store, cfg).catch(() => null); if (sr && (sr.archived || sr.purged)) info('storage tick', sr as unknown as Record<string, unknown>); }

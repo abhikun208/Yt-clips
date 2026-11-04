@@ -20,6 +20,7 @@ def main() -> int:
         out = []
         for s in segs:
             out.append({"start": float(s.start), "end": float(s.end), "text": s.text.strip(),
+                        "conf": {"logprob": float(getattr(s, "avg_logprob", 0.0)), "no_speech": float(getattr(s, "no_speech_prob", 0.0))},
                         "words": [{"start": float(w.start), "end": float(w.end), "word": w.word.strip()} for w in (s.words or [])]})
         print(json.dumps({"language": info.language, "segments": out}, ensure_ascii=False)); return 0
     except Exception as e:  # model download/network/memory problems

@@ -11,7 +11,7 @@ import { metaForClip } from './seo/clipmeta.ts';
 import { llmMetadata } from './seo/llm.ts';
 import { llmChain } from './ai/settings.ts';
 import { makeThumbnail } from './seo/thumbnail.ts';
-import { info, error } from './util/log.ts';
+import { info, warn, error } from './util/log.ts';
 import { rerenderClip } from './review/review.ts';
 import { notify } from './notify.ts';
 import { channelOfVideo, channelOfClip, type Channel } from './channels.ts';
@@ -37,7 +37,14 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     const ch = channelOfVideo(store, meta.video_id);
     const hook = cfg.edit.hookTitle !== true ? null : realHook(meta.transcript ?? '', hk); // null => render derives one from the clip's own speech, or burns nothing
     const r = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle !== true ? { title: null } : hook ? { title: hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}) });
-    enqueue(store, 'meta', `meta:${r.clipId}`); return;
+    // Auto-QA: a render that fails the measured checks (wrong size, no audio, black frames, decode errors...) is redone ONCE with the risky extras off
+    // (face-track crop, close-ups, speed ramp, jump cuts, beats, vfx), then a 2nd time; only the 3rd failure is reported to the owner.
+    let res = r; for (let k = 1; k <= 2 && !res.qcPass; k++) {
+      warn('render failed QC - retrying with safe settings', { candidate: id, attempt: k });
+      res = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle !== true ? { title: null } : hook ? { title: hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}), closeups: false, speedRamp: false, jumpCuts: false, beats: false, faceTrack: false, vfx: { lut: false, grain: false, particles: false, lightLeak: false, flash: false, progress: false } });
+    }
+    if (!res.qcPass) void notify(store, cfg, `qc:${id}`, `⚠️ Yt-clips: clip (candidate ${id}) 3 baar render hua par quality-check fail raha. Review tab me dekho.`);
+    enqueue(store, 'meta', `meta:${res.clipId}`); return;
   }
   if (job.kind === 'meta') { if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return; await metaForClip(store, cfg, id); return; } // clip deleted by the owner meanwhile: nothing to do
   if (job.kind === 'rerender') { if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return; await rerenderClip(store, cfg, id, job.payload_json ? JSON.parse(job.payload_json) : {}); return; }

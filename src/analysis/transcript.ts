@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 
 export interface Word { start: number; end: number; text: string }
-export interface Cue { start: number; end: number; text: string; /** real per-word timing when the STT engine provided it */ words?: Word[] }
+export interface Cue { start: number; end: number; text: string; /** real per-word timing when the STT engine provided it */ words?: Word[]; /** engine confidence when it reports one (faster-whisper): avg_logprob (0 = sure, < -1 = doubtful) and no_speech_prob */ conf?: { logprob: number; no_speech: number } }
 
 function ts(s: string): number {
   const m = s.trim().replace(',', '.').match(/^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$/);
