@@ -29,4 +29,5 @@ test('motion smoothness (measured): camera moves EVERY frame between keyframes, 
   const r = spawnSync('node', ['tools/motion_check.ts'], { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr);
   const m = /ZERO movement \(marker visible\): (\d+)\/(\d+); max step (\d+)px/.exec(r.stdout); assert.ok(m, r.stdout);
   assert.equal(Number(m[1]), 0); assert.ok(Number(m[2]) > 60); assert.ok(Number(m[3]) < 60, 'no jump bigger than ~40px/frame');
+  const k = /velocity change: (\d+)px\/frame\^2; hard kinks: (\d+)/.exec(r.stdout); assert.ok(k, r.stdout); assert.equal(Number(k[2]), 0, 'direction changes ease through zero (no instant reversal)'); assert.ok(Number(k[1]) < 20, 'smooth acceleration: ' + k[1]);
 });

@@ -333,7 +333,7 @@ export function createApp(o: AppOptions = {}): App {
           const logs = recentLogs(60, 'info'); const fresh = logs;
           const snap = { now: new Date().toISOString(), paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs: fresh };
           const sig = JSON.stringify([snap.paused, snap.running, snap.pending, logs.length, logs[logs.length - 1]]);
-          if (sig !== last) { last = sig; res.write(`data: ${JSON.stringify(snap)}\n\n`); } else if (++seen % 15 === 0) res.write(': ping\n\n');
+          if (sig !== last) { last = sig; res.write(`data: ${JSON.stringify(snap)}\n\n`); } else if (++seen % 10 === 0) res.write(`event: hb\ndata: ${Date.now()}\n\n`); // named event so the browser can SEE it (comment lines are invisible to EventSource)
         };
         tick(); const t = setInterval(tick, 1000); req.on('close', () => clearInterval(t)); return;
       }

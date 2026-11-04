@@ -160,11 +160,33 @@ export function treatmentCoverage(all: Treatment[]): { applied: number; total: n
   return { applied, total: DIMENSIONS.length, coverage: +(applied / DIMENSIONS.length).toFixed(3), notApplied };
 }
 
-/** ffmpeg expression for a piecewise-linear value over time t from [[t,v],...] keyframes (held flat before/after). Used for the speaker-follow crop. */
-/** ffmpeg rejects filter expressions longer than ~4 KB (measured: 100 keyframes = 4.5 KB failed, 75 = 3.5 KB worked), so at most 72 keyframes are used. */
-export function trackExpr(track: [number, number][], key = 't'): string {
-  const pts = track.length > 72 ? track.filter((_, i) => i % Math.ceil(track.length / 72) === 0 || i === track.length - 1) : track;
-  let e = pts[pts.length - 1]![1].toFixed(3);
-  for (let i = pts.length - 2; i >= 0; i--) { const [t0, v0] = pts[i]!, [t1, v1] = pts[i + 1]!; const dt = Math.max(0.05, t1 - t0); e = `if(lt(${key},${t1.toFixed(2)}),${v0.toFixed(3)}+(${(v1 - v0).toFixed(4)})*(${key}-${t0.toFixed(2)})/${dt.toFixed(2)},${e})`; }
-  return `if(lt(${key},${pts[0]![0].toFixed(2)}),${pts[0]![1].toFixed(3)},${e})`;
+/** ffmpeg rejects filter expressions longer than ~4 KB, so keyframes are thinned until the expression is under MAX_EXPR chars. */
+const MAX_EXPR = 3600;
+const num = (x: number): string => String(+x.toPrecision(5));
+/**
+ * ffmpeg expression for a smooth value over time t from [[t,v],...] keyframes (held flat before/after). Used for the speaker-follow crop.
+ * Each segment is a cubic Hermite curve (Catmull-Rom tangents, zeroed at local extremes so the camera EASES into every direction change and never overshoots),
+ * written as v0 + x*(c1 + x*(c2 + x*c3)) with x = t - t0, so the camera glides through keyframes instead of kinking. `smooth:false` gives the old piecewise-linear form.
+ */
+export function trackExpr(track: [number, number][], key = 't', smooth = true): string {
+  let pts = track;
+  const build = (): string => {
+    let e = num(pts[pts.length - 1]![1]);
+    const n = pts.length, m: number[] = pts.map((_, i) => {
+      if (!smooth || i === 0 || i === n - 1) return 0;
+      const a = pts[i - 1]!, b = pts[i]!, c = pts[i + 1]!, s0 = (b[1] - a[1]) / Math.max(0.05, b[0] - a[0]), s1 = (c[1] - b[1]) / Math.max(0.05, c[0] - b[0]);
+      return s0 * s1 <= 0 ? 0 : (c[1] - a[1]) / Math.max(0.1, c[0] - a[0]); // extreme -> ease to a stop; otherwise Catmull-Rom slope
+    });
+    for (let i = n - 2; i >= 0; i--) {
+      const [t0, v0] = pts[i]!, [t1, v1] = pts[i + 1]!; const dt = Math.max(0.05, t1 - t0), d = v1 - v0;
+      const seg = smooth
+        ? (() => { const M0 = m[i]! * dt, M1 = m[i + 1]! * dt, x = `(${key}-${num(t0)})`; return `${num(v0)}+${x}*(${num(M0 / dt)}+${x}*(${num((3 * d - 2 * M0 - M1) / (dt * dt))}+${x}*${num((M0 + M1 - 2 * d) / (dt * dt * dt))}))`; })()
+        : `${num(v0)}+(${num(d)})*(${key}-${num(t0)})/${num(dt)}`;
+      e = `if(lt(${key},${num(t1)}),${seg},${e})`;
+    }
+    return `if(lt(${key},${num(pts[0]![0])}),${num(pts[0]![1])},${e})`;
+  };
+  let out = build();
+  while (out.length > MAX_EXPR && pts.length > 4) { pts = pts.filter((_, i) => i % 2 === 0 || i === pts.length - 1); out = build(); }
+  return out;
 }

@@ -443,9 +443,10 @@ const login=app=>guard(async()=>{const r=await api('/api/oauth/'+app+'/start');l
 
 async function init(){const h=(location.hash||'').slice(1);try{const r=await api('/api/presets');presets=r.presets}catch(e){}go(['home','clips','publish','schedule','insights','studio','settings'].includes(h)?h:'home');
  function liveRender(r){$('#livehead').textContent=(r.paused?'⏸ Queue ruka hua (breaker) · ':'')+'Chal raha: '+(r.running.length?r.running.map(j=>j.kind+' '+j.key.split(':')[1]).join(', '):'kuch nahi')+' · Wait me: '+r.pending;$('#live').textContent=r.logs.map(l=>l.t.slice(11,19)+' '+(l.level==='info'?'':l.level.toUpperCase()+' ')+l.msg+(l.ctx?' '+JSON.stringify(l.ctx).slice(0,160):'')).join('\n');const el=$('#live');el.scrollTop=el.scrollHeight}
- let liveES=null,liveOk=false;
- function liveStream(){if(liveES||typeof EventSource==='undefined')return;try{liveES=new EventSource('/api/stream');liveES.onmessage=e=>{liveOk=true;try{liveRender(JSON.parse(e.data))}catch(x){}};liveES.onerror=()=>{liveOk=false;if(liveES&&liveES.readyState===2){liveES=null}}}catch(e){liveES=null}}
- async function liveLoad(){liveStream();if(liveOk)return;try{liveRender(await api('/api/logs?n=40'))}catch(e){}}
+ let liveES=null,liveOk=false,liveBeat=0;
+ function liveStream(){if(liveES||typeof EventSource==='undefined')return;try{liveES=new EventSource('/api/stream');liveBeat=Date.now();liveES.onmessage=e=>{liveOk=true;liveBeat=Date.now();try{liveRender(JSON.parse(e.data))}catch(x){}};liveES.addEventListener('hb',()=>{liveOk=true;liveBeat=Date.now()});liveES.onerror=()=>{liveOk=false;if(liveES&&liveES.readyState===2){liveES=null}}}catch(e){liveES=null}}
+ function liveWatchdog(){if(liveES&&Date.now()-liveBeat>25000){try{liveES.close()}catch(e){}liveES=null;liveOk=false}}
+ async function liveLoad(){liveWatchdog();liveStream();if(liveOk)return;try{liveRender(await api('/api/logs?n=40'))}catch(e){}}
  setInterval(()=>{if(document.hidden||$('#app').hidden||dialogOpen()||isEditing())return;if(tab==='home')liveLoad();if(tab==='publish')upsLoad().catch(()=>{});else if(tab==='home'||tab==='clips')load(tab)},6000)}
 (async()=>{try{await api('/api/login',{method:'POST'});if(token){token='';try{localStorage.removeItem('ytc_token')}catch(e){}}show(true);init()}catch(e){show(false)}})();
 </script></body></html>

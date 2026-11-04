@@ -17,4 +17,6 @@ const steps: number[] = []; for (let i = 1; i < N; i++) if (ok[i] && ok[i - 1]) 
 const zero = steps.filter((s) => s === 0).length;
 console.log('frames', N, 'camera x per frame (px):', cam.filter((_, i) => ok[i]).join(' '));
 console.log('per-frame step:', steps.join(' '));
+const turn = steps.filter((x, i) => i && Math.sign(x) !== Math.sign(steps[i - 1]!) && Math.abs(steps[i - 1]!) > 12 && Math.abs(x) > 12).length; // sign flips with no pass through ~0 = hard kink
 console.log(`frames with ZERO movement (marker visible): ${zero}/${steps.length}; max step ${Math.max(...steps.map(Math.abs))}px (frame width ${ow}px)`);
+console.log(`largest step-to-step velocity change: ${Math.max(...steps.slice(1).map((x, i) => Math.abs(x - steps[i]!)))}px/frame^2; hard kinks: ${turn}`);

@@ -37,7 +37,7 @@ test('speaker-follow crop: keyframe expression renders in real ffmpeg; face_trac
   assert.ok(g.treatments.some((t) => /speaker-follow/.test(t.detail)));
   const out = join(d, 'o.mp4'); const r = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-i', src, '-filter_complex', g.graph, '-map', '[vout]', '-an', '-t', '5', '-c:v', 'libx264', '-preset', 'ultrafast', out], { timeoutMs: 120_000 });
   assert.equal(r.code, 0, r.stderr.slice(0, 400));
-  assert.match(trackExpr([[0, 0.3], [1, 0.5], [2, 0.5]]), /^if\(lt\(t,0\.00\)/);
+  assert.match(trackExpr([[0, 0.3], [1, 0.5], [2, 0.5]]), /^if\(lt\(t,0\)/);
   const t = await run('python3', ['-I', join(process.cwd(), 'tools', 'face_track.py'), src, '5'], { timeoutMs: 120_000 });
   const j = JSON.parse(t.stdout) as { track: unknown[]; faces: number }; assert.ok(Array.isArray(j.track)); assert.equal(j.faces, 0);
 });
