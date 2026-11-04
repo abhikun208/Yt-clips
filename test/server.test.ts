@@ -132,5 +132,19 @@ test('SSE /api/stream: needs auth, pushes a snapshot with logs/queue state as te
     const rd = r.body!.getReader(); const { value } = await rd.read(); ac.abort();
     const txt = new TextDecoder().decode(value); assert.ok(txt.startsWith('data: '));
     const snap = JSON.parse(txt.slice(6)); assert.ok(Array.isArray(snap.logs) && Array.isArray(snap.running) && typeof snap.pending === 'number');
+    assert.equal(snap.full, true);
+  } finally { await app.stop(); }
+});
+
+test('SSE is a DELTA stream: after the first snapshot only NEW log lines are sent, idle ticks send nothing but a heartbeat', async () => {
+  const { app, base } = await boot();
+  try {
+    const { info } = await import('../src/util/log.ts');
+    const ac = new AbortController(); const r = await fetch(`${base}/api/stream`, { headers: auth, signal: ac.signal }); const rd = r.body!.getReader(); const dec = new TextDecoder();
+    const first = JSON.parse(dec.decode((await rd.read()).value).slice(6)); assert.equal(first.full, true);
+    info('delta-marker-line', { n: 1 });
+    let got: any = null; for (let i = 0; i < 6 && !got; i++) { const t = dec.decode((await rd.read()).value); if (t.startsWith('data: ')) got = JSON.parse(t.slice(6)); }
+    ac.abort(); assert.ok(got && got.full === false, 'second message is a delta');
+    assert.ok(got.logs.some((l: any) => l.msg === 'delta-marker-line') && got.logs.length <= 3, 'only new lines, not the whole buffer: ' + got.logs.length);
   } finally { await app.stop(); }
 });

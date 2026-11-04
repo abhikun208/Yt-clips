@@ -17,7 +17,7 @@ import { addYoutubeSource, pollSources, ytdlpAvailable } from '../sources/youtub
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
-import { recentLogs, info, warn, error } from '../util/log.ts';
+import { recentLogs, logsSince, info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
 import { aiStatus, saveAi, sttCreds, llmChain, llmSlot, SLOT_LIST } from '../ai/settings.ts';
@@ -328,12 +328,14 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/stream' && m === 'GET') {
         // Server-Sent Events: pushes only NEW log lines + queue state (no 6 s polling). UI falls back to polling if EventSource fails.
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
-        let last = ''; let seen = 0;
+        // DELTA stream: first message carries the last 60 lines (full:true); afterwards only lines newer than the last one sent. Idle ticks send nothing.
+        let last = ''; let seen = 0; let lastSeq = -1;
         const tick = () => {
-          const logs = recentLogs(60, 'info'); const fresh = logs;
-          const snap = { now: new Date().toISOString(), paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs: fresh };
-          const sig = JSON.stringify([snap.paused, snap.running, snap.pending, logs.length, logs[logs.length - 1]]);
-          if (sig !== last) { last = sig; res.write(`data: ${JSON.stringify(snap)}\n\n`); } else if (++seen % 10 === 0) res.write(`event: hb\ndata: ${Date.now()}\n\n`); // named event so the browser can SEE it (comment lines are invisible to EventSource)
+          const first = lastSeq < 0; const logs = first ? recentLogs(60, 'info') : logsSince(lastSeq).filter((l) => l.level !== 'debug');
+          if (logs.length) lastSeq = (logs[logs.length - 1] as { seq: number }).seq; else if (first) lastSeq = 0;
+          const snap = { now: new Date().toISOString(), full: first, paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs };
+          const sig = JSON.stringify([snap.paused, snap.running, snap.pending]) + logs.length;
+          if (first || logs.length || sig !== last) { last = sig; res.write(`data: ${JSON.stringify(snap)}\n\n`); seen = 0; } else if (++seen % 10 === 0) res.write(`event: hb\ndata: ${Date.now()}\n\n`);
         };
         tick(); const t = setInterval(tick, 1000); req.on('close', () => clearInterval(t)); return;
       }

@@ -37,6 +37,8 @@ export interface VideoGraphOpts {
 export const escFilterPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'").replace(/,/g, '\\,').replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 
 /** Reframe to 9:16 producing label [base]. Exported so the change-measurement baseline uses the identical crop. */
+/** Look-ahead: the whole face track is known offline, so the virtual camera starts moving this many seconds BEFORE the speaker does (anticipation, like a human operator) instead of lagging behind. */
+export const CROP_LEAD_SEC = 0.15;
 export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'cropTrack' | 'facecam' | 'fillIdx' | 'fitZoom'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
   const parts: string[] = []; const t: Treatment[] = [];
   const aspectIn = o.inW / o.inH; const aspectOut = o.outW / o.outH;
@@ -65,7 +67,7 @@ export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'o
     // Crop to 9:16 window around subject centre, then scale. Window width = inH*9/16.
     const cx = Math.min(0.95, Math.max(0.05, o.cropXFrac ?? 0.5));
     const cw = `trunc(ih*${o.outW}/${o.outH}/2)*2`;
-    const xe = o.cropTrack && o.cropTrack.length >= 3 ? `(${trackExpr(o.cropTrack.map(([t, v]) => [t, Math.min(0.95, Math.max(0.05, v))] as [number, number]))})` : cx.toFixed(3);
+    const xe = o.cropTrack && o.cropTrack.length >= 3 ? `(${trackExpr(o.cropTrack.map(([t, v]) => [t - CROP_LEAD_SEC, Math.min(0.95, Math.max(0.05, v))] as [number, number]))})` : cx.toFixed(3);
     parts.push(`[${inLabel}]crop=w=${cw}:h=ih:x='max(0,min(iw-ow,iw*${xe}-ow/2))':y=0,scale=${o.outW}:${o.outH}:flags=lanczos,setsar=1[base]`);
     t.push({ dimension: 'reframe_9x16', applied: true, detail: o.cropTrack && o.cropTrack.length >= 3 ? `speaker-follow crop (${o.cropTrack.length} keyframes, active speaker by mouth motion)` : `center-crop around x=${cx.toFixed(2)}${o.cropXFrac === undefined ? ' (no face tracking: centered)' : ' (face-tracked)'}` });
   }

@@ -31,3 +31,11 @@ test('motion smoothness (measured): camera moves EVERY frame between keyframes, 
   assert.equal(Number(m[1]), 0); assert.ok(Number(m[2]) > 60); assert.ok(Number(m[3]) < 60, 'no jump bigger than ~40px/frame');
   const k = /velocity change: (\d+)px\/frame\^2; hard kinks: (\d+)/.exec(r.stdout); assert.ok(k, r.stdout); assert.equal(Number(k[2]), 0, 'direction changes ease through zero (no instant reversal)'); assert.ok(Number(k[1]) < 20, 'smooth acceleration: ' + k[1]);
 });
+
+test('look-ahead camera: crop reaches a new speaker position BEFORE the speaker gets there (anticipation, not lag)', async () => {
+  const { reframeParts, CROP_LEAD_SEC } = await import('../src/edit/filters.ts');
+  const tr: [number, number][] = [[0, 0.3], [1, 0.3], [2, 0.7], [3, 0.7]];
+  const g = reframeParts({ inW: 1920, inH: 1080, outW: 1080, outH: 1920, reframe: 'crop', cropTrack: tr } as any).parts.join(' ');
+  assert.ok(CROP_LEAD_SEC > 0 && CROP_LEAD_SEC <= 0.3);
+  assert.ok(g.includes(`lt(t,${+(1 - CROP_LEAD_SEC).toPrecision(5)})`), 'first keyframe segment ends earlier by the lead: ' + g.slice(0, 200));
+});

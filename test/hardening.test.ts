@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
@@ -78,4 +79,10 @@ test('local STT lock: at most one local model run at a time (FIFO)', async () =>
   await Promise.all([1, 2, 3, 4, 5].map(job));
   const m = await import('../src/analysis/stt.ts');
   assert.equal(m.localSttPeak, 1); assert.equal(m.localSttActive, 0); assert.deepEqual(order, [1, 2, 3, 4, 5]); void localSttPeak;
+});
+
+test('queue under real multi-process load: 6 processes enqueue+claim on one SQLite file, zero lock errors, nothing lost or double-claimed', () => {
+  const r = spawnSync('node', ['tools/sqlite_stress.ts'], { encoding: 'utf8', env: { ...process.env, P: '6', N: '120' } }); assert.equal(r.status, 0, r.stderr);
+  const m = /enqueued (\d+), claimed (\d+), ERRORS (\d+)/.exec(r.stdout); assert.ok(m, r.stdout);
+  assert.equal(Number(m[3]), 0); assert.equal(Number(m[1]), 720); assert.equal(Number(m[2]), 720);
 });
