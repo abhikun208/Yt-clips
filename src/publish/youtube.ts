@@ -51,7 +51,13 @@ export class YouTubeAdapter implements Adapter {
   }
   private async apiError(r: Response, what: string): Promise<Error> {
     const t = await r.text().catch(() => ''); let reason = ''; try { const j = JSON.parse(t); reason = j.error?.errors?.[0]?.reason ?? j.error?.message ?? ''; } catch { /* not json */ }
-    if (r.status === 403 && /quotaExceeded|dailyLimitExceeded|rateLimitExceeded/i.test(reason + t)) return new Error(`QUOTA_EXCEEDED: ${what}: ${reason}`);
+    if (r.status === 403 && /quotaExceeded|dailyLimitExceeded|rateLimitExceeded/i.test(reason + t)) {
+      // Google itself says the day's quota is gone (our own counter can drift, e.g. other tools share the project): mark that pool as used up for the rest of the (Pacific) day,
+      // so every later call fails instantly WITHOUT touching the API (no retry storm) and the owner is told once.
+      const pool = /insert|upload/i.test(what) ? 'insert' : 'units'; const cap = pool === 'insert' ? this.o.dailyInserts : this.o.dailyUnits;
+      this.store.exec('INSERT INTO quota_usage(day, pool, units) VALUES (?,?,?) ON CONFLICT(day, pool) DO UPDATE SET units=MAX(units, excluded.units)', quotaDay(this.o.now()), pool, cap);
+      return new Error(`QUOTA_EXCEEDED: ${what}: ${reason} (Google reports the daily ${pool} quota is used up; waiting for the midnight-Pacific reset)`);
+    }
     if (r.status === 401) return new Error(`AUTH_REVOKED: ${what}: unauthorized`);
     return new Error(`${what} failed: HTTP ${r.status} ${reason}`.trim());
   }

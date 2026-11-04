@@ -140,3 +140,14 @@ test('FULL machine on the YouTube adapter: gates OFF make zero HTTP calls; gates
     assert.ok(f.log.filter((x) => x.headers.authorization).every((x) => /^Bearer fake-access-/.test(String(x.headers.authorization))));
   }); } finally { await f.close(); }
 });
+
+test('quota: when GOOGLE says the quota is gone (our counter drifted) the pool is marked used up for the day - later calls fail instantly without touching the API (no retry storm)', async () => {
+  const f = await startFake();
+  try { await env(f, async () => {
+    const { ad, file } = setup(f, { dailyUnits: 10_000, dailyInserts: 100, now: () => new Date('2026-10-20T20:00:00Z') });
+    const { remoteId } = await ad.upload(up(file, 'q1')); assert.equal(ad.quotaUsed('units'), 0);
+    f.opts.quotaOnList = true; await assert.rejects(ad.verify(remoteId), /QUOTA_EXCEEDED.*Google reports/s);
+    assert.equal(ad.quotaUsed('units'), 10_000, 'units pool exhausted for the rest of the Pacific day'); assert.equal(ad.quotaUsed('insert'), 1, 'the separate insert pool is untouched');
+    f.opts.quotaOnList = false; await assert.rejects(ad.verify(remoteId), /QUOTA_EXCEEDED: units 10000\+1 > 10000/, 'now blocked by the local guard, no HTTP call');
+  }); } finally { await f.close(); }
+});
