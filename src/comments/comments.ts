@@ -74,7 +74,7 @@ export async function llmDraftReplies(store: Store, chain: { baseUrl: string; ap
           { role: 'user', content: `Comment class: ${r.class}\n<c>${r.text.slice(0, 400)}</c>` }] }) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const out = (((await res.json()) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? '').trim().replace(/^["']|["']$/g, '');
-        if (!acceptableReply(out)) continue; store.exec(`UPDATE comments SET draft=? WHERE id=? AND status='draft'`, out, r.id); upgraded++; break;
+        if (!acceptableReply(out)) continue; store.exec(`UPDATE comments SET draft=? WHERE id=? AND status='draft'`, out, r.id); store.exec(`UPDATE kv SET v='ok' WHERE k=?`, k); upgraded++; break;
       } catch { /* next provider in the chain; the rule-based draft stays */ }
     }
   }

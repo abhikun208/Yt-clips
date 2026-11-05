@@ -40,7 +40,8 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   const related = transcript ? await suggestKeywords(store, first.keywords[0] ?? '', { hl: language === 'en' ? 'en' : 'hi' }) : [];
   let md = related.length ? buildMetadata({ ...base, relatedExtra: related }) : first;
   if (related.length) md = { ...md, warnings: [...md.warnings, `search suggestions used: ${related.slice(0, 3).join(' | ')}`] };
-  if (transcript) for (const llm of llmChain(cfg)) { const r = await llmMetadata(md, transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }); if (r.source === 'llm') { md = r; break; } md = r; }
+  let trends: string[] = []; if (transcript && llmChain(cfg).length) { try { const { fetchTrends, relevantTrends } = await import('./trends.ts'); trends = relevantTrends(transcript, await fetchTrends(store)); } catch { trends = []; } }
+  if (transcript) for (const llm of llmChain(cfg)) { const r = await llmMetadata(md, transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }, fetch, trends); if (r.source === 'llm') { md = r; break; } md = r; }
   md = withPart(md, part);
   { const dis = (ch.config as { disclaimer?: string }).disclaimer?.trim(); if (dis && !md.description.includes(dis)) md = { ...md, description: `${md.description}\n\n${dis}`.slice(0, 4900) }; } // owner-written, per channel
   // never the same title twice on one channel

@@ -255,3 +255,21 @@ export async function rescanPublished(store: Store, cfg: Config, now = new Date(
   }
   return { checked, flagged };
 }
+
+/**
+ * Opt-in auto-reply (comments.autoReply + gates.commentsAutoPost, both default OFF). Only plain PRAISE comments whose reply was written by the LLM AND passed the safety guard
+ * are sent - questions, feedback, anything doubtful stays a draft for the owner. Waits 15 min after the comment (never instant), max 3 per cycle, and the daily cap
+ * (comments.maxRepliesPerDay) still applies. This is a rule gate, not a model "confidence" number: a model's self-reported confidence is not calibrated.
+ */
+export async function autoReplyTick(store: Store, cfg: Config, poster: (id: number) => Promise<void> = (id) => postComment(store, cfg, id)): Promise<{ sent: number; skipped: number }> {
+  if (!cfg.gates.commentsAutoPost || !cfg.comments.autoReply) return { sent: 0, skipped: 0 };
+  const { setCommentStatus, acceptableReply } = await import('../comments/comments.ts'); let sent = 0, skipped = 0;
+  const rows = store.all<{ id: number; draft: string }>(`SELECT c.id, c.draft FROM comments c JOIN kv ON kv.k='comment:llm:'||c.id AND kv.v='ok' WHERE c.status='draft' AND c.class='praise' AND c.draft IS NOT NULL AND c.created_at <= datetime('now','-15 minutes') ORDER BY c.id LIMIT 3`);
+  for (const r of rows) {
+    if (!acceptableReply(r.draft)) { skipped++; continue; }
+    try { setCommentStatus(store, r.id, 'approve'); await poster(r.id); sent++; }
+    catch (e) { store.exec(`UPDATE comments SET status='draft' WHERE id=? AND status='approved'`, r.id); skipped++; if (/^(QUOTA_|AUTH_|COMMENTS_DISABLED)/.test((e as Error).message)) break; }
+  }
+  if (sent) (await import('../util/log.ts')).info('auto-replied to praise comments', { sent });
+  return { sent, skipped };
+}
