@@ -100,3 +100,10 @@ test('vision quota: an image 429 pauses vision only (not the provider\'s text he
   assert.equal(allProvidersDown([env], Date.now()), false, 'text use of the same provider is not cooled');
   assert.ok(titleIssues('Cricket Match Highlights').some((x) => /no hook/.test(x))); assert.deepEqual(titleIssues('Kohli Ne Ye Kya Kar Diya?! 😱 #Shorts'), []);
 });
+
+test('local vision (Ollama etc.) is recognised, has no daily budget, and local llava/moondream names count as vision models', async () => {
+  const { isLocalEndpoint, isVisionModel } = await import('../src/seo/vision.ts');
+  for (const u of ['http://localhost:11434/v1', 'http://127.0.0.1:1234/v1', 'http://192.168.1.5:11434/v1', 'http://host.docker.internal:11434/v1']) assert.equal(isLocalEndpoint(u), true, u);
+  for (const u of ['https://api.groq.com/openai/v1', 'https://generativelanguage.googleapis.com/v1beta/openai']) assert.equal(isLocalEndpoint(u), false, u);
+  for (const m of ['llava:13b', 'llava-v1.6-mistral', 'moondream', 'qwen2-vl-7b', 'minicpm-v']) assert.equal(isVisionModel(m), true, m); assert.equal(isVisionModel('phi3'), false);
+});
