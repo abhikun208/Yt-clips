@@ -41,8 +41,8 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   let md = related.length ? buildMetadata({ ...base, relatedExtra: related }) : first;
   if (related.length) md = { ...md, warnings: [...md.warnings, `search suggestions used: ${related.slice(0, 3).join(' | ')}`] };
   let trends: string[] = []; if (transcript && llmChain(cfg).length) { try { const { fetchTrends, relevantTrends } = await import('./trends.ts'); trends = relevantTrends(transcript, await fetchTrends(store)); } catch { trends = []; } }
-  let examples: string[] = []; try { const { topTitleExamples } = await import('./learning.ts'); const { mainChannel } = await import('../channels.ts'); examples = topTitleExamples(store, ch.id, mainChannel(store)?.id ?? ch.id); } catch { examples = []; }
-  if (transcript) for (const llm of (await import('../ai/health.ts')).orderChain(llmChain(cfg))) { const r = await llmMetadata(md, transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }, fetch, trends, examples); if (r.source === 'llm') { md = r; break; } md = r; }
+  let examples: string[] = []; let insight: string | null = null; try { const { topTitleExamples } = await import('./learning.ts'); const { mainChannel } = await import('../channels.ts'); examples = topTitleExamples(store, ch.id, mainChannel(store)?.id ?? ch.id); if (examples.length >= 2) { const { hookInsight } = await import('./learning.ts'); insight = await hookInsight(store, ch.id, examples, llmChain(cfg)); } } catch { examples = []; }
+  if (transcript) for (const llm of (await import('../ai/health.ts')).orderChain(llmChain(cfg))) { const r = await llmMetadata(md, transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }, fetch, trends, examples, insight); if (r.source === 'llm') { md = r; break; } md = r; }
   md = withPart(md, part);
   { const dis = (ch.config as { disclaimer?: string }).disclaimer?.trim(); if (dis && !md.description.includes(dis)) md = { ...md, description: `${md.description}\n\n${dis}`.slice(0, 4900) }; } // owner-written, per channel
   // never the same title twice on one channel

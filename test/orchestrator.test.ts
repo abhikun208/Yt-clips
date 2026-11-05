@@ -47,3 +47,13 @@ test('learning loop: the channel\'s measured winners reach the title prompt as s
   await llmMetadata(buildMetadata({ transcript: 'Rohit ne century maari', category: 'sports', language: 'en' } as never), 'Rohit ne century maari', { baseUrl: 'http://q/v1', apiKey: '', model: 'm' }, f, [], ['Rohit ka century 😱 kya khela']);
   assert.match(bodies[0]!, /best-performing past titles.*Rohit ka century.*ONLY as a style reference/s);
 });
+
+test('semantic learning: one cached LLM call turns the winners into a "what they share" insight that reaches the title prompt; recomputed only when winners change', async () => {
+  const { hookInsight } = await import('../src/seo/learning.ts'); resetLlmHealth(); const store = new Store(':memory:'); let calls = 0;
+  const f = (async () => { calls++; return new Response(JSON.stringify({ choices: [{ message: { content: 'They open with a question about a named person and end with a reaction emoji.' } }] }), { status: 200 }); }) as unknown as typeof fetch;
+  const chain = [{ baseUrl: 'http://h/v1', model: 'm' }]; const ex = ['Rohit ka century kaise?', 'Dhoni ne kya kiya? 😱'];
+  assert.match((await hookInsight(store, 1, ex, chain, f))!, /question about a named person/); await hookInsight(store, 1, ex, chain, f); assert.equal(calls, 1, 'cached');
+  await hookInsight(store, 1, [...ex, 'Kohli ne ye kya kiya?'], chain, f); assert.equal(calls, 2, 'winners changed => recomputed'); assert.equal(await hookInsight(store, 1, ['only one'], chain, f), null);
+  const bodies: string[] = []; const g = (async (_u: string, init: { body: string }) => { bodies.push(JSON.parse(init.body).messages[0].content); return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"abc def title"}' } }] }), { status: 200 }); }) as unknown as typeof fetch;
+  await llmMetadata(buildMetadata({ transcript: 'x', category: 'g', language: 'en' } as never), 'x', { baseUrl: 'http://q/v1', apiKey: '', model: 'm' }, g, [], ex, 'They open with a question.'); assert.match(bodies[0]!, /What they share: They open with a question/);
+});
