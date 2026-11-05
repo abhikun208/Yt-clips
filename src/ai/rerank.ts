@@ -1,4 +1,5 @@
 import type { Candidate } from '../analysis/select.ts';
+import { llmFetch, orderChain } from './health.ts';
 import type { AiCreds } from './settings.ts';
 
 /**
@@ -12,9 +13,9 @@ export async function rerankCandidates(cands: Candidate[], chain: AiCreds[], fet
   const list = cands.map((c, i) => ({ id: i, text: c.transcript.slice(0, 420) })).filter((x) => x.text.split(/\s+/).length >= 8);
   const prompt = `You judge short-video clips for viewer retention. Score each clip 0-10 (hook strength, self-contained story, emotion/value, clean ending). Use ONLY the text. Return ONLY JSON: {"scores":[{"id":number,"score":number,"why":"<=12 words"}]}\nClips:\n${JSON.stringify(list)}`;
   let lastErr = '';
-  for (const env of chain) {
+  for (const env of orderChain(chain)) {
     try {
-      const res = await fetchFn(`${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(60_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }) });
+      const res = await llmFetch(fetchFn, env, `${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(60_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0.1, messages: [{ role: 'user', content: prompt }] }) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const content = ((await res.json()) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? '';
       const m = /\{[\s\S]*\}/.exec(content); if (!m) throw new Error('no JSON');

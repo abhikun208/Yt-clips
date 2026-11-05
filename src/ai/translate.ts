@@ -1,4 +1,5 @@
 import type { Cue } from '../analysis/transcript.ts';
+import { llmFetch, orderChain } from './health.ts';
 import type { AiCreds } from './settings.ts';
 import { toHinglish, hasDevanagari } from './hinglish.ts';
 import { guessLanguage } from '../analysis/transcript.ts';
@@ -18,9 +19,9 @@ export async function translateCues(cues: Cue[], to: Lang, chain: AiCreds[], fet
   const out: Cue[] = []; let used: string | null = null; let note: string | undefined;
   for (let i = 0; i < cues.length; i += 40) {
     const batch = cues.slice(i, i + 40); let done: string[] | null = null;
-    for (const env of chain) {
+    for (const env of orderChain(chain)) {
       try {
-        const res = await fetchFn(`${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(90_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0.2, messages: [
+        const res = await llmFetch(fetchFn, env, `${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(90_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0.2, messages: [
           { role: 'system', content: `You translate subtitle lines into ${NAME[to]}. Keep each line short, natural and spoken-style; keep gaming terms (booyah, headshot, clutch, zone, squad) and names as they are. Return ONLY JSON: {"lines":["..."]} with EXACTLY ${batch.length} strings, same order.` },
           { role: 'user', content: JSON.stringify(batch.map((c) => c.text)) }] }) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -8,6 +8,8 @@ import { liveChildren } from '../util/proc.ts';
 import { notify } from '../notify.ts';
 import { deadSttKeyIds, keyId } from '../analysis/stt.ts';
 import { sttCandidates } from '../ai/settings.ts';
+import { allProvidersDown } from '../ai/health.ts';
+import { llmChain } from '../ai/settings.ts';
 import { keepAliveTick } from '../publish/keepalive.ts';
 import { info, warn } from '../util/log.ts';
 
@@ -56,8 +58,13 @@ export async function keySentinel(store: Store, cfg: Config): Promise<boolean> {
   await notify(store, cfg, `stt-all-dead:${new Date().toISOString().slice(0, 10)}`, '⚠️ Yt-clips: saari cloud STT keys reject ho rahi hain. System local Whisper / Gemini par chal raha hai (dheere). Nayi key Setup me daal do.');
   return true;
 }
+/** Told ONCE a day, and only when no LLM provider at all can answer (a single failing provider is handled silently by the router). */
+export async function llmSentinel(store: Store, cfg: Config): Promise<boolean> {
+  const chain = llmChain(cfg); if (!allProvidersDown(chain)) return false;
+  await notify(store, cfg, `llm-all-down:${new Date().toISOString().slice(0, 10)}`, '⚠️ Yt-clips: saare LLM providers abhi limit/error me hain. Titles template se bante rahenge, jaise hi koi provider wapas aayega AI titles chalu ho jayenge. Agar roz aaye to naya free key (Groq/Gemini) Setup me jodo.'); return true;
+}
 export async function selfcareTick(store: Store, cfg: Config): Promise<{ tmp: number; usedPct: number; orphans: number; keysDead: boolean }> {
-  const tmp = sweepTmp(store, cfg); const d = await diskWatch(store, cfg); const orphans = sweepOrphans(cfg).length; await verifyOutputs(store, cfg).catch(() => null); await keepAliveTick(store, cfg).catch(() => null); const keysDead = await keySentinel(store, cfg).catch(() => false);
+  const tmp = sweepTmp(store, cfg); const d = await diskWatch(store, cfg); const orphans = sweepOrphans(cfg).length; await verifyOutputs(store, cfg).catch(() => null); await keepAliveTick(store, cfg).catch(() => null); await llmSentinel(store, cfg).catch(() => null); const keysDead = await keySentinel(store, cfg).catch(() => false);
   if (tmp || orphans || d.freedMb || keysDead) info('selfcare', { tmp, usedPct: d.usedPct, orphans, keysDead });
   return { tmp, usedPct: d.usedPct, orphans, keysDead };
 }

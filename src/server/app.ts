@@ -341,6 +341,7 @@ export function createApp(o: AppOptions = {}): App {
         };
         tick(); const t = setInterval(tick, 1000); req.on('close', () => clearInterval(t)); return;
       }
+      if (p === '/api/ai/health' && m === 'GET') { const { llmHealth } = await import('./../ai/health.ts'); const { llmChain } = await import('./../ai/settings.ts'); return json(res, 200, { llm: llmHealth(llmChain(cfg)) }); }
       if (p === '/api/logs' && m === 'GET') return json(res, 200, { now: new Date().toISOString(), paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs: recentLogs(Math.min(200, Number(url.searchParams.get('n') ?? 60)), url.searchParams.get('level') === 'warn' ? 'warn' : 'info') });
       if (p === '/api/uploads' && m === 'GET') return json(res, 200, { uploads: listUploads(store) });
       if (p === '/api/uploads' && m === 'POST') {

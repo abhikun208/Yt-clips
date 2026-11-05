@@ -1,4 +1,5 @@
 import type { Cue } from '../analysis/transcript.ts';
+import { llmFetch, orderChain } from './health.ts';
 import type { AiCreds } from './settings.ts';
 
 /**
@@ -20,9 +21,9 @@ export async function llmFixCaptions(cues: Cue[], ctx: { title?: string; vocabul
   const hint = [ctx.title ? `Video title: "${ctx.title.slice(0, 120)}".` : '', ctx.vocabulary?.length ? `Known names/words: ${ctx.vocabulary.slice(0, 40).join(', ')}.` : ''].filter(Boolean).join(' ');
   for (let i = 0; i < cues.length; i += 40) {
     const batch = cues.slice(i, i + 40); let lines: string[] | null = null;
-    for (const env of chain) {
+    for (const env of orderChain(chain)) {
       try {
-        const res = await fetchFn(`${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(25_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0, messages: [
+        const res = await llmFetch(fetchFn, env, `${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(25_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0, messages: [
           { role: 'system', content: `You correct speech-recognition mistakes in Hindi/Hinglish/English subtitle lines. ${hint} Fix ONLY wrong spellings and misheard proper nouns (brands, people, places). Do not rephrase, translate, add or remove words: every line must keep EXACTLY the same number of words, in the same script (Roman stays Roman). Return ONLY JSON {"lines":[...]} with ${batch.length} strings, same order.` },
           { role: 'user', content: JSON.stringify(batch.map((c) => c.text)) }] }) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
