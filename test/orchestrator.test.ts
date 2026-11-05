@@ -68,3 +68,12 @@ test('transparency: each clip records which AI wrote its metadata (host · model
   assert.equal(md.generatedBy, 'rules (no AI answered)');
   assert.equal((JSON.parse(store.get<{ metadata_json: string }>('SELECT metadata_json FROM clips WHERE id=1')!.metadata_json) as { generatedBy: string }).generatedBy, 'rules (no AI answered)');
 });
+
+test('exploration: with winners in the prompt, the model is told to break the pattern in one alternative', async () => {
+  let prompt = ''; const f = (async (_u: string, init: { body: string }) => { prompt = JSON.parse(init.body).messages.map((m: { content: string }) => m.content).join('\n'); return new Response('{}', { status: 500 }); }) as unknown as typeof fetch;
+  const base = buildMetadata({ transcript: 'aaj ka match bahut zabardast tha dekho kya hua', category: 'sports', language: 'hi', clipStart: 0, duration: 20 } as never);
+  await llmMetadata(base, 'aaj ka match bahut zabardast tha dekho kya hua', { baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }, f, [], ['Winner one', 'Winner two'], 'short questions');
+  assert.match(prompt, /deliberately DIFFERENT/); assert.match(prompt, /What they share: short questions/);
+  prompt = ''; await llmMetadata(base, 'aaj ka match bahut zabardast tha dekho kya hua', { baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }, f, [], [], null);
+  assert.doesNotMatch(prompt, /deliberately DIFFERENT/);
+});
