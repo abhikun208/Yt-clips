@@ -92,3 +92,11 @@ test('quality gate: objective title problems are detected; vision only goes to v
   await llmMetadata(base, 'music only', { baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }, g, [], [], null, 'A man dances on a rooftop');
   assert.match(prompt, /What is visible on screen[^"]*rooftop/);
 });
+
+test('vision quota: an image 429 pauses vision only (not the provider\'s text health); hook check flags boring titles but not the emotional one', async () => {
+  const { describeFrames, resetVisionPause } = await import('../src/seo/vision.ts'); const { titleIssues } = await import('../src/seo/titlegate.ts');
+  resetVisionPause(); resetLlmHealth(); let n = 0; const f = (async () => { n++; return new Response('quota', { status: 429 }); }) as unknown as typeof fetch; const env = { baseUrl: 'http://v/v1', apiKey: 'key-vvvvvv', model: 'gemini-3.8-flash' };
+  assert.equal(await describeFrames(env, ['a'], f), null); assert.equal(await describeFrames(env, ['a'], f), null); assert.equal(n, 1, 'paused for an hour after the 429');
+  assert.equal(allProvidersDown([env], Date.now()), false, 'text use of the same provider is not cooled');
+  assert.ok(titleIssues('Cricket Match Highlights').some((x) => /no hook/.test(x))); assert.deepEqual(titleIssues('Kohli Ne Ye Kya Kar Diya?! 😱 #Shorts'), []);
+});

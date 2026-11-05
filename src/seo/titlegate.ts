@@ -6,5 +6,6 @@ export function titleIssues(title: string, sourceTitle?: string): string[] {
   if (/amazing moments?|must watch|you won'?t believe|best video|part \d+ of|full video|subscribe/i.test(t)) issues.push('generic/clickbait filler');
   const letters = t.replace(/[^A-Za-z]/g, ''); if (letters.length > 8 && letters === letters.toUpperCase()) issues.push('ALL CAPS');
   if (sourceTitle && t.toLowerCase() === sourceTitle.trim().toLowerCase()) issues.push('copy of the source title');
+  if (t.length >= 12 && !/[?!:0-9]|\p{Extended_Pictographic}|\.\.\./u.test(t)) issues.push('no hook (no question, number, emoji or exclamation)');
   return issues;
 }
