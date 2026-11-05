@@ -77,3 +77,18 @@ test('exploration: with winners in the prompt, the model is told to break the pa
   prompt = ''; await llmMetadata(base, 'aaj ka match bahut zabardast tha dekho kya hua', { baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }, f, [], [], null);
   assert.doesNotMatch(prompt, /deliberately DIFFERENT/);
 });
+
+test('quality gate: objective title problems are detected; vision only goes to vision-named models and its text reaches the title prompt', async () => {
+  const { titleIssues } = await import('../src/seo/titlegate.ts'); const { isVisionModel, describeFrames } = await import('../src/seo/vision.ts');
+  assert.deepEqual(titleIssues('Rohit ne 6 ball par 6 six maare 😱 #Shorts'), []);
+  assert.ok(titleIssues('AMAZING MOMENTS you must watch this full video of the best cricket match ever played today').length >= 2);
+  assert.ok(titleIssues('Same Title', 'same title').includes('copy of the source title'));
+  assert.equal(isVisionModel('llama-3.3-70b-versatile'), false); assert.equal(isVisionModel('gemini-3.8-flash'), true);
+  let sent = 0; const f = (async (_u: string, init: { body: string }) => { sent++; const b = JSON.parse(init.body); assert.equal(b.messages[0].content.filter((c: { type: string }) => c.type === 'image_url').length, 2); return new Response(JSON.stringify({ choices: [{ message: { content: 'A man dances on a rooftop and jumps at the end.' } }] }), { status: 200 }); }) as unknown as typeof fetch;
+  assert.equal(await describeFrames({ baseUrl: 'http://x/v1', apiKey: 'k', model: 'llama-3.3-70b-versatile' }, ['a', 'b'], f), null); assert.equal(sent, 0, 'text-only model never receives images');
+  assert.match((await describeFrames({ baseUrl: 'http://x/v1', apiKey: 'k', model: 'gemini-3.8-flash' }, ['a', 'b'], f))!, /dances on a rooftop/);
+  let prompt = ''; const g = (async (_u: string, init: { body: string }) => { prompt = init.body; return new Response('{}', { status: 500 }); }) as unknown as typeof fetch;
+  const base = buildMetadata({ transcript: 'x', category: 'dance', language: 'hi', clipStart: 0, duration: 20 } as never);
+  await llmMetadata(base, 'music only', { baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }, g, [], [], null, 'A man dances on a rooftop');
+  assert.match(prompt, /What is visible on screen[^"]*rooftop/);
+});

@@ -1,3 +1,5 @@
+import { titleIssues } from './titlegate.ts';
+import { clipFrames, describeFrames, isVisionModel } from './vision.ts';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
@@ -42,7 +44,10 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   if (related.length) md = { ...md, warnings: [...md.warnings, `search suggestions used: ${related.slice(0, 3).join(' | ')}`] };
   let trends: string[] = []; if (transcript && llmChain(cfg).length) { try { const { fetchTrends, relevantTrends } = await import('./trends.ts'); trends = relevantTrends(transcript, await fetchTrends(store)); } catch { trends = []; } }
   let examples: string[] = []; let insight: string | null = null; try { const { topTitleExamples } = await import('./learning.ts'); const { mainChannel } = await import('../channels.ts'); examples = topTitleExamples(store, ch.id, mainChannel(store)?.id ?? ch.id); if (examples.length >= 2) { const { hookInsight } = await import('./learning.ts'); insight = await hookInsight(store, ch.id, examples, llmChain(cfg)); } } catch { examples = []; }
-  if (transcript) for (const llm of (await import('../ai/health.ts')).orderChain(llmChain(cfg))) { const r = await llmMetadata(md, transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }, fetch, trends, examples, insight); if (r.source === 'llm') { md = { ...r, generatedBy: `${new URL(llm.baseUrl).hostname.replace(/^(api|www)\./, '')} · ${llm.model}` }; break; } md = r; }
+  let visual: string | null = null; if (llmChain(cfg).some((c) => isVisionModel(c.model))) { try { const frames = await clipFrames(row.edited_path, cand.end_sec - cand.start_sec); for (const v of (await import('../ai/health.ts')).orderChain(llmChain(cfg).filter((c) => isVisionModel(c.model)))) { visual = await describeFrames({ baseUrl: v.baseUrl, apiKey: v.apiKey, model: v.model }, frames); if (visual) break; } } catch { visual = null; } }
+  let bestLlm: { md: Metadata; bad: number } | null = null;
+  if (transcript) for (const llm of (await import('../ai/health.ts')).orderChain(llmChain(cfg))) { const r = await llmMetadata(md, transcript, { baseUrl: llm.baseUrl, apiKey: llm.apiKey, model: llm.model }, fetch, trends, examples, insight, visual); if (r.source === 'llm') { const cand2 = { ...r, generatedBy: `${new URL(llm.baseUrl).hostname.replace(/^(api|www)\./, '')} · ${llm.model}` }; const bad = titleIssues(r.title, sourceTitle).length; if (!bestLlm || bad < bestLlm.bad) bestLlm = { md: cand2, bad }; if (!bad) break; } else md = r; }
+  if (bestLlm) md = bestLlm.md; // the provider with the fewest objective title problems (first clean one wins immediately)
   md = { ...md, generatedBy: md.generatedBy ?? 'rules (no AI answered)' }; md = withPart(md, part);
   { const dis = (ch.config as { disclaimer?: string }).disclaimer?.trim(); if (dis && !md.description.includes(dis)) md = { ...md, description: `${md.description}\n\n${dis}`.slice(0, 4900) }; } // owner-written, per channel
   // never the same title twice on one channel
