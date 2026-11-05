@@ -57,3 +57,14 @@ test('semantic learning: one cached LLM call turns the winners into a "what they
   const bodies: string[] = []; const g = (async (_u: string, init: { body: string }) => { bodies.push(JSON.parse(init.body).messages[0].content); return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"abc def title"}' } }] }), { status: 200 }); }) as unknown as typeof fetch;
   await llmMetadata(buildMetadata({ transcript: 'x', category: 'g', language: 'en' } as never), 'x', { baseUrl: 'http://q/v1', apiKey: '', model: 'm' }, g, [], ex, 'They open with a question.'); assert.match(bodies[0]!, /What they share: They open with a question/);
 });
+
+test('transparency: each clip records which AI wrote its metadata (host · model) or "rules" when none answered', async () => {
+  const { metaForClip } = await import('../src/seo/clipmeta.ts'); const { loadConfig } = await import('../src/config.ts'); const { mkdtempSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const dataDir = mkdtempSync(join(tmpdir(), 'gb-')); const cfg = loadConfig(process.cwd(), { dataDir }); const store = new Store(':memory:');
+  store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (1,'/x/a.mp4','f')`);
+  store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint, transcript, language) VALUES (1,1,0,20,.5,'c','aaj main aapko batata hoon ki paisa kaise bachaya jata hai bahut aasan tarika hai dekho','hi')`);
+  store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (1,1,'o1','/nonexistent.mp4',1)`);
+  const md = await metaForClip(store, cfg, 1, { notifyOwner: false });
+  assert.equal(md.generatedBy, 'rules (no AI answered)');
+  assert.equal((JSON.parse(store.get<{ metadata_json: string }>('SELECT metadata_json FROM clips WHERE id=1')!.metadata_json) as { generatedBy: string }).generatedBy, 'rules (no AI answered)');
+});
