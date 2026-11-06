@@ -3,7 +3,7 @@ on: workflow_dispatch
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -11,5 +11,5 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg fontconfig fonts-noto-core python3-opencv
       - run: node --version && ffmpeg -version | head -1 && python3 -c "import cv2;print(cv2.__version__)"
       - run: |
-          (while true; do sleep 45; echo "--- ps $(date +%T)"; ps -eo pid,etimes,pcpu,args --sort=-pcpu | head -8 | cut -c1-170; done) &
-          timeout 560 node --test --test-reporter=spec test/logfix.test.ts 2>&1 | grep -E '✔|✖|ℹ|---|PID|node|ffmpeg|python' | cut -c1-200 | tail -90
+          (while true; do sleep 120; echo "=== ps $(date +%T) load $(cut -d' ' -f1-3 /proc/loadavg)"; ps -eo pid,ppid,etimes,pcpu,stat,args --sort=-etimes | grep -E "node|ffmpeg|ffprobe|python|sh " | grep -v grep | head -14 | cut -c1-200; done) &
+          timeout 1300 npm test 2>&1 | grep -E "^(not ok|# (tests|pass|fail|duration_ms))|^=== ps|^ *[0-9]+ +[0-9]+ +[0-9]+ " | cut -c1-230
