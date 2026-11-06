@@ -1,0 +1,13 @@
+name: diag
+on: workflow_dispatch
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fontconfig fonts-noto-core python3-opencv
+      - run: node --version && ffmpeg -version | head -1 && python3 -c "import cv2;print(cv2.__version__)"
+      - run: node --test --test-name-pattern="automatic pipeline" test/server.test.ts
