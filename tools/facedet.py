@@ -35,8 +35,17 @@ def load(cv2):
     except Exception:
         return None
     def yunet(fr):
-        h, w = fr.shape[:2]
-        det.setInputSize((w, h))
-        _, faces = det.detect(fr)
-        return [] if faces is None else [(int(f[0]), int(f[1]), int(f[2]), int(f[3])) for f in faces]
+        # OpenCV 4.6 (Debian/Ubuntu apt) asserts in the YuNet net unless the input is a multiple of 32: detect on a 32-aligned copy, map boxes back.
+        try:
+            h, w = fr.shape[:2]
+            W, H = max(32, int(round(w / 32.0)) * 32), max(32, int(round(h / 32.0)) * 32)
+            img = fr if (W, H) == (w, h) else cv2.resize(fr, (W, H))
+            det.setInputSize((W, H))
+            _, faces = det.detect(img)
+            if faces is None:
+                return []
+            sx, sy = w / float(W), h / float(H)
+            return [(int(f[0] * sx), int(f[1] * sy), int(f[2] * sx), int(f[3] * sy)) for f in faces]
+        except Exception:
+            return []
     return yunet

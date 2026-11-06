@@ -41,3 +41,28 @@ test('look-ahead camera: crop reaches a new speaker position BEFORE the speaker 
   assert.ok(CROP_LEAD_SEC > 0 && CROP_LEAD_SEC <= 0.3);
   assert.ok(g.includes(`lt(t,${+(1 - CROP_LEAD_SEC).toPrecision(5)})`), 'first keyframe segment ends earlier by the lead: ' + g.slice(0, 200));
 });
+
+test('YuNet on OpenCV 4.6: frames are detected on a 32-aligned copy (4.6 asserts otherwise) and boxes are mapped back; a detector exception degrades to "no face", not a crash', () => {
+  const d = tmpDir(); mkdirSync(join(d, 'models')); writeFileSync(join(d, 'models', 'face_detection_yunet_2023mar.onnx'), Buffer.alloc(60_000));
+  const py = `
+import sys, types
+sys.path.insert(0, ${JSON.stringify(join(process.cwd(), 'tools'))})
+import facedet
+class Img:
+    def __init__(s, w, h): s.shape = (h, w, 3)
+class Det:
+    def setInputSize(s, sz): s.sz = sz
+    def detect(s, img):
+        h, w = img.shape[:2]
+        assert w % 32 == 0 and h % 32 == 0, 'not aligned %dx%d' % (w, h)
+        return None, [[32, 64, 64, 64]]
+cv2 = types.SimpleNamespace(CascadeClassifier=lambda p: (_ for _ in ()).throw(RuntimeError('no cascade')), FaceDetectorYN=types.SimpleNamespace(create=lambda *a: Det()), resize=lambda im, sz: Img(*sz))
+f = facedet.load(cv2)
+out = f(Img(640, 360))           # 360 is not a multiple of 32
+print(out)
+cv2.FaceDetectorYN.create = lambda *a: types.SimpleNamespace(setInputSize=lambda s: None, detect=lambda i: (_ for _ in ()).throw(RuntimeError('boom')))
+print(facedet.load(cv2)(Img(640, 360)))
+`;
+  const r = spawnSync('python3', ['-I', '-c', py], { encoding: 'utf8', env: { ...process.env, YT_CLIPS_DATA_DIR: d } }); assert.equal(r.status, 0, r.stderr);
+  const [a, b] = r.stdout.trim().split('\n'); assert.match(a!, /^\[\(32, 65, 64, 65\)\]$/, a); assert.equal(b, '[]');
+});
