@@ -10,4 +10,6 @@ jobs:
         with: { node-version: 22 }
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg fontconfig fonts-noto-core python3-opencv
       - run: node --version && ffmpeg -version | head -1 && python3 -c "import cv2;print(cv2.__version__)"
-      - run: node --test --test-name-pattern="automatic pipeline" test/server.test.ts
+      - run: |
+          (while true; do sleep 45; echo "--- ps $(date +%T)"; ps -eo pid,etimes,pcpu,args --sort=-pcpu | head -8 | cut -c1-170; done) &
+          timeout 540 node --test --test-reporter=spec --test-name-pattern="rejected STT key|STT health check" test/logfix.test.ts test/stt*.test.ts 2>&1 | tail -80
