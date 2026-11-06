@@ -77,7 +77,9 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
     if (!mj?.ok) return [false, `bot token galat hai (${mj?.description ?? 'HTTP ' + me.status})`];
     const ch = await fetch(`https://api.telegram.org/bot${v.botToken}/getChat?chat_id=${encodeURIComponent(v.chatId ?? '')}`, { signal: t() }); const cj = await ch.json().catch(() => null) as { ok?: boolean; result?: { title?: string; username?: string; first_name?: string }; description?: string } | null;
     if (!cj?.ok) return [false, `bot @${mj.result?.username} sahi hai, par chat id nahi mila: ${cj?.description ?? 'HTTP ' + ch.status}. Bot ko channel/group mein admin banao.`];
-    return [true, `bot @${mj.result?.username} → ${cj.result?.title ?? cj.result?.username ?? cj.result?.first_name ?? 'chat'}`];
+    const sent = await fetch(`https://api.telegram.org/bot${v.botToken}/sendMessage`, { method: 'POST', signal: t(), headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: v.chatId, text: '✅ yt-clips: Telegram alerts kaam kar rahe hain (test message)', disable_web_page_preview: true }) }); const sj = await sent.json().catch(() => null) as { ok?: boolean; description?: string } | null; // a REAL delivery, not just a token check
+    if (!sj?.ok) return [false, `bot @${mj.result?.username} aur chat mil gaye, par message bhej nahi paya: ${sj?.description ?? 'HTTP ' + sent.status}. Channel me bot ko "post messages" permission do.`];
+    return [true, `bot @${mj.result?.username} → ${cj.result?.title ?? cj.result?.username ?? cj.result?.first_name ?? 'chat'} (test message bheja gaya, chat me dekho)`];
   }
   if (kind === 'discord') {
     const v = secrets.read<{ webhookUrl?: string }>(arg ? `discord-${arg}` : 'discord') ?? secrets.read<{ webhookUrl?: string }>('discord'); if (!v?.webhookUrl) return [false, 'webhook URL save nahi hai'];

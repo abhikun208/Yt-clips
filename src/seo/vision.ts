@@ -37,7 +37,7 @@ export async function describeFrames(env: LlmEnv, frames: string[], fetchFn: typ
   const pk = `${env.baseUrl}|${env.model}`; if ((visionPause.get(pk) ?? 0) > Date.now()) return null;
   try {
     const content = [{ type: 'text', text: 'These are 3 frames from one short video (start, middle, end). In at most 2 plain sentences say what is visibly happening and which moment is the most striking or emotional. Describe only what you can see; do not guess names.' }, ...frames.map((b) => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b}` } }))];
-    const res = await fetchFn(`${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(isLocalEndpoint(env.baseUrl) ? 180_000 : 60_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0.2, max_tokens: 200, messages: [{ role: 'user', content }] }) });
+    const res = await fetchFn(`${env.baseUrl}/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(isLocalEndpoint(env.baseUrl) ? 180_000 : 25_000), headers: { 'content-type': 'application/json', ...(env.apiKey ? { authorization: `Bearer ${env.apiKey}` } : {}) }, body: JSON.stringify({ model: env.model, temperature: 0.2, max_tokens: 200, messages: [{ role: 'user', content }] }) });
     if (!res.ok) { if (res.status === 429 || res.status === 401 || res.status === 403 || res.status >= 500) visionPause.set(pk, Date.now() + 3_600_000); return null; }
     const txt = String(((await res.json()) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     return txt.length >= 10 ? txt : null;

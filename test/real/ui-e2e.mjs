@@ -22,6 +22,7 @@ await pg.screenshot({path:'/tmp/home.png',fullPage:true});
 ok((await pg.textContent('#todo')).length>10,'home todo rendered: '+(await pg.textContent('#todo')).slice(0,120).replace(/\s+/g,' '));
 // settings: bad key then good key
 await pg.click('nav [data-tab=settings]'); await wait(800);
+await pg.evaluate(()=>document.querySelectorAll('details').forEach(d=>{d.open=true})); await wait(200); // the AI form lives in the collapsed 'Advanced' <details>
 await pg.selectOption('#aislot','1'); await pg.fill('#aibase',`http://127.0.0.1:${lport}/v1`); await pg.fill('#aimodel','m'); await pg.fill('#aikey','badkey1234'); await pg.click('#aillm'); await wait(1500);
 ok(/Failed|✕/.test(await pg.textContent('#toast'))||/Failed/.test(await pg.textContent('#aist')),'bad key shows failure: '+(await pg.textContent('#toast')).slice(0,100));
 await pg.fill('#aibase',`http://127.0.0.1:${lport}/v1`); await pg.fill('#aimodel','m'); await pg.fill('#aikey','goodkey123'); await pg.click('#aillm'); await wait(1800);

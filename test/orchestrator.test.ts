@@ -107,3 +107,15 @@ test('local vision (Ollama etc.) is recognised, has no daily budget, and local l
   for (const u of ['https://api.groq.com/openai/v1', 'https://generativelanguage.googleapis.com/v1beta/openai']) assert.equal(isLocalEndpoint(u), false, u);
   for (const m of ['llava:13b', 'llava-v1.6-mistral', 'moondream', 'qwen2-vl-7b', 'minicpm-v']) assert.equal(isVisionModel(m), true, m); assert.equal(isVisionModel('phi3'), false);
 });
+
+test('Telegram "Test" really delivers a message (not just a token check) and reports a failed delivery', async () => {
+  const { testConnection } = await import('../src/connections.ts'); const { saveCredentials } = await import('../src/publish/direct.ts'); const { secretsFor } = await import('../src/publish/service.ts');
+  const { loadConfig } = await import('../src/config.ts'); const { mkdtempSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const cfg = loadConfig(process.cwd(), { dataDir: mkdtempSync(join(tmpdir(), 'tg-')) }); const store = new Store(':memory:'); saveCredentials(secretsFor(cfg), 'notify', { botToken: '1234567:ABCdefGHIjklMNOpqrSTUvwxyz_12', chatId: '-100123' });
+  const real = globalThis.fetch; const calls: string[] = []; let sendOk = true;
+  globalThis.fetch = (async (u: string) => { const url = String(u); calls.push(url.split('/').pop()!.split('?')[0]!); if (url.endsWith('getMe')) return Response.json({ ok: true, result: { username: 'mybot' } }); if (url.includes('getChat')) return Response.json({ ok: true, result: { title: 'My Channel' } }); return sendOk ? Response.json({ ok: true }) : Response.json({ ok: false, description: 'not enough rights to send' }, { status: 403 }); }) as typeof fetch;
+  try {
+    const a = await testConnection(store, cfg, 'notify'); assert.equal(a.ok, true); assert.ok(calls.includes('sendMessage'), 'a real message is sent'); assert.match(a.detail, /test message/);
+    sendOk = false; const b = await testConnection(store, cfg, 'notify'); assert.equal(b.ok, false); assert.match(b.detail, /not enough rights/);
+  } finally { globalThis.fetch = real; }
+});

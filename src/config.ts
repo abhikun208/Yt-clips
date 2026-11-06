@@ -31,6 +31,8 @@ export interface Config {
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
   storage: { remote: string; deleteLocal: boolean; purgeAfterDays: number };
+  /** screen-description hint for titles; `enabled:false` (or env YT_CLIPS_VISION=0) turns it off, e.g. on a phone */
+  vision?: { enabled?: boolean };
   comments: { pollMinutes: number; maxRepliesPerDay: number; /** opt-in: send the reply to PRAISE comments by itself (needs gates.commentsAutoPost too); everything else stays a draft */ autoReply?: boolean };
   /** Autonomous publish loop. OFF by default; owner-only (data/config.json). autoApprove = owner pre-approves scheduling of QC-passed, verified-unlisted clips. */
   automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean; titleTest: boolean; titleTestHours: number; funnelComment: boolean; blockGenericMetadata?: boolean; unlistedBufferMin?: number; maxBlockedRegions?: number; quotaPausePct?: number };
