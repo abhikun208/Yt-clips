@@ -146,3 +146,10 @@ test('Anthropic official endpoint: temperature/top_p are not sent there (newer C
   const base = buildMetadata({ transcript: 'x', category: 'a', language: 'hi', clipStart: 0, duration: 20 } as never);
   await llmMetadata(base, 'koi baat hui yahan par kaafi lambi', { baseUrl: 'https://api.anthropic.com/v1', apiKey: 'sk-ant-xxxxxxxx', model: 'claude-haiku-5-5' }, f); assert.ok(seen && !/temperature/.test(seen), 'real call path omits temperature');
 });
+
+test('CI guard: under the test runner the default installers (doctor whisper.cpp, bootstrap setup.sh) never spawn the real script', async () => {
+  const { runDoctor } = await import('../src/ops/doctor.ts'); const { testConfig } = await import('./helpers.ts'); assert.ok(process.env.NODE_TEST_CONTEXT, 'node --test sets NODE_TEST_CONTEXT');
+  const before = (await import('node:fs')).readdirSync('/proc').filter((x) => /^\d+$/.test(x)).length; const store = new Store(':memory:');
+  await runDoctor(store, testConfig(), { fix: true } as never).catch(() => undefined);
+  const { execSync } = await import('node:child_process'); assert.equal(execSync('pgrep -fc "[i]nstall-whisper-cpp\\.sh" || true').toString().trim(), '0', 'no real installer is running'); void before;
+});

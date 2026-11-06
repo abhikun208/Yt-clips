@@ -38,6 +38,6 @@ export async function bootstrap(store: Store, cfg: Config, o: { now?: number; sp
   const last = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'bootstrap:last')?.v ?? 0); if (now - last < 24 * 3600_000) return { started: false, missing, reason: 'already tried in the last 24 h' };
   store.exec(`INSERT INTO kv(k,v) VALUES('bootstrap:last',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, String(now));
   const log = join(cfg.dataDir, 'bootstrap.log');
-  try { (o.spawnSetup ?? ((s, l) => { const out = openSync(l, 'a'); spawn('sh', [s], { cwd: cfg.rootDir, detached: true, stdio: ['ignore', out, out], env: { ...process.env, SETUP_AUTO: '1' } }).unref(); }))(script, log); info('start-up install started', { missing, log }); return { started: true, missing }; }
+  try { (o.spawnSetup ?? ((s, l) => { if (process.env.NODE_TEST_CONTEXT) return; /* tests must never run the real setup.sh (see doctor.ts) */ const out = openSync(l, 'a'); spawn('sh', [s], { cwd: cfg.rootDir, detached: true, stdio: ['ignore', out, out], env: { ...process.env, SETUP_AUTO: '1' } }).unref(); }))(script, log); info('start-up install started', { missing, log }); return { started: true, missing }; }
   catch (e) { warn('start-up install could not start', { err: (e as Error).message.slice(0, 100) }); return { started: false, missing, reason: (e as Error).message.slice(0, 100) }; }
 }
