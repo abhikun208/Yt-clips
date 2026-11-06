@@ -1,6 +1,7 @@
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { assertPublishAllowed } from '../config.ts';
+import { channelOfClip } from '../channels.ts';
 
 export const STATES = ['READY_FOR_QC', 'QC_PASSED', 'UPLOAD_PENDING', 'UPLOADING', 'UPLOAD_VERIFYING', 'UNLISTED_VERIFIED', 'SCHEDULED_OR_APPROVED', 'PUBLISHED', 'ANALYTICS_WAIT', 'ANALYZING', 'LEARNING', 'NEXT_CYCLE'] as const;
 export type UploadState = (typeof STATES)[number] | 'FAILED' | 'QC_FAILED';
@@ -115,17 +116,18 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UPLOAD_PENDING': if (!adapter.local) assertPublishAllowed(cfg, 'unlisted'); setState(store, u.id, from, 'UPLOADING'); return 'UPLOADING';
       case 'UPLOADING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
-        const r = await adapter.upload({ filePath: clip.edited_path, title: o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
+        const sandbox = channelOfClip(store, u.clip_id).config.sandbox === true; const r = await adapter.upload({ filePath: clip.edited_path, title: sandbox && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
         if (adapter.thumbnail && o.facts.thumbnailPath) { try { await adapter.thumbnail(r.remoteId, o.facts.thumbnailPath); } catch { /* thumbnails are optional */ } }
         setState(store, u.id, from, 'UPLOAD_VERIFYING', { remote: r.remoteId, vis: 'unlisted' }); return 'UPLOAD_VERIFYING';
       }
       case 'UPLOAD_VERIFYING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
-        const v = await adapter.verify(u.remote_id!, { title: o.facts.title, visibility: 'unlisted' });
+        const sbx = channelOfClip(store, u.clip_id).config.sandbox === true; const v = await adapter.verify(u.remote_id!, { title: sbx && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, visibility: 'unlisted' });
         if (!v.processed || !v.metadataMatches || v.visibility === 'public') throw new Error(`remote verify failed: ${JSON.stringify(v)}`);
         setState(store, u.id, from, 'UNLISTED_VERIFIED'); return 'UNLISTED_VERIFIED';
       }
       case 'UNLISTED_VERIFIED': {
+        if (channelOfClip(store, u.clip_id).config.sandbox === true) throw new Error('SANDBOX_HOLD: test channel - upload verified and left UNLISTED, never published (remove sandbox in channel settings to go live)');
         if (!o.approve && !o.scheduledAt) throw new Error('NEEDS_APPROVAL: pass approve or a scheduled time (owner decision)');
         if (adapter.restrictions && u.remote_id) { // unlisted buffer + platform-reported restrictions: hold instead of going public when something is reported
           const base = cfg.automation.unlistedBufferMin ?? 10; const buf = base * (o.facts.duration < 30 ? 0.5 : o.facts.duration > 60 ? 1.5 : 1); // dynamic: short clips process faster
@@ -148,7 +150,7 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
   } catch (e) {
     const msg = (e as Error).message;
     // Gate / approval / not-ready / quota / auth blocks are NOT failures: state stays so it resumes later.
-    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(msg)) { store.exec(/^(UNLISTED_BUFFER|HELD_RESTRICTED)/.test(msg) ? `UPDATE uploads SET error=? WHERE id=?` : `UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; } // the buffer clock must not restart on each blocked attempt
+    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED|SANDBOX_HOLD)/.test(msg)) { store.exec(/^(UNLISTED_BUFFER|HELD_RESTRICTED|SANDBOX_HOLD)/.test(msg) ? `UPDATE uploads SET error=? WHERE id=?` : `UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; } // the buffer clock must not restart on each blocked attempt
     setState(store, u.id, from, 'FAILED', { err: msg.slice(0, 500) });
     // keep a retry pointer: FAILED re-enters via READY_FOR_QC which re-validates, upload key is idempotent
     throw e;

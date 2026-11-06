@@ -119,3 +119,18 @@ test('Telegram "Test" really delivers a message (not just a token check) and rep
     sendOk = false; const b = await testConnection(store, cfg, 'notify'); assert.equal(b.ok, false); assert.match(b.detail, /not enough rights/);
   } finally { globalThis.fetch = real; }
 });
+
+test('sandbox channel: real upload path is exercised ([TEST] title, unlisted, verified) but NEVER published, even when approved', async () => {
+  const { advanceUpload, queueUpload } = await import('../src/publish/machine.ts'); const { testConfig } = await import('./helpers.ts');
+  const store = new Store(':memory:'); store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (1,'/x','f')`); store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (1,1,0,6,.5,'c')`);
+  store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (1,1,'o1','/tmp/o1.mp4',1)`); store.exec(`UPDATE channels SET config_json=? WHERE slug='main'`, JSON.stringify({ sandbox: true }));
+  const up = queueUpload(store, 1, 'youtube'); const log: string[] = []; let vTitle = '';
+  const ad = { upload: async (a: { title: string; visibility: string }) => { log.push(`upload:${a.visibility}:${a.title}`); return { remoteId: 'r1' }; }, verify: async (_id: string, e: { title: string }) => { vTitle = e.title; return { processed: true, metadataMatches: true, visibility: 'unlisted' }; }, publish: async () => { log.push('PUBLISH'); } } as never;
+  const cfg = testConfig({ gates: { publishEnabled: true, publicVisibilityAllowed: true } }); const facts = { title: 'Mera clip', description: 'd', tags: [], duration: 20, durationSec: 20, width: 1080, height: 1920 } as never;
+  store.exec(`UPDATE uploads SET state='UPLOADING' WHERE id=?`, up);
+  assert.equal(await advanceUpload(store, cfg, ad, up, { facts }), 'UPLOAD_VERIFYING'); assert.equal(await advanceUpload(store, cfg, ad, up, { facts }), 'UNLISTED_VERIFIED');
+  assert.deepEqual(log, ['upload:unlisted:[TEST] Mera clip']); assert.equal(vTitle, '[TEST] Mera clip');
+  await assert.rejects(advanceUpload(store, cfg, ad, up, { facts, approve: true }), /SANDBOX_HOLD/);
+  await assert.rejects(advanceUpload(store, cfg, ad, up, { facts, scheduledAt: new Date(Date.now() + 3600_000) }), /SANDBOX_HOLD/);
+  assert.equal(store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', up)!.state, 'UNLISTED_VERIFIED'); assert.ok(!log.includes('PUBLISH'));
+});
