@@ -302,3 +302,4 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - 2026-11-06 10:54 (friend review #27): 'session bridge' = cookie replay renamed -> row 6zza (declined, no code).
 - 2026-11-06 11:05 (review #28 + owner offers his own browser-session code): claude.ai not built (my line); other sites deferred until after launch, opt-in only -> row 6zzb.
 - 2026-11-06 12:44 (owner: 'sab GitHub par push hua? kya baaki/pending hai?'): all pushed, but CI found red for a week -> row 6zzc (docker assets + tests spawning real installer fixed).
+- 2026-11-06 18:20: GitHub Actions GREEN for the first time since 2026-10-30 (run on 5b24e9d: test + docker both success). One earlier attempt hung in `apt-get install` on the GitHub runner (infrastructure, cancelled and re-run).
