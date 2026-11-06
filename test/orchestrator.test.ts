@@ -134,3 +134,15 @@ test('sandbox channel: real upload path is exercised ([TEST] title, unlisted, ve
   await assert.rejects(advanceUpload(store, cfg, ad, up, { facts, scheduledAt: new Date(Date.now() + 3600_000) }), /SANDBOX_HOLD/);
   assert.equal(store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', up)!.state, 'UNLISTED_VERIFIED'); assert.ok(!log.includes('PUBLISH'));
 });
+
+test('Anthropic official endpoint: temperature/top_p are not sent there (newer Claude models reject them), other hosts unchanged; provider is listed', async () => {
+  const { adaptForHost } = await import('../src/ai/health.ts'); const { readFileSync } = await import('node:fs');
+  const body = JSON.stringify({ model: 'claude-haiku-5-5', temperature: 0.4, messages: [] });
+  assert.equal('temperature' in JSON.parse(adaptForHost('https://api.anthropic.com/v1/chat/completions', { body }).body as string), false);
+  assert.equal(adaptForHost('https://api.groq.com/openai/v1/chat/completions', { body }).body, body);
+  const p = (JSON.parse(readFileSync('src/ai/providers.json', 'utf8')) as { providers: { id: string; base: string; models: string[] }[] }).providers.find((x) => x.id === 'anthropic')!;
+  assert.equal(p.base, 'https://api.anthropic.com/v1'); assert.ok(p.models.length >= 1);
+  let seen = ''; const f = (async (_u: string, init: { body: string }) => { seen = init.body; return new Response('{}', { status: 500 }); }) as unknown as typeof fetch;
+  const base = buildMetadata({ transcript: 'x', category: 'a', language: 'hi', clipStart: 0, duration: 20 } as never);
+  await llmMetadata(base, 'koi baat hui yahan par kaafi lambi', { baseUrl: 'https://api.anthropic.com/v1', apiKey: 'sk-ant-xxxxxxxx', model: 'claude-haiku-5-5' }, f); assert.ok(seen && !/temperature/.test(seen), 'real call path omits temperature');
+});

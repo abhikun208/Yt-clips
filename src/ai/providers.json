@@ -123,6 +123,17 @@
       "stt": []
     },
     {
+      "id": "anthropic",
+      "label": "Anthropic Claude (paid, official API)",
+      "base": "https://api.anthropic.com/v1",
+      "keyHint": "sk-ant-...",
+      "getKey": "platform.claude.com/settings/keys",
+      "models": [
+        "claude-haiku-5-5",
+        "claude-sonnet-5-5"
+      ]
+    },
+    {
       "id": "openai",
       "label": "OpenAI (paid)",
       "base": "https://api.openai.com/v1",

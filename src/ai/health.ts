@@ -24,9 +24,13 @@ export function reportLlm(e: LlmEnvLike, outcome: Outcome, o: { retryAfterSec?: 
 }
 export const outcomeOfStatus = (status: number): Outcome => (status >= 200 && status < 300 ? 'ok' : status === 429 ? 'rate' : status === 401 || status === 403 ? 'auth' : 'down');
 /** fetch wrapper that records the outcome; the caller still gets the Response (or the network error) exactly as before. */
+/** Anthropic's OpenAI-compatible endpoint rejects `temperature` != 1 on newer Claude models (HTTP 400), so it is simply not sent there. */
+export function adaptForHost(url: string, init: RequestInit): RequestInit {
+  try { if (new URL(url).hostname !== 'api.anthropic.com' || typeof init.body !== 'string') return init; const b = JSON.parse(init.body) as Record<string, unknown>; if (!('temperature' in b) && !('top_p' in b)) return init; delete b.temperature; delete b.top_p; return { ...init, body: JSON.stringify(b) }; } catch { return init; }
+}
 export async function llmFetch(f: typeof fetch, e: LlmEnvLike, url: string, init: RequestInit): Promise<Response> {
   try {
-    const r = await f(url, init); const oc = outcomeOfStatus(r.status);
+    const r = await f(url, adaptForHost(url, init)); const oc = outcomeOfStatus(r.status);
     if (oc === 'ok' || r.status < 500 && r.status !== 429 && r.status !== 401 && r.status !== 403) { if (oc === 'ok') reportLlm(e, 'ok'); } // 400/404 = our request, not the provider's health
     else reportLlm(e, oc, { retryAfterSec: Number(r.headers.get('retry-after')) || undefined });
     return r;
