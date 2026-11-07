@@ -153,3 +153,20 @@ test('CI guard: under the test runner the default installers (doctor whisper.cpp
   await runDoctor(store, testConfig(), { fix: true } as never).catch(() => undefined);
   const { execSync } = await import('node:child_process'); assert.equal(execSync('pgrep -fc "[i]nstall-whisper-cpp\\.sh" || true').toString().trim(), '0', 'no real installer is running'); void before;
 });
+
+test('local retention: original + raw cut of a fully published video are deleted after localKeepDays; recent / unfinished videos are kept; edited short stays', async () => {
+  const { pruneFinishedLocal } = await import('../src/storage/cloud.ts'); const { loadConfig } = await import('../src/config.ts'); const fs = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const d = fs.mkdtempSync(join(tmpdir(), 'ret-')); const cfg = loadConfig(process.cwd(), { dataDir: d }); const store = new Store(':memory:');
+  const mk = (n: string) => { const p = join(d, n); fs.writeFileSync(p, Buffer.alloc(2048)); return p; };
+  const src1 = mk('a.mp4'), raw1 = mk('raw1.mp4'), ed1 = mk('ed1.mp4'), src2 = mk('b.mp4'), src3 = mk('c.mp4');
+  for (const [id, p] of [[1, src1], [2, src2], [3, src3]] as [number, string][]) { store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (?,?,?)`, id, p, 'f' + id); store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (?,?,0,6,.5,?)`, id, id, 'c' + id); }
+  store.exec(`INSERT INTO clips(id, candidate_id, output_id, raw_path, edited_path, qc_pass) VALUES (1,1,'o1',?,?,1)`, raw1, ed1); store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (2,2,'o2','/x',1)`); store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (3,3,'o3','/y',1)`);
+  store.exec(`INSERT INTO uploads(clip_id, platform, state, idempotency_key, updated_at) VALUES (1,'youtube','PUBLISHED','k1',datetime('now','-5 days'))`); // old + published
+  store.exec(`INSERT INTO uploads(clip_id, platform, state, idempotency_key, updated_at) VALUES (2,'youtube','PUBLISHED','k2',datetime('now','-1 hours'))`); // published but recent
+  store.exec(`INSERT INTO uploads(clip_id, platform, state, idempotency_key, updated_at) VALUES (3,'youtube','UNLISTED_VERIFIED','k3',datetime('now','-9 days'))`); // old but not published
+  const r = pruneFinishedLocal(store, cfg); assert.equal(r.videos, 1);
+  assert.equal(fs.existsSync(src1), false); assert.equal(fs.existsSync(raw1), false); assert.equal(fs.existsSync(ed1), true, 'finished short is kept');
+  assert.equal(fs.existsSync(src2), true); assert.equal(fs.existsSync(src3), true);
+  assert.equal(pruneFinishedLocal(store, { ...cfg, storage: { ...cfg.storage, localKeepDays: 0 } }).videos, 0, '0 = keep forever');
+  assert.equal(pruneFinishedLocal(store, cfg, true).videos, 1, 'disk emergency (force) also takes the recent published one'); assert.equal(fs.existsSync(src3), true);
+});

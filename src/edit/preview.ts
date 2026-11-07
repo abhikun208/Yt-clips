@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { run } from '../util/proc.ts';
 import { getPreset } from './captionPresets.ts';
 import { buildStyledAss } from './captions.ts';
-import { installedFonts } from '../util/fonts.ts';
+import { installedFonts, BUNDLED_FONTS_DIR } from '../util/fonts.ts';
 
 const SAMPLE: Record<string, string> = { en: 'Ye secret ka raaz kisi ko nahi pata tha', hi: 'यह एक सच्चा राज़ है दोस्त किसी को नहीं पता' };
 
@@ -20,7 +20,7 @@ export async function presetPreview(dir: string, presetId: string, lang: 'en' | 
   const ass = png.replace(/\.png$/, '.ass'); writeFileSync(ass, r.ass);
   const t = (0.2 + Math.min(3, toks.length - 1) * 0.35 + 0.1).toFixed(2);
   const esc = ass.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-  const out = await run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x2B3240:s=360x640:r=10:d=5', '-vf', `vignette=PI/4,subtitles='${esc}'`, '-ss', t, '-frames:v', '1', png], { timeoutMs: 30_000 });
+  const out = await run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x2B3240:s=360x640:r=10:d=5', '-vf', `vignette=PI/4,subtitles='${esc}':fontsdir='${BUNDLED_FONTS_DIR.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")}'`, '-ss', t, '-frames:v', '1', png], { timeoutMs: 30_000 });
   if (out.code !== 0 || !existsSync(png)) throw new Error(`preview failed: ${out.stderr.slice(0, 200)}`);
   return png;
 }

@@ -83,12 +83,15 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   const { words, timing } = timeWords(cues, clipStart, clipEnd);
   const dur = clipEnd - clipStart;
   const script = detectScript(words.map((w) => w.w).join(' ') + ' ' + (title ?? ''));
-  const f = pickFont(script, o.resolveFont); if (f.warning) warnings.push(f.warning);
+  let f = pickFont(script, o.resolveFont); if (f.warning) warnings.push(f.warning);
   const H = o.height, p = preset, pal = p.palette;
+  // Preset display font (Anton, Bebas Neue ...) only for Latin text and only when it is actually installed/bundled; otherwise keep the normal font.
+  const dispFont = script === 'latin' && p.font && o.resolveFont ? o.resolveFont([p.font]) : undefined;
+  if (dispFont) f = { font: dispFont };
   const size = Math.round((H * p.sizePct) / 100), outline = Math.max(2, Math.round((H * p.outlinePct) / 100)), shadow = Math.round((H * p.shadowPct) / 100);
   const align = p.position === 'bottom' ? 2 : p.position === 'center' ? 5 : 8;
   const marginV = p.position === 'bottom' ? Math.round(H * 0.2) : p.position === 'top' ? Math.round(H * 0.16) : 0;
-  const bold = p.fontStyle === 'bold' ? -1 : 0;
+  const bold = p.fontStyle === 'bold' && !dispFont ? -1 : 0;
   const capStyle = p.mode === 'karaoke'
     ? { primary: pal.active, secondary: pal.base } : { primary: pal.base, secondary: pal.active };
   const borderStyle = p.box ? 3 : 1;

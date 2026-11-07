@@ -52,7 +52,7 @@ export async function archiveVideo(store: Store, cfg: Config, id: number, path: 
 /** Bring an archived original back (re-render / re-analysis). No-op if present locally; throws if it cannot be restored. */
 export async function ensureLocal(store: Store, cfg: Config, path: string): Promise<void> {
   if (existsSync(path)) return; const v = store.get<{ id: number }>('SELECT id FROM videos WHERE path=?', path); const e = v ? getEntry(store, v.id) : null;
-  if (!e || e.purged) throw new Error(`original missing locally and ${e?.purged ? 'cloud copy was purged' : 'not archived in cloud'}: ${path}`);
+  if (!e || e.purged) throw new Error(`original missing locally and ${e?.purged ? 'cloud copy was purged' : v && store.get('SELECT 1 FROM kv WHERE k=?', `local:pruned:${v.id}`) ? 'deleted after publishing to save disk (storage.localKeepDays)' : 'not archived in cloud'}: ${path}`);
   mkdirSync(dirname(path), { recursive: true });
   for (const name of e.files) { const r = await run('rclone', ['copyto', `${e.remote}/${name}`, join(dirname(path), name), '--retries', '3'], { timeoutMs: 6 * 60 * 60_000 }); if (r.code !== 0 && name === basename(path)) throw new Error('cloud restore failed'); }
   if (!existsSync(path)) throw new Error('cloud restore failed'); info('cloud restore', { video: v!.id });
@@ -65,6 +65,26 @@ export async function storageTick(store: Store, cfg: Config): Promise<{ archived
     try { const e = JSON.parse(r.v) as Entry; if (e.purged || !e.doneAt || Date.now() - Date.parse(e.doneAt) < cfg.storage.purgeAfterDays * 86_400_000) continue; const p = await run('rclone', ['purge', e.remote], { timeoutMs: 10 * 60_000 }); if (p.code === 0) { e.purged = true; store.exec('UPDATE kv SET v=? WHERE k=?', JSON.stringify(e), r.k); out.purged++; } } catch { /* next tick */ }
   }
   return out;
+}
+/**
+ * Local retention (works with NO cloud remote, e.g. on a phone): once EVERY upload of a video is published (or later) and the last one is older than
+ * storage.localKeepDays, the original + its sidecars and the raw cuts are deleted. The finished edited shorts stay. Videos with a pending cloud
+ * archive are left to the cloud flow. A restore for re-analysis is impossible afterwards; ensureLocal() says so plainly.
+ */
+export function pruneFinishedLocal(store: Store, cfg: Config, force = false): { videos: number; freedMb: number } {
+  const days = cfg.storage.localKeepDays; if (!force && !(days > 0)) return { videos: 0, freedMb: 0 };
+  const cutoff = Date.now() - (force ? 0 : days * 86_400_000); let freed = 0, n = 0;
+  for (const v of finishedVideos(store)) {
+    const last = store.get<{ t: string | null }>(`SELECT MAX(u.updated_at) t FROM uploads u JOIN clips k ON k.id=u.clip_id JOIN candidates c ON c.id=k.candidate_id WHERE c.video_id=?`, v.id)?.t;
+    if (!last || Date.parse(last.replace(' ', 'T') + 'Z') > cutoff) continue;
+    if (remoteOf(cfg) && !getEntry(store, v.id)) continue; // a cloud archive is configured but has not run yet: let it finish first
+    const files = [...filesOf(v.path), ...store.all<{ raw_path: string | null }>(`SELECT k.raw_path FROM clips k JOIN candidates c ON c.id=k.candidate_id WHERE c.video_id=?`, v.id).map((r) => r.raw_path).filter((f): f is string => !!f && existsSync(f))];
+    if (!files.length) continue;
+    for (const f of files) { try { freed += statSync(f).size / 1048576; rmSync(f, { force: true }); } catch { /* skip */ } }
+    store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `local:pruned:${v.id}`, new Date().toISOString()); n++;
+  }
+  if (n) info('local retention', { videos: n, freedMb: Math.round(freed), keepDays: days });
+  return { videos: n, freedMb: Math.round(freed) };
 }
 export function storageStatus(store: Store, cfg: Config) {
   const rows = store.all<{ v: string }>(`SELECT v FROM kv WHERE k LIKE 'cloud:video:%'`).map((r) => { try { return JSON.parse(r.v) as Entry; } catch { return null; } }).filter((x): x is Entry => !!x);

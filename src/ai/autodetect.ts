@@ -85,22 +85,23 @@ export async function autoSetup(cfg: Config, o: { apiKey?: string; provider?: st
   if (!key && !isLocalBase(base)) { say(false, 'Is provider ke liye API key chahiye'); return rep; }
   if (!models.length) {
     const m = await fetchModels(base, key, fetchFn);
+    if (!m.ok && (m.status === 401 || m.status === 402 || m.status === 403) && /credit|licen[sc]e|billing|balance|payment|insufficient|quota/i.test(m.message ?? '')) { say(false, `Key sahi hai par is account me credits/balance nahi (HTTP ${m.status}: ${(m.message ?? '').slice(0, 140)}). ${(CATALOG.find((c) => c.id === provider)?.getKey) ?? 'Provider dashboard'} par credits daalo, ya is provider ki key hata do - naya key banane se kuch nahi badlega.`); return rep; }
     if (!m.ok) { say(false, m.status === 401 || m.status === 403 ? `Key reject hui (HTTP ${m.status}${m.message ? ': ' + m.message : ''}) — provider khud is key ko galat bol raha hai. Naya key banao (${(CATALOG.find((c) => c.id === provider)?.getKey) ?? 'provider dashboard'}), poora copy karo; shell mein purani ${String(provider ?? '').toUpperCase()}_API_KEY set ho to \`unset\` karo` : m.status === 400 && provider === 'gemini' ? 'Gemini galat key par HTTP 400 deta hai: key dobara copy karo (aistudio.google.com/apikey se, shuru "AIza")' : m.status === 404 ? `Base URL galat lagta hai (${base}/models → 404)` : m.status === 0 ? `Server tak pahunch nahi paya (${base})${isLocalBase(base) ? ' — Ollama chal raha hai? "ollama serve"' : ''}` : `HTTP ${m.status}${m.message ? ': ' + m.message : ''}`); return rep; }
     models = m.models;
   }
   say(true, `${models.length} models mile`); if (!models.length) { say(false, provider === 'ollama' ? 'Ollama mein koi model installed nahi: pehle `ollama pull llama3.2` chalao' : 'Is key par koi model nahi mila'); return rep; }
   const cat = CATALOG.find((c) => c.id === provider); const live = new Set(models.map((m) => m.id));
   const ranked = [...new Set([...(cat?.models ?? []).filter((m) => live.has(m) && m !== 'openrouter/free'), ...rankChat(provider ?? 'custom', models), ...(live.has('openrouter/free') ? ['openrouter/free'] : [])])]; if (!ranked.length) { say(false, 'Koi chat model nahi mila'); return rep; }
-  const queue = ranked.slice(0, provider === 'openrouter' ? 8 : 5); let policyFails = 0;
+  const queue = ranked.slice(0, provider === 'openrouter' ? 8 : 5); let policyFails = 0; let lastFail = '';
   for (let qi = 0; qi < queue.length; qi++) {
     const id = queue[qi]!;
     const t = await chatOk(base, key, id, fetchFn);
     if (t.ok || t.status === 429 || t.status >= 500 || /rate.?limit|overload|high demand|try again/i.test(t.msg)) { say(true, `${id} ${t.ok ? 'ne jawab diya' : 'sahi hai (provider abhi busy/rate-limit, HTTP ' + t.status + ')'}`); saveAi(cfg, 'llm', { apiKey: key || undefined, baseUrl: base, model: id, slot }); rep.llm = { model: id, slot }; rep.ok = true; break; }
-    say(false, `${id}: HTTP ${t.status || 'x'} ${t.msg}`.trim());
+    say(false, `${id}: HTTP ${t.status || 'x'} ${t.msg}`.trim()); lastFail = `${id}: HTTP ${t.status || 'no connection'}${t.msg ? ' ' + t.msg.slice(0, 80) : ''}`;
     const hint = /(?:use|try|update[^.]*to use)\s+models\/([\w.\-]+)/i.exec(t.msg)?.[1]; if (hint && !queue.includes(hint) && queue.length < 10) queue.splice(qi + 1, 0, hint); // provider told us the replacement model
     if (provider === 'openrouter' && /0 endpoints|data policy|privacy|guardrail/i.test(t.msg) && ++policyFails >= 3) { say(false, 'OpenRouter: aapke account ki privacy/guardrail setting free models ko block kar rahi hai. openrouter.ai/settings/privacy mein free endpoints allow karo (ya account par kuch credit rakho). Tab tak Gemini/Groq use karo.'); break; }
   }
-  if (!rep.ok) say(false, 'Top models ne jawab nahi diya. Models list se manually chuno ("Models dikhao").');
+  if (!rep.ok) say(false, `Top models ne jawab nahi diya${lastFail ? ' (' + lastFail + ')' : ''}. ${/402|balance|credit|insufficient/i.test(lastFail) ? 'Account me balance/credits chahiye.' : 'Models list se manually chuno ("Models dikhao").'}`);
   const stt = rankStt(models)[0]; const haveStt = sttCreds(cfg); /* one speech-to-text slot: never let a later (often paid, out-of-credit) key replace a working one; Groq's free whisper wins */ const keepStt = !!haveStt && provider !== 'groq'; if (stt && key && !keepStt) { try { saveAi(cfg, 'stt', { apiKey: key, baseUrl: base, model: stt }); rep.stt = { model: stt }; say(true, `Speech-to-text bhi set: ${stt} (Test dabake pakka karo)`); } catch { /* optional */ } }
   return rep;
 }

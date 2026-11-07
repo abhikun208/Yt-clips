@@ -1,3 +1,4 @@
+import { pruneFinishedLocal } from '../storage/cloud.ts';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
 import { enqueue, type Store } from '../db.ts';
@@ -64,8 +65,8 @@ export async function llmSentinel(store: Store, cfg: Config): Promise<boolean> {
   await notify(store, cfg, `llm-all-down:${new Date().toISOString().slice(0, 10)}`, '⚠️ Yt-clips: saare LLM providers abhi limit/error me hain. Titles template se bante rahenge, jaise hi koi provider wapas aayega AI titles chalu ho jayenge. Agar roz aaye to naya free key (Groq/Gemini) Setup me jodo.'); return true;
 }
 export async function selfcareTick(store: Store, cfg: Config): Promise<{ tmp: number; usedPct: number; orphans: number; keysDead: boolean }> {
-  const tmp = sweepTmp(store, cfg); const d = await diskWatch(store, cfg); const orphans = sweepOrphans(cfg).length; await verifyOutputs(store, cfg).catch(() => null); await keepAliveTick(store, cfg).catch(() => null); await llmSentinel(store, cfg).catch(() => null); const keysDead = await keySentinel(store, cfg).catch(() => false);
-  if (tmp || orphans || d.freedMb || keysDead) info('selfcare', { tmp, usedPct: d.usedPct, orphans, keysDead });
+  const tmp = sweepTmp(store, cfg); const pr = pruneFinishedLocal(store, cfg); const d = await diskWatch(store, cfg); const orphans = sweepOrphans(cfg).length; await verifyOutputs(store, cfg).catch(() => null); await keepAliveTick(store, cfg).catch(() => null); await llmSentinel(store, cfg).catch(() => null); const keysDead = await keySentinel(store, cfg).catch(() => false);
+  if (tmp || orphans || d.freedMb || keysDead || pr.videos) info('selfcare', { tmp, usedPct: d.usedPct, orphans, keysDead, prunedVideos: pr.videos });
   return { tmp, usedPct: d.usedPct, orphans, keysDead };
 }
 

@@ -109,3 +109,17 @@ test('STT adapter end-to-end with a fake engine: sidecar written, word-timed cap
   }
   await withEnv({ YT_CLIPS_STT_CMD: undefined }, async () => { const cfg = testConfig(small); assert.equal((await transcribeVideo(cfg, join(d, 'v.mp4'))).status, 'unavailable'); });
 });
+
+test('offline: a DNS failure keeps the source pending without using up an attempt and stops the pass; two simultaneous polls never download the same video twice', { timeout: 60_000 }, async () => {
+  const bin = tmpDir(); writeFileSync(join(bin, 'yt-dlp'), `#!/bin/sh
+case "$*" in *--dump-single-json*) echo '{"entries":[]}'; exit 0;; esac
+echo "ERROR: [download] Got error: [Errno 7] No address associated with hostname. Giving up after 5 retries" >&2; exit 1
+`); chmodSync(join(bin, 'yt-dlp'), 0o755);
+  await withEnv({ PATH: `${bin}:${process.env.PATH}` }, async () => {
+    const cfg = testConfig({ ...small, youtube: { maxPerPoll: 5, maxDurationMin: 180 } }); const s = new Store(cfg.dbPath);
+    for (const u of ['https://www.youtube.com/watch?v=aaaaaaaaaaa', 'https://www.youtube.com/watch?v=bbbbbbbbbbb']) s.exec(`INSERT INTO sources(kind, uri, title, authorized, status, meta_json) VALUES ('youtube_video',?,'t',1,'pending','{"tries":0}')`, u);
+    const [a, b] = await Promise.all([pollSources(s, cfg), pollSources(s, cfg)]); assert.ok([a.error, b.error].includes('poll already running'), 'second concurrent pass is refused'); assert.ok([a.error, b.error].includes('offline'));
+    const rows = s.all<{ status: string; meta_json: string }>('SELECT status, meta_json FROM sources ORDER BY id'); assert.deepEqual(rows.map((x) => x.status), ['pending', 'pending'], 'outage is not a failure'); assert.equal(JSON.parse(rows[0]!.meta_json).tries, 0, 'no attempt used');
+    for (let i = 0; i < 6; i++) await pollSources(s, cfg); assert.equal(s.get<{ status: string }>('SELECT status FROM sources WHERE id=1')!.status, 'pending', 'still pending after many offline polls (never "failed")');
+  });
+});

@@ -30,7 +30,7 @@ export interface Config {
   stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; indiaFirst?: boolean; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
-  storage: { remote: string; deleteLocal: boolean; purgeAfterDays: number };
+  storage: { remote: string; deleteLocal: boolean; purgeAfterDays: number; /** days after the LAST upload of a video was published, its local original + raw cuts are deleted (0 = keep forever); skipped when a cloud copy handles it */ localKeepDays: number };
   /** screen-description hint for titles; `enabled:false` (or env YT_CLIPS_VISION=0) turns it off, e.g. on a phone */
   vision?: { enabled?: boolean };
   comments: { pollMinutes: number; maxRepliesPerDay: number; /** opt-in: send the reply to PRAISE comments by itself (needs gates.commentsAutoPost too); everything else stays a draft */ autoReply?: boolean };
@@ -64,7 +64,7 @@ const DEFAULTS = (rootDir: string): Config => {
     stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'auto' },
     youtube: { pollMinutes: 15, maxPerPoll: 3, maxDurationMin: 360, maxHeight: 720 },
     analytics: { pollMinutes: 360 },
-    storage: { remote: '', deleteLocal: false, purgeAfterDays: 0 },
+    storage: { remote: '', deleteLocal: false, purgeAfterDays: 0, localKeepDays: 3 },
     comments: { pollMinutes: 60, maxRepliesPerDay: 20 },
     automation: { autoQueue: false, platforms: ['youtube_shorts'], autoApprove: false, maxAdvancePerCycle: 20, requireReview: false, titleTest: false, titleTestHours: 24, funnelComment: false },
   };

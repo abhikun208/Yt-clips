@@ -103,3 +103,17 @@ test('per-word font fallback: Latin words inside a Hindi clip get their own font
   const latin = buildStyledAss([{ start: 0, end: 2, text: 'one tap kill', words: [{ text: 'one', start: 0, end: .6 }, { text: 'tap', start: .6, end: 1.2 }, { text: 'kill', start: 1.2, end: 2 }] }] as never, 0, 2, null, { width: 1080, height: 1920, resolveFont: resolve });
   assert.ok(!/\\fn/.test(latin.ass.split('[Events]')[1]!), 'pure Latin clip needs no per-word override');
 });
+
+test('bundled OFL fonts exist and viral presets use the display font only for Latin text', async () => {
+  const { bundledFamilies } = await import('../src/util/fonts.ts');
+  const fams = bundledFamilies();
+  for (const f of ['poppins', 'anton', 'bebas neue', 'noto sans devanagari']) assert.ok(fams.includes(f), `bundled ${f}`);
+  const have = new Set(fams);
+  const resolve = (c: string[]) => c.find((x) => have.has(x.toLowerCase()));
+  const cues = [{ start: 0, end: 2, text: 'one tap kill', words: [{ text: 'one', start: 0, end: .6 }, { text: 'tap', start: .6, end: 1.2 }, { text: 'kill', start: 1.2, end: 2 }] }] as never;
+  const r = buildStyledAss(cues, 0, 2, null, { width: 1080, height: 1920, preset: 'impact-sun', resolveFont: resolve });
+  assert.match(r.ass, /Style: Cap,Anton,/);
+  const none = buildStyledAss(cues, 0, 2, null, { width: 1080, height: 1920, preset: 'impact-sun', resolveFont: () => undefined });
+  assert.ok(!/Style: Cap,Anton,/.test(none.ass), 'falls back when the display font is missing');
+  assert.ok(BASES.length >= 32 && PRESETS.length === BASES.length * PALETTES.length);
+});

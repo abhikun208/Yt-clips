@@ -89,6 +89,8 @@ export function addYoutubeSource(store: Store, rawUrl: string, authorized: boole
 
 export interface PollResult { discovered: number; downloaded: number; failed: number; skipped: number; error?: string; channels?: number }
 /** Friendly cause for the usual yt-dlp failures (shown in the UI instead of a silent log line). */
+/** DNS / no-route errors: the device is offline right now (phone WiFi/LTE switch, router restart). */
+export const isOffline = (m: string): boolean => /Errno 7\b|Errno -[23]\b|No address associated|Temporary failure in name resolution|Name or service not known|Network is unreachable|EAI_AGAIN|ENETUNREACH|ENOTFOUND|getaddrinfo/i.test(m);
 export function explainYtdlp(err: string): string {
   if (/not a bot|sign in to confirm|cookies/i.test(err)) return 'YouTube bot-check maang raha hai: browser se cookies export karke file banao aur .env mein YT_DLP_COOKIES=/path/cookies.txt likho';
   if (/JavaScript runtime|js.?runtime|n challenge|signature/i.test(err)) return 'yt-dlp purana hai ya JS runtime chahiye: `pip install -U yt-dlp` chalao';
@@ -98,7 +100,13 @@ export function explainYtdlp(err: string): string {
 }
 
 /** One bounded polling pass: discover new videos on authorized channels (newest first => new uploads first, backlog drained gradually), then download+ingest up to maxPerPoll. */
+let polling = false;
+/** Only one pass at a time: the timer tick and a manual 'poll now' used to run side by side and downloaded the same video twice. */
 export async function pollSources(store: Store, cfg: Config): Promise<PollResult> {
+  if (polling) return { discovered: 0, downloaded: 0, failed: 0, skipped: 0, error: 'poll already running' };
+  polling = true; try { return await pollSourcesOnce(store, cfg); } finally { polling = false; }
+}
+async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
   const res: PollResult = { discovered: 0, downloaded: 0, failed: 0, skipped: 0 };
   if (!(await ytdlpAvailable())) return { ...res, error: 'yt-dlp not installed' };
   await prepareYtdlp();
@@ -124,9 +132,13 @@ export async function pollSources(store: Store, cfg: Config): Promise<PollResult
       await ingestLocal(store, cfg, file, { authorized: true, title: v.title, sourceId: v.id });
       store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
     } catch (e) {
+      const msg = (e as Error).message.replace(/\r/g, '\n');
+      if (isOffline(msg)) { // no internet is not this video's fault: keep it pending, do not use up an attempt, do not hammer the other videos
+        warn('internet nahi hai - download baad me dobara try hoga (koi attempt kharch nahi hua)', { uri: v.uri }); res.error = 'offline'; break;
+      }
       const tries = (meta.tries ?? 0) + 1; const dead = tries >= cfg.resources.jobMaxAttempts;
       store.exec(`UPDATE sources SET status=?, meta_json=? WHERE id=?`, dead ? 'failed' : 'pending', JSON.stringify({ ...meta, tries, lastError: explainYtdlp((e as Error).message) }), v.id);
-      res.failed++; warn('download failed', { uri: v.uri, tries, why: explainYtdlp((e as Error).message), err: (e as Error).message.slice(-150) });
+      res.failed++; warn('download failed', { uri: v.uri, tries, why: explainYtdlp(msg) });
     } finally { if (file) rmSync(file, { force: true }); }
   }
   store.exec(`INSERT INTO kv(k,v) VALUES('poll:last',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, JSON.stringify({ at: new Date().toISOString(), ...res }));

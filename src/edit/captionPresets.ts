@@ -7,6 +7,7 @@ export interface Palette { id: string; name: string; base: string; active: strin
 export interface BaseStyle {
   id: string; name: string; tags: string[]; mode: Mode; position: Position; sizePct: number; caps: boolean; wordsPerChunk: number;
   outlinePct: number; shadowPct: number; box: boolean; glow: boolean; pop: number; showUpcoming: boolean; fontStyle: 'bold' | 'regular'; underline?: boolean;
+  /** Display font (Latin text only; falls back to the normal font when not installed/bundled). */ font?: string;
 }
 export interface Preset extends BaseStyle { presetId: string; label: string; palette: Palette }
 
@@ -51,6 +52,15 @@ export const BASES: BaseStyle[] = [
   { id: 'shout-top', name: 'Shout Top', tags: ['One-word', 'Caps', 'Top'], mode: 'one', position: 'top', sizePct: 9, caps: true, wordsPerChunk: 1, outlinePct: 0.8, shadowPct: 0.3, box: false, glow: false, pop: 125, showUpcoming: false, fontStyle: 'bold' },
   { id: 'karaoke-box', name: 'Karaoke Box', tags: ['Karaoke', 'Box'], mode: 'karaoke', position: 'bottom', sizePct: 4.0, caps: false, wordsPerChunk: 4, outlinePct: 0.9, shadowPct: 0, box: true, glow: false, pop: 100, showUpcoming: true, fontStyle: 'bold' },
   { id: 'cinema', name: 'Cinema', tags: ['Clean', 'Subtitle'], mode: 'highlight', position: 'bottom', sizePct: 3.6, caps: false, wordsPerChunk: 7, outlinePct: 0.3, shadowPct: 0.5, box: false, glow: false, pop: 100, showUpcoming: false, fontStyle: 'regular' },
+  // Viral-style layouts (original; bundled OFL display fonts Anton / Bebas Neue)
+  { id: 'impact', name: 'Impact', tags: ['Bold', 'Caps', 'Viral'], mode: 'highlight', position: 'center', sizePct: 6.2, caps: true, wordsPerChunk: 2, outlinePct: 0.7, shadowPct: 0.4, box: false, glow: false, pop: 128, showUpcoming: false, fontStyle: 'regular', font: 'Anton' },
+  { id: 'mega-anton', name: 'Mega Anton', tags: ['One-word', 'Caps', 'Viral'], mode: 'one', position: 'center', sizePct: 12.5, caps: true, wordsPerChunk: 1, outlinePct: 1.0, shadowPct: 0.5, box: false, glow: false, pop: 130, showUpcoming: false, fontStyle: 'regular', font: 'Anton' },
+  { id: 'bebas-build', name: 'Bebas Build', tags: ['Build', 'Caps', 'Clean'], mode: 'build', position: 'center', sizePct: 7.2, caps: true, wordsPerChunk: 3, outlinePct: 0.55, shadowPct: 0.3, box: false, glow: false, pop: 108, showUpcoming: true, fontStyle: 'regular', font: 'Bebas Neue' },
+  { id: 'bebas-lower', name: 'Bebas Lower', tags: ['Caps', 'Clean', 'Lower'], mode: 'highlight', position: 'bottom', sizePct: 6.0, caps: true, wordsPerChunk: 3, outlinePct: 0.5, shadowPct: 0.3, box: false, glow: false, pop: 112, showUpcoming: true, fontStyle: 'regular', font: 'Bebas Neue' },
+  { id: 'anton-box', name: 'Anton Box', tags: ['Box', 'Caps', 'Viral'], mode: 'highlight', position: 'center', sizePct: 5.6, caps: true, wordsPerChunk: 2, outlinePct: 1.1, shadowPct: 0, box: true, glow: false, pop: 120, showUpcoming: false, fontStyle: 'regular', font: 'Anton' },
+  { id: 'anton-glow', name: 'Anton Glow', tags: ['Glow', 'Caps', 'Viral'], mode: 'one', position: 'center', sizePct: 10.5, caps: true, wordsPerChunk: 1, outlinePct: 0.4, shadowPct: 0, box: false, glow: true, pop: 125, showUpcoming: false, fontStyle: 'regular', font: 'Anton' },
+  { id: 'poppins-black', name: 'Poppins Black', tags: ['Bold', 'Caps', 'Viral'], mode: 'highlight', position: 'bottom', sizePct: 4.8, caps: true, wordsPerChunk: 3, outlinePct: 0.6, shadowPct: 0.35, box: false, glow: false, pop: 118, showUpcoming: true, fontStyle: 'bold', font: 'Poppins Black' },
+  { id: 'story', name: 'Story', tags: ['Clean', 'Build'], mode: 'build', position: 'bottom', sizePct: 4.0, caps: false, wordsPerChunk: 5, outlinePct: 0.3, shadowPct: 0.5, box: false, glow: false, pop: 100, showUpcoming: false, fontStyle: 'bold' },
 ];
 
 export const PRESETS: Preset[] = BASES.flatMap((b) => PALETTES.map((p) => ({ ...b, presetId: `${b.id}-${p.id}`, label: `${b.name} · ${p.name}`, palette: p })));
