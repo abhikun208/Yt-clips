@@ -139,7 +139,14 @@ async function transcribeCore(cfg: Config, videoPath: string, hint: { language?:
     if (g) { try { const r = await transcribeViaGemini(videoPath, cfg.dirs.tmp, g, { language: sttLang(cfg, hint.language) }); if (!r.cues.length) return { status: 'no_speech', cues: [], engine: 'gemini-audio' }; writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(r.cues)); info('transcribed', { engine: 'gemini-audio', cues: r.cues.length }); return { status: 'ok', cues: r.cues, engine: 'gemini-audio' }; } catch (e) { return { status: 'failed', cues: [], engine: 'gemini-audio', error: (e as Error).message.slice(0, 200) }; } }
   }
   if (!eng) return { status: 'unavailable', cues: [], error: 'no local STT engine (Setup -> Local speech-to-text shows what to install; or add a free Groq key)' };
+  // A phone/CPU-only whisper.cpp needs roughly real-time or slower per minute of audio: on a long video the owner saw no output for 8+ minutes and thought the system was dead.
+  // When the cloud engine failed and a working Gemini key exists, a LONG video goes to Gemini audio first (approximate timing, repaired locally); local whisper stays the fallback.
+  if ((eng.name === 'whisper-cpp' || eng.name === 'whisper-cli') && cfg.stt.engine !== 'local' && cfg.stt.engine !== 'api') {
+    const dur = Number((await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath], { timeoutMs: 60_000 })).stdout.trim()) || 0;
+    if (dur > 8 * 60) { const g = await geminiAudio(cfg, videoPath, hint, `long video (${Math.round(dur / 60)} min) on slow local ${eng.name}`); if (g) { writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(g.cues)); return { status: 'ok', cues: g.cues, engine: 'gemini-audio' } as SttResult; } }
+  }
   const release = await acquireLocalStt();
+  const t0 = Date.now(); const beat = setInterval(() => info('local STT chal raha hai (kaam ho raha hai, atka nahi)', { engine: eng.name, minutes: Math.round((Date.now() - t0) / 60_000), tip: 'Phone par lamba video slow hota hai. Tez karne ke liye: free Groq/Gemini key sahi rakho ya chhota video do' }), 120_000); beat.unref?.();
   const wav = join(cfg.dirs.tmp, `stt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
   try {
     const ex = await run('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', wav], { timeoutMs: 30 * 60_000 });
@@ -152,5 +159,5 @@ async function transcribeCore(cfg: Config, videoPath: string, hint: { language?:
     info('transcribed', { engine: eng.name, cues: parsed.cues.length, language: parsed.language });
     return { status: 'ok', cues: parsed.cues, language: parsed.language, engine: eng.name };
   } catch (e) { warn('stt crashed', { err: (e as Error).message }); return { status: 'failed', cues: [], engine: eng.name, error: (e as Error).message.slice(0, 200) }; }
-  finally { release(); if (existsSync(wav)) rmSync(wav, { force: true }); }
+  finally { clearInterval(beat); release(); if (existsSync(wav)) rmSync(wav, { force: true }); }
 }
