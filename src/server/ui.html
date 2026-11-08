@@ -65,7 +65,18 @@ nav .chip{position:absolute;top:2px;right:6px;padding:0 6px;font-size:10.5px;bac
 .fn.bad{border-color:var(--bad)}.fn.warn{border-color:var(--warn)}.fn.ok{border-color:color-mix(in srgb,var(--ok) 55%,transparent)}
 .skel{border-radius:12px;background:linear-gradient(90deg,var(--card) 25%,var(--card2) 50%,var(--card) 75%);background-size:200% 100%;animation:sh 1.3s linear infinite;min-height:64px}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-[hidden]{display:none!important}</style></head><body>
+[hidden]{display:none!important}/* Theme v2 (owner request): black background, white text, every box has a soft blue glow */
+:root{--bg:#000;--bg2:#000;--card:#000;--card2:#0b0b0b;--fg:#fff;--mut:#d4d4d4;--bd:rgba(96,165,250,.35);--glow:0 0 0 1px rgba(96,165,250,.28),0 0 16px rgba(59,130,246,.30)}
+html,body{background:#000!important;color:#fff}
+body{background-image:none!important}
+.card,.tile,.clip,.hero,nav,.dhead,.sty,.big img,input,select,textarea,button.sec,code{box-shadow:var(--glow)!important}
+.hero{background:#000!important}
+.card:hover,.tile:hover,.clip:hover{box-shadow:0 0 0 1px rgba(125,190,255,.55),0 0 26px rgba(59,130,246,.5)!important;border-color:rgba(125,190,255,.6)}
+nav{background:#000!important}
+h1,h2,h3,p,span,label,div,td,th,li,a{color:inherit}
+a{color:#93c5fd}
+h1,h2,h3{background:none!important;-webkit-text-fill-color:#fff!important;color:#fff!important}
+</style></head><body>
 <div id="login" hidden><div class="card"><h2>🎬 yt-clips login</h2><p class="mut">Server token daalo (<code>YT_CLIPS_TOKEN</code>).</p><div class="row"><input id="tok" type="password" placeholder="token" class="grow"><button id="go">Login</button></div><p id="lerr" class="bad"></p></div></div>
 <div class="shell" id="app" hidden>
 <nav><div class="brand">🎬</div>
