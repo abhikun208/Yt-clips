@@ -28,7 +28,7 @@ export async function transcribeViaGemini(videoPath: string, tmpDir: string, c: 
   mkdirSync(tmpDir, { recursive: true }); const chunk = o.chunkSec ?? GEMINI_CHUNK_SEC; const fetchFn = o.fetchFn ?? fetch;
   const dur = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath], { timeoutMs: 60_000 }); const total = Number(dur.stdout.trim());
   if (!Number.isFinite(total) || total <= 0) throw new Error('could not read duration');
-  const cues: Cue[] = []; const tag = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; let failed = 0, chunks = 0;
+  const cues: Cue[] = []; const tag = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; let failed = 0, chunks = 0, netFail = '', consecFail = 0;
   const lang = o.language && o.language !== 'auto' ? ` The language is "${o.language}".` : ' The speech may be Hindi/Hinglish/English; write Hindi in Roman (Hinglish) letters.';
   const prompt = `Transcribe the speech in this audio exactly (gameplay commentary; keep slang like booyah, headshot, clutch).${lang} Reply with ONLY a JSON array: [{"start":<seconds from start of this audio>,"end":<seconds>,"text":"..."}]. Segments 1-6 seconds long, in order. If there is no speech reply [].`;
   for (let t = 0, i = 0; t < total; t += chunk, i++) {
@@ -39,13 +39,17 @@ export async function transcribeViaGemini(videoPath: string, tmpDir: string, c: 
       const body = JSON.stringify({ model: c.model, temperature: 0, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'input_audio', input_audio: { data: readFileSync(f).toString('base64'), format: 'mp3' } }] }] });
       let done = false; chunks++;
       for (let attempt = 0; attempt < 4 && !done; attempt++) {
-        const r = await fetchFn(`${c.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${c.apiKey}` }, body, signal: AbortSignal.timeout(120_000) });
+        let r: Response;
+        try { r = await fetchFn(`${c.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${c.apiKey}` }, body, signal: AbortSignal.timeout(60_000) }); }
+        catch (e) { netFail = (e as Error).message.slice(0, 80); if (attempt >= 1) break; await sleep(o.gapMs === undefined ? 3000 : 1); continue; } // timeout / 'fetch failed' = weak mobile network: one retry, then give this chunk up (it used to abort the whole job after up to 8 minutes)
+        netFail = '';
         if (r.status === 429 || r.status >= 500) { await sleep(o.gapMs === undefined ? 5000 * (attempt + 1) : 1); continue; }
         if (r.status === 401 || r.status === 403) throw new Error(`gemini key rejected (HTTP ${r.status})`);
         if (!r.ok) throw new Error(`gemini HTTP ${r.status}`);
         const j = await r.json() as { choices?: { message?: { content?: string } }[] }; cues.push(...parseGeminiSegments(String(j.choices?.[0]?.message?.content ?? ''), t, Math.min(chunk, total - t))); done = true;
       }
-      if (!done) failed++;
+      if (!done) { failed++; consecFail++; } else consecFail = 0;
+      if (consecFail >= 2 && netFail) throw new Error(`gemini unreachable from this network (${netFail}) - giving up early, next engine`);
     } finally { rmSync(f, { force: true }); }
     await sleep(o.gapMs ?? 4000); // free-tier requests-per-minute
   }

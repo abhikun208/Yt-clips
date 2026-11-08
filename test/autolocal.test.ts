@@ -189,3 +189,11 @@ test('STT failover list: extra providers from env (STT_API_KEY_2/BASE_2, TOGETHE
     assert.deepEqual(sttCandidates(cfg).map((c) => new URL(c.baseUrl).host), ['api.groq.com', 'stt.example.com', 'api.together.xyz']);
   } finally { for (const k of ['GROQ_API_KEY', 'STT_API_KEY_2', 'STT_API_BASE_2', 'TOGETHER_API_KEY']) { if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k]; } }
 });
+
+test('Gemini audio STT gives up early when the network is unreachable (no 8-minute stall)', async () => {
+  const { transcribeViaGemini } = await import('../src/analysis/geminiStt.ts');
+  const d = tmpDir(); const v = join(d, 'n.mp4'); await makeFixture(v, 12); let calls = 0;
+  const f = (async () => { calls++; throw new Error('The operation was aborted due to timeout'); }) as unknown as typeof fetch;
+  await assert.rejects(transcribeViaGemini(v, d, { baseUrl: 'https://x/v1', apiKey: 'k', model: 'm' }, { chunkSec: 3, fetchFn: f, gapMs: 1 }), /unreachable/);
+  assert.ok(calls <= 4, `expected <=4 calls, got ${calls}`);
+});
