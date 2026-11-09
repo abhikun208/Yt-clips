@@ -114,8 +114,8 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
   } else for (const d of ['cinematic_lut', 'film_grain', 'particles', 'light_leak', 'flash_transition', 'progress_bar']) t.push({ dimension: d, applied: false, detail: 'disabled' });
 
   if (o.fade) {
-    chain(`fade=t=in:st=0:d=0.25,fade=t=out:st=${Math.max(0, o.duration - 0.3).toFixed(2)}:d=0.3`);
-    t.push({ dimension: 'fade_transition', applied: true, detail: 'in/out fade' });
+    chain(`fade=t=out:st=${Math.max(0, o.duration - 0.3).toFixed(2)}:d=0.3`); // no fade-in from black: the first frame is what the Shorts feed/thumbnail shows
+    t.push({ dimension: 'fade_transition', applied: true, detail: 'out fade (first frame stays visible)' });
   } else t.push({ dimension: 'fade_transition', applied: false, detail: 'disabled' });
 
   if (o.assPath) {

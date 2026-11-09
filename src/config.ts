@@ -14,7 +14,7 @@ export interface Config {
   };
   edit: {
     width: number; height: number; fps: number; crf: number; preset: string; encoder: 'auto' | 'libx264' | 'h264_nvenc' | 'h264_videotoolbox' | 'h264_mediacodec';
-    reframe: 'crop' | 'fit_blur'; fitZoom?: number; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
+    reframe: 'crop' | 'fit_blur'; fitZoom?: number; fitZoomBurned?: number; silenceGate?: boolean; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
     vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean };
     jumpCuts: boolean; closeups?: boolean; llmCaptionFix?: boolean; emphasisZoom: boolean; hookTitle?: boolean; narration?: boolean; memeHook?: boolean; musicVolume?: number; speakerFollow?: boolean; cta?: string; captionLanguage?: 'auto' | 'hinglish' | 'hi' | 'en' | 'original'; pace: 'fast' | 'medium' | 'relaxed' | 'off';
   };

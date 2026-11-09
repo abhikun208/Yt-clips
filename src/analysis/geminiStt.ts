@@ -10,6 +10,9 @@ import type { AiCreds } from '../ai/settings.ts';
  * Audio is cut into short chunks so the model's timestamps stay close to real; times are offset back to the full timeline.
  */
 export const GEMINI_CHUNK_SEC = 90;
+/** After a network-level failure the next Gemini audio attempts (same video, other code path, next video) are skipped for a while: they would only repeat the same minutes of timeouts. Real network only (injected fetch in tests never trips it). */
+let geminiDownUntil = 0;
+export const geminiCooldownLeftSec = (): number => Math.max(0, Math.round((geminiDownUntil - Date.now()) / 1000));
 export function parseGeminiSegments(text: string, offset: number, chunkLen: number): Cue[] {
   const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, ''); let arr: unknown;
   try { arr = JSON.parse(t); } catch { const m = /\[[\s\S]*\]/.exec(t); if (!m) return []; try { arr = JSON.parse(m[0]); } catch { return []; } }
@@ -25,6 +28,7 @@ export function parseGeminiSegments(text: string, offset: number, chunkLen: numb
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function transcribeViaGemini(videoPath: string, tmpDir: string, c: AiCreds, o: { language?: string; chunkSec?: number; fetchFn?: typeof fetch; gapMs?: number } = {}): Promise<{ cues: Cue[]; language?: string }> {
+  if (!o.fetchFn && Date.now() < geminiDownUntil) throw new Error(`gemini unreachable a moment ago - skipped for ${geminiCooldownLeftSec()}s (no repeat timeouts)`);
   mkdirSync(tmpDir, { recursive: true }); const chunk = o.chunkSec ?? GEMINI_CHUNK_SEC; const fetchFn = o.fetchFn ?? fetch;
   const dur = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath], { timeoutMs: 60_000 }); const total = Number(dur.stdout.trim());
   if (!Number.isFinite(total) || total <= 0) throw new Error('could not read duration');
@@ -49,7 +53,7 @@ export async function transcribeViaGemini(videoPath: string, tmpDir: string, c: 
         const j = await r.json() as { choices?: { message?: { content?: string } }[] }; cues.push(...parseGeminiSegments(String(j.choices?.[0]?.message?.content ?? ''), t, Math.min(chunk, total - t))); done = true;
       }
       if (!done) { failed++; consecFail++; } else consecFail = 0;
-      if (consecFail >= 2 && netFail) throw new Error(`gemini unreachable from this network (${netFail}) - giving up early, next engine`);
+      if (consecFail >= 2 && netFail) { if (!o.fetchFn) geminiDownUntil = Date.now() + 10 * 60_000; throw new Error(`gemini unreachable from this network (${netFail}) - giving up early, next engine`); }
     } finally { rmSync(f, { force: true }); }
     await sleep(o.gapMs ?? 4000); // free-tier requests-per-minute
   }

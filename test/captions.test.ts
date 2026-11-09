@@ -117,3 +117,12 @@ test('bundled OFL fonts exist and viral presets use the display font only for La
   assert.ok(!/Style: Cap,Anton,/.test(none.ass), 'falls back when the display font is missing');
   assert.ok(BASES.length >= 32 && PRESETS.length === BASES.length * PALETTES.length);
 });
+
+test('silence gate drops words the STT put into digital silence, keeps real speech', async () => {
+  const { gateSilence } = await import('../src/edit/silencegate.ts');
+  const cues = [{ start: 100, end: 104, text: 'zaai haan boliye', words: [{ text: 'zaai', start: 100.1, end: 100.6 }, { text: 'haan', start: 101.5, end: 101.9 }, { text: 'boliye', start: 102, end: 102.5 }] }] as never;
+  const r = gateSilence(cues, [[0, 1.07]], 100);              // clip starts at source 100 s; first 1.07 s of the clip is silent
+  assert.equal(r.dropped, 1); assert.equal(r.cues[0]!.text, 'haan boliye'); assert.equal(r.cues[0]!.start, 101.5);
+  const only = gateSilence([{ start: 100.2, end: 100.9, text: 'ghost' }] as never, [[0, 1.07]], 100); assert.equal(only.cues.length, 0);
+  assert.equal(gateSilence(cues, [], 100).cues, cues);        // no silence known -> untouched
+});
