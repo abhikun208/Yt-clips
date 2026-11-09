@@ -12,7 +12,7 @@ import { tmpDir } from './helpers.ts';
 const words = 'Ye secret ka raaz kisi ko nahi pata tha yaar'.split(' ').map((w, i) => ({ start: 1 + i * 0.4, end: 1.35 + i * 0.4, text: w }));
 const real: Cue[] = [{ start: 1, end: 5, text: words.map((w) => w.text).join(' '), words }];
 const approx: Cue[] = [{ start: 1, end: 5, text: 'Ye secret ka raaz kisi ko nahi pata' }];
-const O = { width: 540, height: 960 };
+const O = { width: 540, height: 960, sizeScale: 1 };
 
 const events = (ass: string) => ass.split('\n').filter((l) => l.startsWith('Dialogue: 0'));
 const textOf = (e: string) => e.replace(/\{[^}]*\}/g, '').split(',').slice(9).join(',').trim();

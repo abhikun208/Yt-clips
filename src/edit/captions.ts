@@ -30,7 +30,7 @@ const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').tri
 interface TWord { w: string; a: number; b: number }
 export interface CaptionResult { ass: string; timing: 'measured' | 'approximate' | 'none'; font: string; script: Script; presetId: string; warnings: string[] }
 export interface CaptionOpts {
-  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null;
+  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number;
 }
 
 /** Word timeline for the clip window. Uses real per-word timestamps when the cue has them; else splits by word length (approximate). */
@@ -88,7 +88,8 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   // Preset display font (Anton, Bebas Neue ...) only for Latin text and only when it is actually installed/bundled; otherwise keep the normal font.
   const dispFont = script === 'latin' && p.font && o.resolveFont ? o.resolveFont([p.font]) : undefined;
   if (dispFont) f = { font: dispFont };
-  const size = Math.round((H * p.sizePct) / 100), outline = Math.max(2, Math.round((H * p.outlinePct) / 100)), shadow = Math.round((H * p.shadowPct) / 100);
+  const SC = Math.min(1.6, Math.max(0.7, o.sizeScale ?? Number(process.env.YT_CLIPS_CAPTION_SCALE ?? 1.25))); // owner: text was too small on a phone -> 25% bigger by default
+  const size = Math.round((H * p.sizePct * SC) / 100), outline = Math.max(2, Math.round((H * p.outlinePct) / 100)), shadow = Math.round((H * p.shadowPct) / 100);
   const align = p.position === 'bottom' ? 2 : p.position === 'center' ? 5 : 8;
   const marginV = p.position === 'bottom' ? Math.round(H * 0.2) : p.position === 'top' ? Math.round(H * 0.16) : 0;
   const bold = p.fontStyle === 'bold' && !dispFont ? -1 : 0;
@@ -97,7 +98,7 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   const borderStyle = p.box ? 3 : 1;
   const outColor = p.box ? assColor(pal.box, 0x30) : p.glow ? assColor(pal.active, 0x60) : assColor(pal.outline);
   const style = `Style: Cap,${f.font},${size},${assColor(capStyle.primary)},${assColor(capStyle.secondary)},${outColor},${assColor('#000000', 0x70)},${bold},0,${p.underline ? -1 : 0},0,100,100,0,0,${borderStyle},${p.glow ? Math.round(outline * 1.8) : outline},${shadow},${align},60,60,${marginV},1`;
-  const tSize = Math.round(H * 0.036);
+  const tSize = Math.round(H * 0.036 * Math.min(1.6, Math.max(0.7, o.sizeScale ?? Number(process.env.YT_CLIPS_CAPTION_SCALE ?? 1.25))));
   const head = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${o.width}
