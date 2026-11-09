@@ -143,9 +143,10 @@ export function enqueue(s: Store, kind: string, key: string, payload?: unknown):
 export function claim(s: Store, leaseMs = 15 * 60_000, now = Date.now()): Job | undefined {
   return s.tx(() => {
     const j = s.get<Job>(
-      `SELECT id, kind, key, attempts, payload_json FROM jobs
-       WHERE (state IN ('PENDING','RETRY') AND run_after <= ?) OR (state='RUNNING' AND lease_until < ?)
-       ORDER BY id LIMIT 1`, now, now);
+      `SELECT j.id, j.kind, j.key, j.attempts, j.payload_json FROM jobs j
+       LEFT JOIN videos v ON j.kind='analyze' AND j.key='analyze:' || v.id
+       WHERE (j.state IN ('PENDING','RETRY') AND j.run_after <= ?) OR (j.state='RUNNING' AND j.lease_until < ?)
+       ORDER BY (j.kind='analyze'), COALESCE(v.duration, 0), j.id LIMIT 1`, now, now); // quick finishing work (render/meta) first, then analysis shortest-video-first: a 30 s upload must not wait behind a 3-hour video
     if (!j) return undefined;
     s.exec(`UPDATE jobs SET state='RUNNING', lease_until=?, attempts=attempts+1, updated_at=datetime('now') WHERE id=?`, now + leaseMs, j.id);
     return { ...j, attempts: j.attempts + 1 };

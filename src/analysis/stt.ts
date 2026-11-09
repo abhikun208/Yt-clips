@@ -8,7 +8,7 @@ import { sttCreds, sttCandidates } from '../ai/settings.ts';
 import { transcribeViaApi } from './sttApi.ts';
 import { transcribeViaGemini } from './geminiStt.ts';
 import { llmChain } from '../ai/settings.ts';
-import { pickLocal, runLocalCli, voiceStudioUrl } from './localStt.ts';
+import { isTermux, pickLocal, runLocalCli, voiceStudioUrl } from './localStt.ts';
 
 /** Only ONE local model (whisper) may load/run at a time: parallel loads would exhaust RAM on small hosts. Queue is FIFO. */
 let localTail: Promise<void> = Promise.resolve();
@@ -143,7 +143,7 @@ async function transcribeCore(cfg: Config, videoPath: string, hint: { language?:
   // When the cloud engine failed and a working Gemini key exists, a LONG video goes to Gemini audio first (approximate timing, repaired locally); local whisper stays the fallback.
   if ((eng.name === 'whisper-cpp' || eng.name === 'whisper-cli') && cfg.stt.engine !== 'local' && cfg.stt.engine !== 'api') {
     const dur = Number((await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath], { timeoutMs: 60_000 })).stdout.trim()) || 0;
-    if (dur > 8 * 60) { const g = await geminiAudio(cfg, videoPath, hint, `long video (${Math.round(dur / 60)} min) on slow local ${eng.name}`); if (g) { writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(g.cues)); return { status: 'ok', cues: g.cues, engine: 'gemini-audio' } as SttResult; } }
+    if (dur > (isTermux ? 3 : 8) * 60) { const g = await geminiAudio(cfg, videoPath, hint, `long video (${Math.round(dur / 60)} min) on slow local ${eng.name}`); if (g) { writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(g.cues)); return { status: 'ok', cues: g.cues, engine: 'gemini-audio' } as SttResult; } }
   }
   const release = await acquireLocalStt();
   const t0 = Date.now(); const beat = setInterval(() => info('local STT chal raha hai (kaam ho raha hai, atka nahi)', { engine: eng.name, minutes: Math.round((Date.now() - t0) / 60_000), tip: 'Phone par lamba video slow hota hai. Tez karne ke liye: free Groq/Gemini key sahi rakho ya chhota video do' }), 120_000); beat.unref?.();
