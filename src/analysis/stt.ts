@@ -99,6 +99,10 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
   let r = await transcribeCore(cfg, videoPath, hint);
   const mayGemini = cfg.stt.engine !== 'local' && cfg.stt.engine !== 'api' && !process.env.YT_CLIPS_STT_CMD;
   if ((r.status === 'failed' || r.status === 'unavailable') && mayGemini) { const g = await geminiAudio(cfg, videoPath, hint, `${r.engine ?? 'engines'} failed: ${(r.error ?? r.status).slice(0, 60)}`); if (g) writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(g.cues)); return g ?? r; }
+  if (r.status === 'no_speech' && mayGemini && r.engine !== 'gemini-audio') { // the local model heard "nothing" but the file is clearly not silent (owner's clip_055: -16.6 dB mean, no pauses, yet 0 captions): ask Gemini once before giving up
+    const vd = await run('ffmpeg', ['-hide_banner', '-nostats', '-t', '120', '-i', videoPath, '-vn', '-af', 'volumedetect', '-f', 'null', '-'], { timeoutMs: 60_000 }).catch(() => null); const mean = Number(/mean_volume:\s*(-?[\d.]+) dB/.exec(vd?.stderr ?? '')?.[1] ?? NaN);
+    if (Number.isFinite(mean) && mean > -38) { info('no speech heard but the audio is not silent - trying Gemini audio', { meanDb: mean, engine: r.engine }); const g = await geminiAudio(cfg, videoPath, hint, `local engine heard no speech, audio level ${mean} dB`); if (g) { writeFileSync(videoPath.replace(/\.[^.]+$/, '') + '.json', JSON.stringify(g.cues)); return g; } }
+  }
   if (r.status === 'ok') {
     const { checkTranscript } = await import('./sanity.ts'); const q = checkTranscript(r.cues);
     if (q.removed) { info('transcript cleaned: repeated decoder-loop cues removed', { removed: q.removed }); r = { ...r, cues: q.cues }; }

@@ -25,3 +25,8 @@ test('uploading the same file again wakes a PARKED video', async () => {
   const a = await ingestLocal(s, cfg, f); freshStart(s); assert.equal(s.get<{ state: string }>('SELECT state FROM videos WHERE id=?', a.videoId)!.state, 'PARKED');
   const b = await ingestLocal(s, cfg, f); assert.equal(b.duplicate, true); assert.equal(s.get<{ state: string }>('SELECT state FROM videos WHERE id=?', a.videoId)!.state, 'NEW');
 });
+test('no-speech + audible audio asks Gemini once; clip metadata does not repeat speech-to-text for a clip without speech', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../src/analysis/stt.ts', import.meta.url), 'utf8');
+  assert.match(src, /no speech heard but the audio is not silent/); assert.match(src, /mean > -38/);
+  const cm = (await import('node:fs')).readFileSync(new URL('../src/seo/clipmeta.ts', import.meta.url), 'utf8'); assert.match(cm, /nospeech:\$\{row\.output_id\}/);
+});
