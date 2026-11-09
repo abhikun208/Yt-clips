@@ -15,8 +15,11 @@ export async function ingestLocal(store: Store, cfg: Config, file: string, opts:
   if (!existsSync(abs) || !statSync(abs).isFile()) throw new Error(`File not found: ${abs}`);
   if (!MEDIA_EXT.test(abs)) throw new Error(`Unsupported media type: ${basename(abs)}`);
   const fp = fileFingerprint(abs);
-  const existing = store.get<{ id: number; path: string }>('SELECT id, path FROM videos WHERE fingerprint=?', fp);
-  if (existing) return { videoId: existing.id, duplicate: true, path: existing.path };
+  const existing = store.get<{ id: number; path: string; state: string }>('SELECT id, path, state FROM videos WHERE fingerprint=?', fp);
+  if (existing) { // same file again: if it was PARKED (fresh-start) or never finished, the owner clearly wants it processed now -> wake it up instead of silently doing nothing
+    if (existing.state === 'PARKED') { store.exec(`UPDATE videos SET state='NEW', updated_at=datetime('now') WHERE id=?`, existing.id); store.exec(`UPDATE candidates SET status='candidate' WHERE video_id=? AND status='parked'`, existing.id); store.logState('video', existing.id, 'PARKED', 'NEW', 'same file uploaded again: un-parked'); }
+    return { videoId: existing.id, duplicate: true, path: existing.path };
+  }
   const info = await probe(abs); // throws on corrupt / no video stream
   mkdirSync(cfg.dirs.sources, { recursive: true });
   let dest = join(cfg.dirs.sources, basename(abs));

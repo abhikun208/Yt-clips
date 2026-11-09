@@ -82,7 +82,7 @@ export async function work(store: Store, cfg: Config, o: { maxJobs?: number; sho
       if (o.shouldStop?.()) break; // graceful shutdown between jobs; in-flight leases expire and are re-claimed after restart
       const job = claim(store);
       if (!job) break;
-      started++;
+      started++; info('job start', { kind: job.kind, key: job.key });
       try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); noteOutcome(store, cfg, true); }
       catch (e) {
         const st = failJob(store, job, (e as Error).message, cfg.resources.jobMaxAttempts);
