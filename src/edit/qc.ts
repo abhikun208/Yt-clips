@@ -28,7 +28,7 @@ export async function qcClip(path: string, x: QcExpect): Promise<QcResult> {
     set('loudness', l.lufs !== null && Math.abs(l.lufs - x.targetLufs) <= (x.lufsTol ?? 2.5), l.lufs ?? 'n/a', `target ${x.targetLufs}±${x.lufsTol ?? 2.5}`);
     set('true_peak', l.truePeak === null || l.truePeak <= -0.5, l.truePeak ?? 'n/a', 'clipping risk');
   }
-  const bd = await run('ffmpeg', ['-nostats', '-hide_banner', '-i', path, '-an', '-vf', 'fps=4,scale=160:-2,blackdetect=d=0.4:pix_th=0.1', '-f', 'null', '-'], { timeoutMs: 5 * 60_000 });
+  const bd = await run('ffmpeg', ['-nostats', '-hide_banner', '-i', path, '-an', '-vf', 'fps=4,scale=160:-2,blackdetect=d=0.4:pic_th=0.95:pix_th=0.1', '-f', 'null', '-'], { timeoutMs: 5 * 60_000 });
   let black = 0; for (const mm of bd.stderr.matchAll(/black_duration:([\d.]+)/g)) black += Number(mm[1]);
   set('black_frames', black / m.duration <= (x.maxBlackRatio ?? 0.25), +(black / m.duration).toFixed(3), 'too much black');
   const dec = await run('ffmpeg', ['-v', 'error', '-i', path, '-f', 'null', '-'], { timeoutMs: 5 * 60_000 });
