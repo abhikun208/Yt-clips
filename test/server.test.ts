@@ -148,3 +148,19 @@ test('SSE is a DELTA stream: after the first snapshot only NEW log lines are sen
     assert.ok(got.logs.some((l: any) => l.msg === 'delta-marker-line') && got.logs.length <= 3, 'only new lines, not the whole buffer: ' + got.logs.length);
   } finally { await app.stop(); }
 });
+
+test('queue cleanup: force-remove an upload that is already on the platform, and "clear all" keeps in-flight/scheduled ones', async () => {
+  const { app, base } = await boot();
+  try {
+    const j = async (m: string, p: string, b?: unknown) => { const r = await fetch(`${base}${p}`, { method: m, headers: { ...auth, 'content-type': 'application/json' }, ...(b ? { body: JSON.stringify(b) } : {}) }); return { s: r.status, j: await r.json().catch(() => ({})) as any }; };
+    app.store.exec('PRAGMA foreign_keys=OFF');
+    const mk = (id: number, state: string) => app.store.exec(`INSERT INTO uploads(id, clip_id, platform, state, idempotency_key) VALUES (?,?, 'youtube_shorts', ?, ?)`, id, id, state, `k${id}`);
+    mk(1, 'UNLISTED_VERIFIED'); mk(2, 'NEXT_CYCLE'); mk(3, 'UPLOADING'); mk(4, 'SCHEDULED_OR_APPROVED'); mk(5, 'FAILED');
+    assert.equal((await j('DELETE', '/api/uploads/1')).s, 400);                       // without force the old rule still protects
+    assert.equal((await j('DELETE', '/api/uploads/3?force=1')).s, 400);               // in-flight is never removed
+    const ok = await j('DELETE', '/api/uploads/1?force=1'); assert.equal(ok.s, 200); assert.match(ok.j.kept, /platform/);
+    const c = await j('POST', '/api/uploads/clear', {}); assert.equal(c.s, 200); assert.equal(c.j.removed, 2); // NEXT_CYCLE + FAILED
+    const left = app.store.all<{ id: number }>('SELECT id FROM uploads ORDER BY id').map((r) => r.id);
+    assert.deepEqual(left, [3, 4]);
+  } finally { await app.stop(); }
+});

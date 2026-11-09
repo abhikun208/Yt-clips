@@ -285,8 +285,16 @@ export function createApp(o: AppOptions = {}): App {
         store.tx(() => { store.exec(`UPDATE sources SET status='removed' WHERE id=? OR json_extract(COALESCE(meta_json,'{}'),'$.channelSource')=?`, id, id); }); chCache = null; return json(res, 200, { ok: true }); } }
       { const rm = /^\/api\/uploads\/(\d+)(?:\/cancel)?$/.exec(p); if (rm && (m === 'DELETE' || (m === 'POST' && p.endsWith('/cancel')))) { // take an upload out of the queue; only while nothing is on the platform yet
         const id = Number(rm[1]); const u = store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', id); if (!u) return json(res, 400, { error: `Unknown upload ${id}` });
-        if (!['READY_FOR_QC', 'QC_PASSED', 'UPLOAD_PENDING', 'FAILED', 'QC_FAILED'].includes(u.state)) return json(res, 400, { error: `Ye upload ab ${u.state} state me hai (platform par pahunch chuka): wahan se platform ke Studio me hatao.` });
-        store.exec('DELETE FROM uploads WHERE id=?', id); chCache = null; return json(res, 200, { ok: true }); } }
+        const force = new URL(req.url ?? '/', 'http://x').searchParams.get('force') === '1';
+        if (!force && !['READY_FOR_QC', 'QC_PASSED', 'UPLOAD_PENDING', 'FAILED', 'QC_FAILED'].includes(u.state)) return json(res, 400, { error: `Ye upload ab ${u.state} state me hai (platform par pahunch chuka): wahan se platform ke Studio me hatao.`, needsForce: true });
+        if (force && ['UPLOADING', 'UPLOAD_VERIFYING'].includes(u.state)) return json(res, 400, { error: `Upload abhi chal raha hai (${u.state}). Khatam hone ka intezaar karo, phir hatao.` });
+        // force = only OUR queue row goes away; a video already on the platform stays there (owner removes it in the platform's own studio)
+        store.tx(() => { store.exec('DELETE FROM title_tests WHERE upload_id=?', id); store.exec('DELETE FROM uploads WHERE id=?', id); });
+        chCache = null; return json(res, 200, { ok: true, kept: force && !['READY_FOR_QC', 'QC_PASSED', 'UPLOAD_PENDING', 'FAILED', 'QC_FAILED'].includes(u.state) ? 'platform par video waise hi rahegi' : undefined }); } }
+      if (p === '/api/uploads/clear' && m === 'POST') { // owner: "queue saaf karo" - drop every upload row except in-flight or scheduled-for-later ones; platform copies are untouched
+        const rows = store.all<{ id: number }>("SELECT id FROM uploads WHERE state NOT IN ('UPLOADING','UPLOAD_VERIFYING','SCHEDULED_OR_APPROVED')");
+        store.tx(() => { for (const r of rows) { store.exec('DELETE FROM title_tests WHERE upload_id=?', r.id); store.exec('DELETE FROM uploads WHERE id=?', r.id); } });
+        chCache = null; return json(res, 200, { ok: true, removed: rows.length }); }
       const sp = /^\/api\/sources\/(\d+)\/status$/.exec(p);
       if (sp && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { status?: string }; if (b.status !== 'active' && b.status !== 'paused' && b.status !== 'pending') return json(res, 400, { error: 'invalid: status active|paused|pending' }); const r = store.exec(`UPDATE sources SET status=?, meta_json=json_set(COALESCE(meta_json,'{}'),'$.tries',0) WHERE id=? AND kind<>'local'`, b.status, Number(sp[1])); if (!r.changes) return json(res, 400, { error: 'Unknown source' }); return json(res, 200, { ok: true }); }
       if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, pace: cfg.edit.pace, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, bname: x.name, palette: x.palette.id, pname: x.palette.name, active: x.palette.active, tags: x.tags, mode: x.mode })) });
