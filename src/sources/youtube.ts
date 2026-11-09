@@ -4,6 +4,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { run, which } from '../util/proc.ts';
 import { ingestLocal } from './local.ts';
+import { fetchCaptions } from './ytcaptions.ts';
 import { info, warn } from '../util/log.ts';
 
 export type YtKind = 'channel' | 'video';
@@ -129,6 +130,7 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
     try {
       file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight);
       try { await fetchSignals(v.uri, file.replace(/\.[^.]+$/, '')); } catch { /* optional */ }
+      if (cfg.stt.youtubeCaptions !== false && cfg.stt.mode === 'auto') { const lang = await fetchCaptions(v.uri, file.replace(/\.[^.]+$/, ''), extra()); if (lang) info('YouTube captions mil gaye - speech-to-text model chalane ki zaroorat nahi (key-free, instant)', { uri: v.uri, lang }); }
       await ingestLocal(store, cfg, file, { authorized: true, title: v.title, sourceId: v.id });
       store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
     } catch (e) {

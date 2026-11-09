@@ -14,6 +14,7 @@ import type { Cue } from './transcript.ts';
 export type LocalEngineId = 'faster-whisper' | 'whisper-cpp' | 'whisper-cli' | 'custom' | 'voicestudio';
 export interface EngineInfo { id: LocalEngineId; label: string; available: boolean; detail: string; install: string; verified: string }
 export const VOICESTUDIO_DEFAULT = 'http://127.0.0.1:3900';
+export const isTermux = (): boolean => /com\.termux/.test(process.env.PREFIX ?? '') || !!process.env.TERMUX_VERSION;
 export const CPP_BINS = ['whisper-cli', 'whisper-cpp', 'whisper.cpp'];
 
 export const voiceStudioUrl = (cfg: Config) => (process.env.YT_CLIPS_VOICESTUDIO_URL || cfg.stt.voiceStudioUrl || VOICESTUDIO_DEFAULT).replace(/\/+$/, '');
@@ -21,7 +22,7 @@ export const voiceStudioUrl = (cfg: Config) => (process.env.YT_CLIPS_VOICESTUDIO
 const cppDirs = (): string[] => [process.env.WHISPER_CPP_DIR, join(process.env.HOME ?? '', 'whisper.cpp'), join(process.cwd(), 'vendor', 'whisper.cpp')].filter((x): x is string => !!x);
 export const cppModelPath = (cfg: Config) => {
   const set = process.env.YT_CLIPS_WHISPER_CPP_MODEL || cfg.stt.cppModel || ''; if (set && existsSync(set)) return set;
-  for (const d of cppDirs()) for (const m of ['small', 'base', 'tiny', 'medium']) { const f = join(d, 'models', `ggml-${m}.bin`); if (existsSync(f)) return f; }
+  for (const d of cppDirs()) for (const m of ['small', 'base', 'tiny', 'medium', 'small-q5_1', 'base-q5_1', 'tiny-q5_1']) { const f = join(d, 'models', `ggml-${m}.bin`); if (existsSync(f)) return f; }
   return set;
 };
 async function cppBin(): Promise<string | null> {
@@ -85,7 +86,10 @@ export async function runLocalCli(cfg: Config, id: LocalEngineId, wav: string, l
   if (id === 'whisper-cpp') {
     const bin = await cppBin(); if (!bin) throw new Error('whisper.cpp binary nahi mila'); const prefix = wav.replace(/\.wav$/, '');
     const base = ['-m', cppModelPath(cfg), '-f', wav, '-oj', '-of', prefix, '-l', l, '-np', ...(prompt ? ['--prompt', prompt.slice(0, 400)] : [])];
-    let r = await run(bin, [...base, '-ml', '1', '-sow'], { timeoutMs: 4 * 60 * 60_000 }); // word times; older builds without these flags: retry plain
+    // Phone/Termux: greedy decoding (-bs 1 -bo 1) instead of whisper.cpp's default beam search = clearly faster for a small accuracy cost. Off with YT_CLIPS_STT_BEAM=1.
+    const fast = isTermux() && process.env.YT_CLIPS_STT_BEAM !== '1' ? ['-bs', '1', '-bo', '1'] : [];
+    let r = await run(bin, [...base, ...fast, '-ml', '1', '-sow'], { timeoutMs: 4 * 60 * 60_000 }); // word times; older builds without these flags: retry plain
+    if (r.code !== 0 && fast.length) r = await run(bin, [...base, '-ml', '1', '-sow'], { timeoutMs: 4 * 60 * 60_000 });
     if (r.code !== 0) r = await run(bin, base, { timeoutMs: 4 * 60 * 60_000 });
     const jf = prefix + '.json'; try { if (r.code !== 0 || !existsSync(jf)) throw new Error(`whisper.cpp exit ${r.code}: ${r.stderr.slice(0, 150)}`); return parseWhisperCppJson(readFileSync(jf, 'utf8')); } finally { rmSync(jf, { force: true }); }
   }

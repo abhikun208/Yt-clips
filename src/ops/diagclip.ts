@@ -26,6 +26,7 @@ export async function diagClip(store: Store, clipId: number): Promise<string> {
   L.push(`CLIP #${c.id} (${c.output_id})  window in source: ${k.start_sec.toFixed(1)}s -> ${k.end_sec.toFixed(1)}s (${(k.end_sec - k.start_sec).toFixed(1)}s)`);
   L.push(`source: ${v.path}${v.duration ? `  (${(v.duration / 60).toFixed(1)} min)` : ''}`);
   L.push(`transcript file used for captions/title: ${used ? base + used : 'NONE (captions need a live clip-level transcription)'}`);
+  const { captionSource } = await import('../sources/ytcaptions.ts'); const csrc = captionSource(base); if (csrc) L.push(`transcript origin: ${csrc} (YouTube's own caption track, not our speech-to-text)`);
   const cues = loadTranscript(base); const inWin = cues.filter((q) => q.end > k.start_sec && q.start < k.end_sec);
   L.push(`cues in whole source: ${cues.length}; cues overlapping this clip: ${inWin.length}`);
   for (const q of inWin.slice(0, 12)) { const w = q.words?.length ?? 0; L.push(`  [${(q.start - k.start_sec).toFixed(2)} -> ${(q.end - k.start_sec).toFixed(2)}] ${w ? `${w} timed words` : 'NO word timing'} | ${q.text.slice(0, 80)}`); }

@@ -27,7 +27,7 @@ export interface Config {
   copyright?: { acoustidKey?: string; minScore?: number; checkMusic?: boolean; checkFinal?: boolean };
   capcut: { enabled: boolean; draftsDir?: string; seedDraft?: string; template?: string; preview?: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number; renderConcurrency: number };
-  stt: { mode: 'auto' | 'off'; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; indiaFirst?: boolean; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
+  stt: { mode: 'auto' | 'off'; /** use the YouTube caption track (instant, no key, no model) when a YouTube source has one in the right language; default on */ youtubeCaptions?: boolean; model: string; language: string; prompt?: string; engine: 'auto' | 'local' | 'api'; indiaFirst?: boolean; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
   youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
   storage: { remote: string; deleteLocal: boolean; purgeAfterDays: number; /** days after the LAST upload of a video was published, its local original + raw cuts are deleted (0 = keep forever); skipped when a cloud copy handles it */ localKeepDays: number };
