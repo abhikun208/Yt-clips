@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+// Termux/phone: the owner's log shows renders of 14-28 minutes for a 15 s clip. The full-frame blends (film grain, generated dust, light leak) are the heaviest filters -> off by default on a phone (still switchable per re-render in the dashboard, or YT_CLIPS_FULL_FX=1 for all).
+const PHONE_LITE = (/com\.termux/.test(process.env.PREFIX ?? '') || !!process.env.TERMUX_VERSION) && process.env.YT_CLIPS_FULL_FX !== '1';
 export interface Config {
   rootDir: string;
   dataDir: string;
@@ -55,7 +57,7 @@ const DEFAULTS = (rootDir: string): Config => {
     dbPath: join(dataDir, 'yt-clips.sqlite'),
     timezone: 'Asia/Kolkata',
     clip: { minSec: 15, maxSec: 60, targetSec: 35, maxClipsPerVideo: 12, minScore: 0.35, maxOverlap: 0.2, introMaxSec: 30, outroMaxSec: 30, skipHeadSec: 90, skipTailSec: 90, series: { enabled: true, partSec: 45, maxParts: 4 } },
-    edit: { pace: 'medium', width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', encoder: 'auto', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: true, particles: true, lightLeak: true, flash: true, progress: true }, jumpCuts: true, emphasisZoom: true, hookTitle: true, cta: 'SUBSCRIBE KARO 🔔' },
+    edit: { pace: 'medium', width: 1080, height: 1920, fps: 30, crf: 21, preset: 'veryfast', encoder: 'auto', reframe: 'crop', treatmentTarget: 0.4, targetLufs: -14, font: 'Poppins', captionPreset: 'classic-sun', captionEmphasis: [], exportSubtitles: true, beatEffects: true, speedRamp: true, vfx: { lut: true, grain: !PHONE_LITE, particles: !PHONE_LITE, lightLeak: !PHONE_LITE, flash: true, progress: true }, jumpCuts: true, emphasisZoom: true, hookTitle: true, cta: 'SUBSCRIBE KARO 🔔' },
     schedule: { perDayCap: 3, minGapMinutes: 180, quietHours: [0, 6], baselineHours: [12, 18, 21], jitterMinutes: 25 },
     gates: { publishEnabled: false, commentsAutoPost: false, publicVisibilityAllowed: false },
     studio: { dailyLimit: 40, pollMs: 3000, baseUrl: 'https://api.muapi.ai' },

@@ -5,6 +5,8 @@ import type { Store } from '../db.ts';
  * Best effort: any failure (offline, blocked, rate-limited) returns [] and the engine uses the clip's own keywords.
  * Cached 24 h in the kv table so a clip batch makes at most one request per keyword.
  */
+/** Keep only Roman-script suggestions that contain the keyword as a WHOLE word: a mis-heard word ("chin") must not drag in "chinese drama" or Devanagari names. */
+export const relevantSuggestions = (items: string[], keyword: string): string[] => { const k = keyword.trim().toLowerCase(); if (!k) return []; const re = new RegExp(`(^|[^\\p{L}])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}])`, 'u'); return items.filter((x) => !/[^\u0000-\u024F\u2000-\u206F\u{1F300}-\u{1FAFF}]/u.test(x) && re.test(x.toLowerCase())); };
 export async function suggestKeywords(store: Store | null, q: string, o: { hl?: string; fetchFn?: typeof fetch; max?: number } = {}): Promise<string[]> {
   const query = q.trim().slice(0, 60); if (query.length < 3) return [];
   const key = `suggest:${o.hl ?? 'hi'}:${query.toLowerCase()}`;

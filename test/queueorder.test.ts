@@ -30,3 +30,9 @@ test('no-speech + audible audio asks Gemini once; clip metadata does not repeat 
   assert.match(src, /no speech heard but the audio is not silent/); assert.match(src, /mean > -38/);
   const cm = (await import('node:fs')).readFileSync(new URL('../src/seo/clipmeta.ts', import.meta.url), 'utf8'); assert.match(cm, /nospeech:\$\{row\.output_id\}/);
 });
+test('related topics: whole-word + Roman only; self-harm slang never becomes a hashtag', async () => {
+  const { relevantSuggestions } = await import('../src/seo/suggest.ts'); const { buildMetadata } = await import('../src/seo/metadata.ts');
+  assert.deepEqual(relevantSuggestions(['chinese drama in hindi dubbed', 'चिंटू', 'चीन', 'chin chal na tha song', 'chin'], 'chin'), ['chin chal na tha song', 'chin']);
+  const md = buildMetadata({ transcript: 'kys kys kys bhai kys wahi kys', category: 'general', language: 'hi', duration: 15 });
+  assert.ok(![...md.hashtags, ...md.tags, ...md.keywords].some((x) => /kys/i.test(x)), JSON.stringify(md.hashtags));
+});

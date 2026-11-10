@@ -10,7 +10,7 @@ import { buildMetadata, validateMetadata, lintPackage, withPart, type Metadata }
 import { llmMetadata } from './llm.ts';
 import { llmChain } from '../ai/settings.ts';
 import { makeThumbnail } from './thumbnail.ts';
-import { suggestKeywords } from './suggest.ts';
+import { suggestKeywords, relevantSuggestions } from './suggest.ts';
 import { channelOfClip } from '../channels.ts';
 import { notify } from '../notify.ts';
 import { info, warn } from '../util/log.ts';
@@ -41,7 +41,7 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
     if ((to === 'auto' || to === 'hinglish') && (hasDevanagari(transcript) || (hookTxt && hasDevanagari(hookTxt)))) { transcript = toHinglish(transcript); if (hookTxt) hookTxt = toHinglish(hookTxt); cues = cues.map((c) => ({ ...c, text: toHinglish(c.text) })); if (language === 'hi') language = 'hinglish'; } }
   const base = { sourceTitle, transcript, category: cand.category, language: language ?? 'unknown', hook: hookTxt, cues, clipStart: cand.start_sec, duration: cand.end_sec - cand.start_sec, part, ...chMeta(ch) };
   const first = buildMetadata(base);
-  const related = transcript ? await suggestKeywords(store, first.keywords[0] ?? '', { hl: language === 'en' ? 'en' : 'hi' }) : [];
+  const related = transcript ? relevantSuggestions(await suggestKeywords(store, first.keywords[0] ?? '', { hl: language === 'en' ? 'en' : 'hi' }), first.keywords[0] ?? '') : [];
   let md = related.length ? buildMetadata({ ...base, relatedExtra: related }) : first;
   if (related.length) md = { ...md, warnings: [...md.warnings, `search suggestions used: ${related.slice(0, 3).join(' | ')}`] };
   let trends: string[] = []; if (transcript && llmChain(cfg).length) { try { const { fetchTrends, relevantTrends } = await import('./trends.ts'); trends = relevantTrends(transcript, await fetchTrends(store)); } catch { trends = []; } }

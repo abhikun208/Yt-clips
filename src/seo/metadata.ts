@@ -21,7 +21,11 @@ export function extractKeywords(text: string, n = 8): string[] {
  * Honest template metadata (works offline/free). Titles use transcript keywords when present; never invent facts, links or handles.
  * Links are included ONLY from `ownerLinks` (owner-verified config).
  */
-export function buildMetadata(i: MetaInput): Metadata {
+/** Words that must never become a tag/hashtag/keyword even if the (often mis-heard) transcript contains them: self-harm slang is a policy risk on a Short. */
+const UNSAFE = new Set(['kys', 'kms']);
+const scrubUnsafe = (m: Metadata): Metadata => { const ok = (x: string) => typeof x !== 'string' || !UNSAFE.has(x.replace(/^#/, '').trim().toLowerCase()); return { ...m, tags: m.tags.filter(ok), hashtags: m.hashtags.filter(ok), keywords: m.keywords.filter(ok) }; };
+export function buildMetadata(i: MetaInput): Metadata { return scrubUnsafe(buildMetadataRaw(i)); }
+function buildMetadataRaw(i: MetaInput): Metadata {
   const warnings: string[] = [];
   if (i.transcript.trim().split(/\s+/).length >= 8) { // enough real speech: use the local text engine (keyphrases, hook sentence, summary)
     const lang = (['hi', 'hinglish', 'en'].includes(i.language) ? i.language : 'unknown') as 'hi' | 'hinglish' | 'en' | 'unknown';
