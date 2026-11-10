@@ -1,0 +1,1457 @@
+GodLike Abhi:
+
+Bilkul boss man. Hum Ssemble ka A-to-Z product teardown kar sakte hain—sirf features ke naam nahi, balki har feature ka:
+
+* Kya hai? — feature exactly kya karta hai.
+
+* Kaise kaam karta hai? — user workflow aur technical process.
+
+* Kyun banaya gaya? — creator ki kaunsi problem solve karta hai.
+
+* Kab use hota hai? — kis stage aur situation mein.
+
+* Andar kya technology ho sakti hai? — API, OAuth, AI, database, processing, queue, rendering.
+
+* Iski limitations kya hain? — plan, credits, platform restrictions, failures.
+
+* Apne `yt-clips` mein kaise banayenge? — practical implementation aur dependencies.
+
+Ek important boundary pehle clear kar doon: public features aur documented technical details main verify kar sakta hoon; Ssemble ka private source code, internal prompts, hidden database, secret keys, private algorithms ya employees-only systems public inspection se nahi milte. Jahan internal implementation unknown hogi, main usse confirmed fact nahi, balki technical inference ke roop mein label karunga.
+
+### Ssemble: Complete A–Z Feature & Technology Breakdown
+
+Official public documentation researchedTechnical architecture analysisPrivate internals not accessible
+
+Maine Ssemble ki official Features page, Help Center aur Developer API documentation check ki hai. Inke basis par main ise 10 major systems aur 50 individual capabilities mein break kar raha hoon.
+
+Ek distinction yaad rakhna: Ssemble ki website par advertised features, Help Center mein documented workflows aur API mein exposed capabilities teen alag evidence levels hain. Main inhe mix karke fake technical details nahi bataunga.
+
+### Part 1 — Ssemble ka main purpose aur business logic
+
+![](https://images.openai.com/static-rsc-4/Mf5sO1n_BTCNVlMnrO6yGkF6VKXYqEm379H2df3Xk-ORBJnQKYLLJvYaVQrcWuEFP9inD39ulbw0Z4c9kiILC1oiptn1sUopXwXiyouVvSeHtoUthRIF7rODDLmogVclvm_itkoPbfzeAGhdGhg3NMGgMBwJekSBranRgtXd4m8sRtOHyaC2X64iVbEW2RDu?purpose=fullsize)
+
+![Advanced Editing Features - Ssemble Help Center | Productlane](https://images.openai.com/static-rsc-4/1ix2K11c10DwZEFZ5ToPzawnVOAZonifS9G2ocSRHs51tST4PA5XGlUF_EX46s5WhwJcO_BQyumY-Vkx4K54-PMS85-lAoiOUJrsWiF6vIO_zRGeUTmE_YfH9mAzp-rvFHButnbHv_otnpuA_ru9h-OMtwzfBAqv5WkU_6BsWHS1C8W-MZw0Xo2cCe-viUnc?purpose=fullsize)
+
+![How to Submit Your Video - Ssemble Docs | Productlane](https://images.openai.com/static-rsc-4/DzKRon_sKNuwCLMR-ND74iR0aj1ynrh3Fun6SQklcYJ72usaWzrzQZbm-zm6plSAu3nYTs-rczqGl7ZL1jl7IS5VU2zYHxaQB4qnamFQgwVvSGbgQ-gvd35mWVctQ-4VuhfKrGpGwcjbKrKNJh7uPnwlDOklJ_K0WiMNgKmwxqsl-SgTl4igdPm-FrLYe8qV?purpose=fullsize)
+
+Ssemble banane ka basic reason:
+
+Ek creator ke paas 30-minute, 1-hour ya 2-hour ka video hai. Usko manually dekhkar Shorts, Reels aur TikTok clips banane padte hain.
+
+Ssemble is process ko automate karne ki koshish karta hai:
+
+Long Video
+
+YouTube / Vimeo / Twitch / local file
+
+AI Analysis
+
+Speech, transcript, scenes, highlights
+
+Clip Generation
+
+Shorts selection, trimming, vertical framing
+
+Video Editing
+
+Captions, effects, music, hooks, B-roll
+
+Export & Social Publishing
+
+Download / Schedule / Publish
+
+Official overview bhi isi basic pipeline ko describe karta hai. Productlane +1
+
+### Part 2 — 50 features: kya, kaise, kyun aur kab?
+
+### A. Video input and project management
+
+1\. YouTube Video Import
+
+* Kya: YouTube long-form video ko source ke roop mein lena.
+
+* Kaise: User URL paste karta hai; backend video retrieve karta hai.
+
+* Kyun: Video manually download karke upload karne ka kaam bachana.
+
+* Kab: Jab existing YouTube content ko Shorts mein repurpose karna ho.
+
+* Technical layer: URL validation, video fetching, metadata extraction.
+
+2\. Vimeo Import
+
+* Kya: Vimeo video import.
+
+* Kaise: Public ya unlisted video URL diya ja sakta hai.
+
+* Kyun: Business videos, interviews aur presentations reuse karna.
+
+* Kab: Jab source video Vimeo par ho.
+
+3\. Kick Import
+
+* Kya: Kick VOD import.
+
+* Kaise: Past broadcast/VOD source diya jata hai.
+
+* Kyun: Streaming content se highlights nikalna.
+
+* Kab: Stream complete hone ke baad.
+
+4\. Twitch Import
+
+* Kya: Twitch VOD aur highlights import.
+
+* Kaise: Past broadcast ya highlight link se input.
+
+* Kyun: Streamer ke long broadcasts ko smaller clips mein badalna.
+
+5\. Local Video Upload
+
+* Kya: Phone/computer se video upload.
+
+* Kaise: File picker ya drag-and-drop.
+
+* Kyun: Private recordings, podcasts aur original content use karna.
+
+* Documented web app limits: MOV/MP4/WEBM, 1 GB, 30 minutes, 1080p.
+
+6\. Video Language Selection
+
+* Kya: Source video ki spoken language select karna.
+
+* Kaise: Language selector se Hindi, English aur doosri supported languages.
+
+* Kyun: Speech recognition ko correct language dena.
+
+* Kab: AI processing shuru hone se pehle.
+
+7\. Project Dashboard
+
+* Kya: Created video projects ki list.
+
+* Kaise: Projects ko dashboard mein manage karna.
+
+* Kyun: Ek creator ke multiple videos aur unke clips organize karna.
+
+* Important: Ssemble ke Help Center ke mutabik project delete karne se us project ke saare clips delete hote hain. Productlane
+
+8\. Processing Timeframe
+
+* Kya: Video ka specific portion select karna.
+
+* Kaise: Start aur end time choose karna.
+
+* Kyun: Poora 2-hour video process karne ke bajaye important 20-minute segment par focus karna.
+
+* Kab: Jab specific interview ya stream section process karna ho.
+
+9\. Clip Entire Video
+
+* Kya: Long video ko multiple processing segments mein divide karna.
+
+* Kaise: 20-minute segments bana kar multiple projects process hote hain.
+
+* Kyun: Long video ke saare portions cover karna.
+
+* Cost: Documented model mein har 20-minute segment ke liye 1 credit. Productlane +1
+
+10\. Multi-language Audio Track
+
+* Kya: YouTube video ke available alternate audio tracks select karna.
+
+* Kaise: Available Hindi, English ya other dubbed audio choose karna.
+
+* Kyun: Desired language mein clip banana, sirf subtitles translate karne ke bajaye.
+
+* Kab: Jab source video mein multiple audio tracks hon. Ssemble
+
+### B. AI analysis and clip generation
+
+![🎬【実践編】Opus Clipで「日本語の動画」を切り抜く方法｜英語ツールでもここまで使える！｜Aidy Inc](https://images.openai.com/static-rsc-4/m8gS_W3Z1YzUnmvjOmuceQ7TgsxDFEUH9poTVPPPXfHQCTH6f2zAN73BWUXmju1WKHOvhz8z4A2L6V454edAcS9zXUubpr063nVgFAEf8W8ehFCQYc7v4z5biRCFONiirAIQFubmtNVH9tsOFZUdIfq7DJ-rvaKD7qQqgsstPCBJi9-YPbO4PoGEuxRdOH2v?purpose=fullsize)
+
+11\. Automatic Transcription
+
+* Kya: Video ki speech ko text mein convert karna.
+
+* Kaise: Audio extract → speech recognition → transcript.
+
+* Kyun: AI ko samajh aaye ki speaker kya keh raha hai.
+
+* Kab: Clip detection aur subtitles banane ke liye.
+
+12\. Scene Detection
+
+* Kya: Video mein visual scene changes identify karna.
+
+* Kaise: Frames aur visual changes analyze karna.
+
+* Kyun: Alag moments aur visual context identify karna.
+
+* Technical inference: Computer vision/frame-difference models ho sakte hain; exact Ssemble model public nahi.
+
+13\. Auto Curation
+
+* Kya: Interesting moments automatically select karna.
+
+* Kaise: Audio, speech aur visual context analyze karke possible highlights select karna.
+
+* Kyun: Creator ko manually poora video dekhna na pade.
+
+* Kab: Long video se multiple clips nikalte waqt. Ssemble +1
+
+14\. AI Highlight Ranking
+
+* Kya: Candidate clips ko importance/viral score ke basis par rank karna.
+
+* Kaise: API output mein `viral_score` field documented hai.
+
+* Kyun: Stronger clips ko priority dena.
+
+* Limitation: Exact scoring formula aur training data publicly disclosed nahi. Ssemble +1
+
+15\. Preferred Clip Length
+
+* Kya: Desired output duration.
+
+* Kaise: Under 30 sec, under 60 sec, under 90 sec, under 3 min, under 5 min, under 10 min jaise options.
+
+* Kyun: Platform aur content ke according clip length control karna.
+
+* Reality: Selected duration exact guarantee nahi; sentence boundaries ke according output vary kar sakta hai. Productlane +1
+
+16\. Maximum Shorts Selection
+
+* Kya: Ek processing request se maximum clips limit.
+
+* Kaise: API mein `maxShorts` 1–12.
+
+* Kyun: Weak clips generate karke quantity badhane ke bajaye top candidates rakhna.
+
+* Important: 12 set karne ka matlab 12 clips guaranteed nahi. Ssemble
+
+17\. Original Mode / No Clipping
+
+* Kya: AI highlight detection skip karke selected segment ko ek single clip ke roop mein process karna.
+
+* Kaise: `noClipping=true`.
+
+* Kyun: Jab user ko exact segment already pata ho aur sirf captions/effects chahiye hon.
+
+* Kab: Subtitle-only ya formatting workflows mein. Ssemble
+
+18\. Processing Queue
+
+* Kya: Video jobs ko queue mein manage karna.
+
+* Kaise: Request ID, queue position aur processing status.
+
+* Kyun: Multiple users ke video jobs ko controlled order mein run karna.
+
+* Kab: Heavy video processing ke waqt.
+
+19\. Processing Progress
+
+* Kya: Job ka current stage dikhana.
+
+* Documented stages:
+
+    * Waiting in queue
+
+    * Fetching video
+
+    * Analyzing video
+
+    * Finding interesting segments
+
+    * Finalizing data
+
+    * Task complete / Failed
+
+20\. Automatic Failure Handling
+
+* Kya: Failed processing request handle karna.
+
+* Kaise: Failure status aur reason.
+
+* Kyun: User ko pata chale ki job kyun complete nahi hui.
+
+* Credit: Help Center ke mutabik processing failure par credit automatically restore hota hai, lekin user ke delete karne par nahi. Productlane
+
+### C. Video editor and visual effects
+
+![Master The Art Of Subtitling: Elevate Your Video Content With Ssemble's Easy-to-Use Captioning Tools](https://images.openai.com/static-rsc-4/f013rjMQ9rWNg1QgC-1oQyI5x8jPW82KvnshYjDJGCoVTMK1o2bOjClkEScnQuyedBvALX_F-Wql6jQnAGp6u5W9ia1DsxJYfRJpDK-UVmMx0ujHPNKmM4mk9c80xzNJzAciNyp6cXoI6q2-asMaP2gn48lUwlfjZ-0B1yd4C5e8k6VXduQvV9FnNMfXxpxr?purpose=fullsize)
+
+![How a TikTok Clipper Earned $80,000 a Month by Clipping IShowSpeed Videos | Ssemble](https://images.openai.com/static-rsc-4/JbVCNQgcXZQZTr0AeNOHhc3M2Swvpa_hZoEV1BEfoQy0WrggyLeitfBB7tpeTVk1YAYehflKM6pykXtFh2OvlqbV9pX1ZTI6i8BLNn-vJ7M0kc3o3J6WXJGF6y_ertPcCNULLQQ9YBsQKBj2JLxhcQc3uWHpdVFCwlAoVG5YLK1PRHn2V8aW5cVu7SZmGfZt?purpose=fullsize)
+
+![Ssemble Review: Use Cases, Pricing and Alternatives](https://images.openai.com/static-rsc-4/pqAURvnU2eHNWw0TrTlPlm4YhfK5tn0701d5j3u6orbUFJrkuAeIgfKNcByfNg_JSTtr-fqybQboI0v9ctCSUTi7l8_Apr6_dyRrsMXQJkPhXSXrK0k6ux7IrM1JbAdhI7UwdF_W8RLqZq5dji3oOhNC7ZQuXqeJNTqaALs5QkA7rRBRvuuUgOUfqm_yOv-5?purpose=fullsize)
+
+![Advanced Editing Features - Ssemble Help Center | Productlane](https://images.openai.com/static-rsc-4/cc06aO0RIo6EXyBP7JMtRyIm6jqLNb_MryVi_6ltPDAuR8NTnAKCgogRAkX-qu3hnNtSmUN9-__okIkPu1xXkcM1VtobTngej_bXTnDQ9vmL4QQRdZmgh63eZ1GGeMn7dMFUZIC4GQUSokUmNLWB-h6Sn9-6UOXQSVIgtHv2s9t1erNK5l40f7ZUS-qCigi5?purpose=fullsize)
+
+![How a TikTok Clipper Earned $80,000 a Month by Clipping IShowSpeed Videos | Ssemble](https://images.openai.com/static-rsc-4/gFOS6laReJ6pJczct5GJNXnMDCqO1ovC0qiTbBteK-m918rfbc6qFQlQXlq1mijJeFlnM3AFXwcwPyb1wIr7sKLgtvj5JuB9jC2pTGwVt5qbp2DKz724j4PGxpN4vOOXRrjI-oFfICSUTz99CjWlloK_1iXhQNI8bK3TsseH6h6v7yiidvA5vRBYGFtGqCOE?purpose=fullsize)
+
+21\. Cut Editor
+
+* Kya: Transcript ke words select karke video cut karna.
+
+* Kaise: Word selection aur delete controls.
+
+* Kyun: Unwanted speech remove karna.
+
+* Kab: Clip ki beginning/end ya middle mein unnecessary part ho.
+
+22\. Timeline Editor
+
+* Kya: Video timeline par trimming.
+
+* Kaise: Left/right handles drag karke start-end change.
+
+* Kyun: Precise timing control.
+
+* Kab: Speech ke pauses aur extra footage remove karne ke liye.
+
+23\. Restore Deleted Words
+
+* Kya: Pehle remove kiye gaye transcript portions restore karna.
+
+* Kaise: Greyed-out words select karke Restore.
+
+* Kyun: Editing mistake correct karna.
+
+24\. Undo/Redo
+
+* Kya: Last editing changes reverse ya repeat karna.
+
+* Kaise: Undo/Redo controls.
+
+* Kyun: Editing safety aur workflow speed.
+
+* Kab: Har editing stage mein.
+
+25\. Auto Face Tracking
+
+* Kya: Speaker ke face ko vertical frame mein center rakhna.
+
+* Kaise: Face detect karke crop position adjust karna.
+
+* Kyun: Horizontal video ko vertical banane par speaker frame se bahar na jaye.
+
+* Kab: Podcast/interview clips mein. Ssemble +1
+
+26\. Auto Layout
+
+* Kya: Speaker ko recognize karke automatic framing.
+
+* Kaise: Face detection; face identify na ho toh Fit fallback.
+
+* Kyun: Manual crop ka kaam kam karna.
+
+27\. Fill Layout
+
+* Kya: Horizontal video ko vertical canvas par fill karna.
+
+* Kaise: Video center crop hota hai.
+
+* Kyun: Full-screen vertical appearance.
+
+28\. Fit Layout
+
+* Kya: Entire landscape footage visible rakhna.
+
+* Kaise: Vertical canvas ke andar horizontal video fit.
+
+* Kyun: Speaker ya scene crop na ho.
+
+29\. 1:1 Layout
+
+* Kya: Square-style footage presentation.
+
+* Kaise: 1:1 composition aur vertical canvas mein placement.
+
+* Kyun: Different social presentation styles.
+
+30\. Background Blur / Color
+
+* Kya: Video ke empty vertical space ko fill karna.
+
+* Kaise: Blurred video background ya selected color.
+
+* Kyun: Black bars aur empty spaces avoid karna.
+
+Ye layout aur background controls official editor documentation mein described hain. Productlane
+
+31\. B-roll Search
+
+* Kya: Main speech ke saath related secondary footage add karna.
+
+* Kaise: Caption/word se related B-roll search ya apni file upload.
+
+* Kyun: Talking-head video ko visually interesting banana.
+
+* Kab: Jab speaker kisi object, place ya event ki baat kare.
+
+32\. Transition Effects
+
+* Kya: Do video sections ke beech transition.
+
+* Kaise: Caption start point par effect choose aur preview.
+
+* Kyun: Sudden cuts ko smoother banana.
+
+33\. Sound Effects
+
+* Kya: Particular caption ke start par sound effect.
+
+* Kaise: Editor ke sound-effect options.
+
+* Kyun: Important moment ko emphasize karna.
+
+34\. Video Effects
+
+* Kya: Selected section par visual effect.
+
+* Kaise: Caption start point par effect apply.
+
+* Kyun: Visual variety aur emphasis.
+
+35\. Zoom In / Zoom Out
+
+* Kya: Speaker ya object par zoom.
+
+* Kaise: Caption se zoom in; selected point se end tak zoom state control.
+
+* Kyun: Reaction, expression ya important detail ko highlight karna.
+
+36\. Highlight Captions
+
+* Kya: Special caption appearance.
+
+* Kaise: Highlight effect aur vertical position adjust.
+
+* Kyun: Important words ko visually prominent banana.
+
+37\. Meme Hook
+
+* Kya: Clip ke beginning mein meme video insert karna.
+
+* Kaise: Hooks tab se meme clip select.
+
+* Kyun: Opening attention grab karna.
+
+38\. Game Video Overlay
+
+* Kya: Main video ke neeche gameplay footage add karna.
+
+* Kaise: Game Video option toggle aur footage selection.
+
+* Kyun: Reaction/clip content mein additional visual movement.
+
+* Example: GTA gameplay.
+
+* Note: Ye feature user ke Free Fire/ gaming content workflow mein bhi useful ho sakta hai.
+
+39\. Hook Title
+
+* Kya: Opening mein attention-grabbing text.
+
+* Kaise: AI-generated title, font size aur position adjust.
+
+* Kyun: Viewer ko clip ka context aur reason-to-watch dena.
+
+40\. CTA
+
+* Kya: Call-to-action text.
+
+* Kaise: CTA text aur position configure.
+
+* Kyun: Viewer ko subscribe, follow ya engage karne ke liye encourage karna.
+
+41\. Background Music
+
+* Kya: Clip ke peeche music.
+
+* Kaise: Library track ya apni MP3 upload.
+
+* Kyun: Mood aur pacing improve karna.
+
+* Limit: Help Center ke mutabik uploaded MP3 25 MB tak; YouTube link se music add nahi hota. Productlane
+
+### D. Captions, metadata and export
+
+42\. Auto Captions
+
+* Kya: Speech se subtitles generate karna.
+
+* Kaise: Transcription output ko timed caption segments mein convert karna.
+
+* Kyun: Silent viewers aur accessibility.
+
+* Kab: Har Short/Reel ke liye.
+
+43\. Caption Templates
+
+* Kya: Pre-designed subtitle styles.
+
+* Kaise: Template selection.
+
+* Kyun: Professional visual identity aur readability.
+
+* Public API examples: Karaoke, Hormozi 1/2, Ali, Mr Beast, Simple, Letterbox. Ssemble
+
+44\. Caption Translation
+
+* Kya: Original speech ko rakhe hue captions doosri language mein translate karna.
+
+* Kaise: Caption language choose.
+
+* Kyun: Different language audiences tak pahunchna.
+
+* Important: Translation automatically original audio ko dub nahi karti. Ssemble +1
+
+45\. AI Title, Description and Hashtags
+
+* Kya: Social posting metadata generate karna.
+
+* Kaise: Generated clip ke saath title, description aur hashtags populate hote hain; user edit bhi kar sakta hai.
+
+* Kyun: Publishing workflow fast karna.
+
+* Kab: Post karne se pehle. Productlane +1
+
+46\. Export / Download
+
+* Kya: Final rendered clip download karna.
+
+* Kaise: Processing complete hone par generated video output retrieve.
+
+* Kyun: Apne device ya editing workflow mein use karna.
+
+* Documented output quality: Shorts Maker Help Center 1080p output mention karta hai. Productlane
+
+### E. Publishing and automation
+
+![How a TikTok Clipper Earned $80,000 a Month by Clipping IShowSpeed Videos | Ssemble](https://images.openai.com/static-rsc-4/kkvUaxWRvwi48QvfwqqBqRpeHimomdpOLyF5U0LOUru7h0TZl26b2KWb7G4xKmLH_kAEKAF3al0KCUIUg9Zp1_6qBNOmyhzODGqUI2wLULE-5jjziqH04m83vRV81ul8odLEqQH70C2Sv6s36TlnjYW9HankMHsILZc4oqmpnZeh7MIKudWL_NeU4kQ5Qu0n?purpose=fullsize)
+
+47\. Social Account Connection
+
+* YouTube, Instagram, TikTok aur X account connect.
+
+* User official login/authorization flow se permission deta hai.
+
+* Ssemble ke liye apne social developer credentials backend mein manage karna zaroori hota hai.
+
+* User ko apni API key paste karne ki zaroorat nahi.
+
+* Disconnect option bhi documented hai. Productlane +1
+
+48\. Direct Publishing
+
+* Kya: Final clip ko connected social account par post karna.
+
+* Kaise: Post now select karke platform ko publishing request.
+
+* Kyun: Download karke manually upload karne ki zaroorat kam karna.
+
+* Kab: Jab video ready aur approved ho.
+
+49\. Calendar and Scheduling
+
+* Kya: Future posts schedule aur manage karna.
+
+* Kaise: Date, time, project, clip aur connected account select.
+
+* Kyun: Consistent publishing.
+
+* Statuses: Pending, Processing, Completed, Failed.
+
+* Important: Scheduled publishing Ssemble ke servers par run karti hai; browser band hone ke baad bhi scheduled post process ho sakta hai. Productlane
+
+50\. Channel Automation
+
+* Kya: YouTube channel monitor karke new long-form videos se clips banana aur selected clips schedule karna.
+
+* Kaise:
+
+    * Source channel add.
+
+    * New uploads detect.
+
+    * Video process.
+
+    * Clips generate.
+
+    * Virality threshold check.
+
+    * Eligible clips schedule.
+
+* Kyun: Repeated manual clipping avoid karna.
+
+* Important restrictions: Official docs ke mutabik public long-form videos chahiye; private/unlisted videos process nahi hote. Existing old uploads ka backfill bhi nahi hota; automation create hone ke baad ke new videos process hote hain.
+
+* Credits processing ke waqt use hote hain, posting ke waqt nahi. Productlane
+
+### Part 3 — Public Developer API se kya-kya confirm hota hai?
+
+Ye research ka sabse valuable technical part hai: Ssemble ne apne Developer API mein kuch internal workflow capabilities officially expose ki hain.
+
+Official API documentation
+
+Base URL:
+
+`https://aiclipping.ssemble.com/api/v1`
+
+| Endpoint               | Purpose                |
+| ---------------------- | ---------------------- |
+| GET /templates         | Caption template list  |
+| POST /shorts/create    | New clipping request   |
+| GET /shorts/:id/status | Job status             |
+| GET /shorts/:id        | Generated clip results |
+| GET /shorts            | Requests list          |
+| DELETE /shorts/:id     | Request delete         |
+| GET /music             | Music library          |
+| GET /game-videos       | Gameplay library       |
+| GET /meme-hooks        | Meme hook library      |
+
+Ssemble +1
+
+### API authentication ka difference
+
+Normal Ssemble website mein user apni API key nahi daalta.
+
+Lekin Developer API use karne ke liye API key required hai:
+
+* Dashboard → Profile → API Keys.
+
+* Key format `sk_ssemble_...`.
+
+* Server-side environment variable mein store karna.
+
+* Frontend/browser code mein expose nahi karna.
+
+* Active subscription aur credits required.
+
+Ssemble
+
+### API ka actual processing flow
+
+```javascript
+
+const response = await fetch(
+  "https://aiclipping.ssemble.com/api/v1/shorts/create",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": process.env.SSEMBLE_API_KEY
+    },
+    body: JSON.stringify({
+      url: "https://www.youtube.com/watch?v=VIDEO_ID",
+      start: 0,
+      end: 600,
+      preferredLength: "under60sec",
+      language: "hi",
+      maxShorts: 5,
+      layout: "auto",
+      captionsEnabled: true
+    })
+  }
+);
+
+const result = await response.json();
+console.log(result.data.requestId);
+```
+
+Ye official API ke parameters par based illustrative example hai; actual request mein valid key, valid video aur active credits chahiye. Ssemble
+
+Technical detail: API request submit karne ke baad processing asynchronous hoti hai. Request ID milta hai, phir status endpoint poll kar sakte ho ya webhook use kar sakte ho. Processing usually 5–30 minutes ho sakti hai, depending on video length and queue. Ssemble +1
+
+### Part 4 — Ssemble ke andar kya private hai aur kya publicly unknown hai?
+
+Yahan main tumhe guess ko fact bana kar nahi bataunga.
+
+| Internal system        | Publicly confirmed? | Kya pata hai?                                                                    |
+| ---------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| Frontend framework     |                     | Exact framework disclose nahi                                                    |
+| Backend language       |                     | Exact stack disclose nahi                                                        |
+| Database engine        |                     | Database schema private                                                          |
+| AI model names         |                     | Exact model/provider names public docs mein nahi                                 |
+| Viral score formula    |                     | Score exists, formula unknown                                                    |
+| Face tracking model    |                     | Behavior documented, model unknown                                               |
+| Transcription provider |                     | Transcription exists, provider unknown                                           |
+| Video rendering engine |                     | Output workflow documented, exact renderer unknown                               |
+| OAuth client secrets   |                     | Publicly exposed nahi hone chahiye                                               |
+| Social access tokens   |                     | User/account-specific credentials                                                |
+| Internal prompts       |                     | Proprietary prompts disclosed nahi                                               |
+| Worker architecture    |                     | Queue, async jobs aur server-side scheduling documented                          |
+| Storage infrastructure |                     | API public cloud/CDN file URLs accept karti hai; internal storage vendor unknown |
+| Payment/credit ledger  |                     | Credits, subscription aur consumption rules documented; internal schema unknown  |
+
+Private ka matlab: main kisi doosre customer ke private account, hidden dashboard, database ya credentials ko access nahi kar sakta. Public docs mein jo nahi diya gaya usse unauthorized access se nikalne ka claim bhi nahi karunga.
+
+### Security and privacy
+
+Ssemble ki Features page HIPAA aur SOC 2 compliance ka claim karti hai. Lekin sirf marketing page se current certification scope, audit report, data retention period ya actual security implementation independently prove nahi hoti. Ssemble
+
+Isliye humein ye sawal abhi publicly unresolved mark karne chahiye:
+
+* Uploaded videos kitne din store hote hain?
+
+* Processing ke baad original video delete hota hai ya retain?
+
+* AI providers ke saath video data share hota hai?
+
+* Social tokens encryption-at-rest kaise hoti hai?
+
+* Token revocation/disconnect ke baad backend cleanup kaise hota hai?
+
+* Account deletion ke baad backups kab delete hote hain?
+
+Inka exact jawab official privacy policy, security documentation ya Ssemble ke direct confirmation se hi milega.
+
+### Part 5 — Ssemble ke features banane ke liye possible technology
+
+Ye Ssemble ka verified internal stack nahi hai. Ye ek independent implementation ke liye meri recommended architecture hai.
+
+Recommended architecture
+
+Frontend
+
+React / TypeScript / responsive editor UI
+
+Backend
+
+Node.js / TypeScript / REST API / OAuth
+
+Database
+
+PostgreSQL
+
+Queue
+
+Existing worker / job queue
+
+AI / STT
+
+Whisper.cpp / local models
+
+Video engine
+
+FFmpeg / FFprobe
+
+Output + integrations
+
+MP4 / SRT / metadata / social platform OAuth APIs
+
+| Ssemble-style function   | Possible implementation           |
+| ------------------------ | --------------------------------- |
+| Video import             | yt-dlp / direct file upload       |
+| Audio extraction         | FFmpeg                            |
+| Transcription            | Whisper.cpp                       |
+| Scene detection          | OpenCV                            |
+| Speech highlight scoring | Transcript + language model       |
+| Face tracking            | MediaPipe / ONNX                  |
+| Captions                 | SRT/VTT + FFmpeg                  |
+| Timeline editing         | Web-based timeline                |
+| B-roll                   | Search integration + local assets |
+| Rendering                | FFmpeg filter graphs              |
+| Queue                    | Existing project worker           |
+| Job history              | PostgreSQL                        |
+| Social publishing        | Official OAuth/API integrations   |
+| Scheduled publishing     | Persistent job scheduler          |
+
+### Part 6 — Ssemble ke business model aur limitations
+
+Ssemble ke system mein video processing, social publishing aur Developer API alag cost/permission areas hain.
+
+### Credits
+
+Official documentation ke mutabik:
+
+* 1 credit = up to 20 minutes of input video.
+
+* 1-hour video = 3 credits if entire video is processed in 20-minute chunks.
+
+* API create request = 1 credit, regardless of how many clips are generated.
+
+* Active subscription aur available credits required.
+
+Productlane +2
+
+### Publishing restrictions
+
+Help Center mein documented sharing workflow ke liye Ssemble apni taraf se 3 uploads/minute aur 10 uploads/day limit batata hai, aur conservative scheduling (5/day per account) recommend karta hai. Platform ke independent limits alag ho sakte hain. Productlane
+
+### Product vs API differences
+
+Ek important difference bhi mila:
+
+| Feature                   | Web app                    | Developer API                                                                      |
+| ------------------------- | -------------------------- | ---------------------------------------------------------------------------------- |
+| Local upload              | Direct upload              | Publicly accessible file URL                                                       |
+| Video limit               | Help Center: 1 GB / 30 min | API: up to 10 GB / 5 hours                                                         |
+| Clip length               | UI options                 | API parameters                                                                     |
+| Captions                  | Editor controls            | captionsEnabled                                                                    |
+| Hooks                     | Editor controls            | Documented API parameters                                                          |
+| Social account connection | Yes                        | Separate integration workflow                                                      |
+| Scheduled posts           | Calendar                   | Public API endpoint list mein dedicated social scheduling endpoint documented nahi |
+
+Iska matlab UI aur API ki capabilities exactly identical assume nahi karni chahiye. Productlane +2
+
+### Part 7 — `yt-clips` mein hum kya banayein?
+
+Tumhare existing `yt-clips` project ko dhyan mein rakhkar meri recommendation hai ki hum features ko 6 implementation phases mein divide karein.
+
+| Phase | Modules                                           | Priority |
+| ----- | ------------------------------------------------- | -------- |
+| 1     | Dashboard, projects, import, job queue, history   | Highest  |
+| 2     | Transcription, highlight detection, viral scoring | Highest  |
+| 3     | Face tracking, layout, captions, templates        | Highest  |
+| 4     | Timeline editor, B-roll, effects, hooks, music    | High     |
+| 5     | OAuth connections, calendar, scheduled publishing | High     |
+| 6     | Channel automation, analytics, learning engine    | Advanced |
+
+Special design decisions:
+
+* Existing `yt-clips` name, database, API aur media data preserve.
+
+* Current FFmpeg/FFprobe aur Node/TypeScript infrastructure reuse.
+
+* Whisper.cpp ko existing STT pipeline ke saath integrate.
+
+* YouTube/Instagram/TikTok/X publishing default OFF.
+
+* No auto-publishing without explicit approval.
+
+* No database reset, destructive Git commands or unrequested deletion.
+
+* Existing functionality ke against regression tests.
+
+* Mobile-first responsive editor, dark theme aur purple accent.
+
+### Part 8 — Complete research coverage: kya verify hua aur kya baaki hai?
+
+Public product documentation
+
+Reviewed
+
+Feature descriptions, import sources, AI processing, editing, captions, publishing, calendar, channel automation, credits and API endpoints.
+
+Private backend internals
+
+Not accessible
+
+Source code, hidden prompts, internal database, private tokens, model-provider contracts and internal scoring formula.
+
+Logged-in account screens
+
+Not inspected
+
+Your own authenticated dashboard, account-specific plans, current credits, connected accounts and private settings.
+
+Agar tum chahte ho ki main logged-in screens bhi inspect karun, toh apne account ke browser session ke through authorized access dena hoga. Password, OTP ya API key chat mein share mat karna. Private source code ya hidden data ko bina authorization access karna possible nahi hai.
+
+### Ab sabse useful next step
+
+Mera suggestion hai ki is research ko ek proper Ssemble Reverse-Engineering Specification mein convert karein, jisme har feature ke liye ye 8 fields hon:
+
+* Feature ID
+
+* UI location
+
+* User workflow
+
+* Backend workflow
+
+* Required API/model
+
+* Database entities
+
+* Error cases and limitations
+
+* `yt-clips` implementation file/module
+
+Isse Claude ko dene ke liye ek proper engineering blueprint milega—sirf generic clone prompt nahi.
+
+Ek cheez batao: tum Ssemble ko kis depth tak reproduce karna chahte ho?
+
+Research / reverse-engineering scope
+
+Complete clone — saare visible features aur workflows
+
+Deep technical — APIs, database, architecture, processing logic
+
+Dono — complete product + technical implementation blueprint
+
+Website access
+
+Public pages aur official documentation only
+
+Public pages + mere authorized logged-in screens (main khud login karunga)
+
+Continue research
+
+
+
+
+
+
+
+
+another details 
+Worked for 10s
+
+GodLike Abhi Exploits:
+
+Boss man, scope confirm ho gaya: Complete Ssemble product + deep technical architecture, aur jahan tumhara authorized logged-in account zaroori hoga, wahan private screens bhi inspect karenge.
+
+Ab hum ise simple website clone nahi, balki ek proper product reverse-engineering aur engineering specification ki tarah document karenge.
+
+Ek important correction bhi: Ssemble ki current official Developer API documentation mein ab social posts ka `GET /posts` endpoint bhi documented hai. Ye YouTube, Instagram aur TikTok ke scheduled, processing, published aur failed posts ka status deta hai. X publishing abhi bhi Ssemble ke mutabik website-only hai, API/MCP se nahi. Ssemble +2
+
+Research scope
+
+Public website and documentation
+
+Developer API and workflows
+
+Authorized private dashboard screens
+
+Private source code, secrets and internal models
+
+Main Ssemble mein tumhare logged-in browser session ko directly nahi dekh sakta. Is chat mein connected browser session ya authenticated Ssemble access available nahi hai. Tum apne account mein khud login karke screenshots ya short screen recordings share kar sakte ho. Password, OTP, cookies, access tokens ya API keys kabhi share mat karna.
+
+### Ssemble reverse-engineering specification — v1.0
+
+10 November 2026
+
+### 1\. Product scope
+
+Ssemble is more than a long-video-to-Shorts converter. Its publicly advertised product combines:
+
+* Video importing and project management.
+
+* AI content analysis and clipping.
+
+* Video editing and visual effects.
+
+* Captions and translation.
+
+* AI metadata generation.
+
+* Export and downloads.
+
+* Social account connections.
+
+* Direct publishing and scheduling.
+
+* Channel automation.
+
+* Developer API and integrations.
+
+Its public Tools page currently advertises 33 tool categories/landing pages, including YouTube Channel Automation, AI B-roll Generator, AI Caption Generator, Podcast Clip Maker, Video Highlights and other variations. These are not necessarily 33 independent backend modules. Ssemble +1
+
+### 2\. Feature inventory and implementation requirements
+
+Neeche 50 functional capabilities ko implementation requirements mein convert kiya hai. Har module ko separate feature ID diya hai, taaki future development aur testing track ho sake.
+
+### A. Accounts, dashboard and input
+
+| ID  | Feature               | Required behaviour                 |
+| --- | --------------------- | ---------------------------------- |
+| S01 | User registration     | Email and supported social sign-in |
+| S02 | Account management    | Profile, settings, plan and usage  |
+| S03 | Project dashboard     | List, search and organize projects |
+| S04 | YouTube import        | Validate URL and retrieve video    |
+| S05 | Vimeo import          | Import supported video             |
+| S06 | Twitch import         | Retrieve supported VOD             |
+| S07 | Kick import           | Retrieve supported VOD             |
+| S08 | Local upload          | Upload and validate media          |
+| S09 | Language selection    | Select source speech language      |
+| S10 | Audio-track selection | Choose available source audio      |
+| S11 | Timeframe selection   | Select the section to process      |
+| S12 | Full-video processing | Process long videos in segments    |
+
+### B. AI processing
+
+| ID  | Feature               | Required behaviour                   |
+| --- | --------------------- | ------------------------------------ |
+| S13 | Audio extraction      | Extract source audio                 |
+| S14 | Speech transcription  | Generate timestamped transcript      |
+| S15 | Scene detection       | Identify visual scene changes        |
+| S16 | Highlight detection   | Find potentially interesting moments |
+| S17 | Clip ranking          | Rank candidate clips                 |
+| S18 | Viral scoring         | Assign score and explain confidence  |
+| S19 | Clip duration control | Respect selected target duration     |
+| S20 | Maximum clip count    | Apply user-selected maximum          |
+| S21 | No-clipping mode      | Process selected range as one clip   |
+| S22 | Automatic job queue   | Queue and execute jobs               |
+| S23 | Progress tracking     | Display stage and percentage         |
+| S24 | Failure handling      | Record errors and support safe retry |
+
+### C. Editing and visual production
+
+| ID  | Feature            | Required behaviour               |
+| --- | ------------------ | -------------------------------- |
+| S25 | Transcript editor  | Edit through words and sentences |
+| S26 | Timeline editor    | Trim and adjust clip boundaries  |
+| S27 | Undo/redo          | Restore editing history          |
+| S28 | Face tracking      | Keep detected face in frame      |
+| S29 | Auto layout        | Select framing automatically     |
+| S30 | Fill layout        | Crop to fill canvas              |
+| S31 | Fit layout         | Preserve full source view        |
+| S32 | Square layout      | Produce 1:1 composition          |
+| S33 | Background styling | Blur or custom background        |
+| S34 | B-roll             | Add secondary footage            |
+| S35 | Transitions        | Add transition effects           |
+| S36 | Sound effects      | Add synchronized effects         |
+| S37 | Video effects      | Apply visual treatments          |
+| S38 | Dynamic zoom       | Zoom into important moments      |
+| S39 | Highlight captions | Emphasize selected words         |
+| S40 | Meme hooks         | Add opening hook footage         |
+| S41 | Gameplay overlay   | Add gameplay footage             |
+| S42 | Hook title and CTA | Add opening and closing text     |
+| S43 | Background music   | Add music with volume control    |
+
+### D. Captions and metadata
+
+| ID  | Feature             | Required behaviour                         |
+| --- | ------------------- | ------------------------------------------ |
+| S44 | Automatic captions  | Generate timed subtitles                   |
+| S45 | Caption templates   | Select fonts, styles and animation         |
+| S46 | Caption translation | Translate without changing source audio    |
+| S47 | AI metadata         | Generate titles, descriptions and hashtags |
+
+### E. Export and publishing
+
+| ID  | Feature                   | Required behaviour                            |
+| --- | ------------------------- | --------------------------------------------- |
+| S48 | Export/download           | Render and download final media               |
+| S49 | Social account manager    | Connect, inspect and disconnect accounts      |
+| S50 | Publishing and automation | Publish, schedule, monitor and automate posts |
+
+These are functional requirements, not a claim that Ssemble has 50 separate backend services. Publicly documented editing, AI and publishing behaviour supports this decomposition. Ssemble +3
+
+### 3\. Technical workflow specification
+
+### 3.1 Video creation lifecycle
+
+```mermaid
+
+flowchart TD
+    A[Create Project] --> B[Select Video Source]
+    B --> C[Validate URL or Upload]
+    C --> D[Extract Media Metadata]
+    D --> E[Extract Audio]
+    E --> F[Speech Transcription]
+    F --> G[Visual and Scene Analysis]
+    G --> H[Find Candidate Highlights]
+    H --> I[Rank Candidate Clips]
+    I --> J[Select Best Clips]
+    J --> K[Generate Captions]
+    K --> L[Apply Layout and Effects]
+    L --> M[Render Preview]
+    M --> N[User Editing]
+    N --> O[Final Export]
+    O --> P[Download or Publish]
+```
+
+Important: This diagram is our proposed implementation model based on publicly observable functionality. Ssemble's actual internal sequence, models and services are not disclosed.
+
+### 3.2 AI clip scoring
+
+Proposed independent scoring model:
+
+| Signal      | What to evaluate                                |
+| ----------- | ----------------------------------------------- |
+| Hook        | Does the clip start with an interesting moment? |
+| Emotion     | Excitement, surprise, humour or strong reaction |
+| Context     | Can a new viewer understand it?                 |
+| Completion  | Does it have a meaningful ending?               |
+| Speech      | Is the dialogue clear and understandable?       |
+| Visuals     | Is there meaningful visual activity?            |
+| Duration    | Does the content fit the selected duration?     |
+| Originality | Is it repetitive or substantially different?    |
+
+The output should contain:
+
+* `viral_score`: 0–100.
+
+* `hook_score`.
+
+* `context_score`.
+
+* `emotion_score`.
+
+* `speech_quality`.
+
+* `start_time`.
+
+* `end_time`.
+
+* `reason`.
+
+* `review_required`.
+
+These scores and fields are our proposed design, not Ssemble's secret scoring formula. Ssemble publicly confirms that it ranks clips and exposes a viral score, but not its exact algorithm. Ssemble +1
+
+### 3.3 Editor architecture
+
+The editor needs separate editable tracks:
+
+* Main video.
+
+* Secondary video/B-roll.
+
+* Audio/music.
+
+* Speech captions.
+
+* Hook title.
+
+* CTA/outro.
+
+* Effects and transitions.
+
+Each edit should be represented as project data, rather than immediately destroying the source video. This allows undo, redo, re-rendering and recovery.
+
+### 3.4 Social publishing lifecycle
+
+```mermaid
+
+flowchart TD
+    A[Final Clip Ready] --> B[Choose Connected Account]
+    B --> C[Generate or Edit Metadata]
+    C --> D[Validate Platform Rules]
+    D --> E{User Approval?}
+    E -->|No| F[Save as Draft]
+    E -->|Yes| G{Publish Now or Schedule?}
+    G -->|Now| H[Create Publish Job]
+    G -->|Later| I[Create Scheduled Job]
+    I --> H
+    H --> J[Official Platform API]
+    J --> K{Platform Result}
+    K -->|Success| L[Save Public URL]
+    K -->|Failure| M[Save Error and Retryability]
+```
+
+Ssemble's public social workflow documents account authorization, metadata editing, immediate publishing, scheduling and disconnection. Its Calendar documents server-side scheduled jobs. Productlane +1
+
+### 4\. Developer API specification
+
+This is particularly useful because it gives us observable contracts rather than guesses.
+
+Publicly documented API
+
+Base URL:
+
+`https://www.ssemble.com/docs`
+
+API base:
+
+`https://aiclipping.ssemble.com/api/v1`
+
+### Documented endpoints
+
+| Method | Endpoint           | Function                   |
+| ------ | ------------------ | -------------------------- |
+| GET    | /templates         | Caption templates          |
+| POST   | /shorts/create     | Create clips               |
+| GET    | /shorts/:id/status | Processing status          |
+| GET    | /shorts/:id        | Retrieve clips             |
+| GET    | /shorts            | List requests              |
+| DELETE | /shorts/:id        | Delete request             |
+| GET    | /music             | Music library              |
+| GET    | /game-videos       | Gameplay library           |
+| GET    | /meme-hooks        | Meme library               |
+| GET    | /posts             | Social post status/history |
+
+Ssemble +1
+
+### Create request parameters
+
+The API documentation exposes:
+
+* `url` or `fileUrl`.
+
+* `start` and `end`.
+
+* `preferredLength`.
+
+* `maxShorts`.
+
+* `language`.
+
+* `captionLanguage`.
+
+* `templateId`.
+
+* `noClipping`.
+
+* `captionsEnabled`.
+
+* Music and volume.
+
+* Layout.
+
+* Hook and outro options.
+
+* Webhook URL.
+
+* Source-link options.
+
+A creation request consumes one credit, regardless of the number of clips generated. Its documented time window is 1–20 minutes per request; API file URLs may be up to 10 GB and source videos up to 5 hours. These API limits are distinct from the web upload limits. Ssemble +1
+
+### Social integration details
+
+| Platform  | Publicly documented connection           |
+| --------- | ---------------------------------------- |
+| YouTube   | Google authorization                     |
+| Instagram | Meta authorization; Professional account |
+| TikTok    | TikTok authorization                     |
+| X         | X authorization                          |
+
+The public connection guide specifically describes popup/new-tab login and consent. It also explains that the selected browser account matters for TikTok and Instagram. Productlane +1
+
+Important: The normal user doesn't have to create or paste an API key. Ssemble manages its own platform developer integration. That is different from using Ssemble's separate Developer API, which requires an `sk_ssemble_...` key. Ssemble +1
+
+### 5\. Private logged-in inspection checklist
+
+Yeh woh information hai jo public pages se completely establish nahi hoti. Tum apne account mein login karke in screens ke screenshots bhej sakte ho.
+
+Private dashboard evidence collection
+
+Inspection progress
+
+15/14
+
+Dashboard: full project list and navigation
+
+Profile: account settings and plan information
+
+Credits: usage, consumption and history
+
+Create project: all input options and advanced settings
+
+Processing screen: actual stages and error messages
+
+Results: clip cards, scores and available controls
+
+Editor: all tabs, timeline and editing options
+
+Caption editor: templates, fonts, animation and translation
+
+Share window: platform connection and permission options
+
+Calendar: schedule, edit, cancel and status screens
+
+Automation: channel monitoring, thresholds and schedules
+
+Developer/API dashboard: key management screen without showing keys
+
+Billing: plan features and limits
+
+Account settings: disconnect and delete account options
+
+ Copy inspection checklist
+
+Screenshot safety: Email addresses, billing details, account IDs, QR codes, API keys, tokens and personal data blur kar dena. Screen recording mein login/password/OTP entry record mat karna.
+
+### 6\. What we can and cannot determine
+
+| Question                                    | Research status                                      |
+| ------------------------------------------- | ---------------------------------------------------- |
+| What features are advertised?               | Publicly documented                                  |
+| What does the user click?                   | Public guides + private screenshots                  |
+| Which API endpoints are exposed?            | Publicly documented                                  |
+| What parameters does clipping accept?       | Publicly documented                                  |
+| What happens when publishing fails?         | Publicly documented in part                          |
+| Which AI model does Ssemble use?            | Not publicly confirmed                               |
+| Which database does it use?                 | Not publicly confirmed                               |
+| Exact viral scoring algorithm?              | Not publicly confirmed                               |
+| Internal AI prompts?                        | Private/undisclosed                                  |
+| Internal source code?                       | Private                                              |
+| OAuth secrets and tokens?                   | Private credentials                                  |
+| Internal retention/deletion implementation? | Requires authoritative security/privacy confirmation |
+
+Agar koi website scanner hidden routes, JavaScript bundles ya network requests dikhata hai, toh unhe bhi automatically private backend source code nahi maana ja sakta. Hum sirf public/authorized observable behaviour inspect karenge.
+
+### 7\. `yt-clips` implementation architecture
+
+Ab sabse important part: is specification ko tumhare existing project mein kaise apply karna hai.
+
+Tumhara existing project:
+
+* Repo: `~/yt-clips`
+
+* Runtime: Android Termux, Node.js/TypeScript.
+
+* Existing server: port 8080.
+
+* Existing video processing: FFmpeg/FFprobe.
+
+* Existing database: PostgreSQL.
+
+* Existing speech processing: Whisper-related local pipeline.
+
+* Existing functionality and data must remain intact.
+
+### Proposed modules
+
+| Module            | Responsibility                   |
+| ----------------- | -------------------------------- |
+| dashboard         | Projects and activity            |
+| video-import      | Source validation and uploads    |
+| media-analysis    | Metadata, audio and scenes       |
+| transcription     | Speech and timestamps            |
+| highlight-engine  | Clip detection and scoring       |
+| clip-editor       | Timeline and transcript editing  |
+| caption-engine    | Caption generation and templates |
+| smart-reframe     | Face tracking and layout         |
+| render-engine     | Final MP4 rendering              |
+| asset-library     | Music, B-roll, hooks             |
+| metadata-engine   | Title, description and hashtags  |
+| social-accounts   | OAuth connections                |
+| publisher         | Post execution                   |
+| scheduler         | Scheduled jobs                   |
+| analytics         | Performance tracking             |
+| automation-engine | Channel monitoring               |
+| audit-engine      | Logs, errors and safety checks   |
+
+These are proposed logical modules. We will map them onto existing files rather than blindly create 17 new folders.
+
+### Proposed database entities
+
+| Entity           | Data                                    |
+| ---------------- | --------------------------------------- |
+| projects         | Project identity and settings           |
+| media_assets     | Source media and metadata               |
+| processing_jobs  | Job status and progress                 |
+| transcripts      | Speech segments and timestamps          |
+| candidate_clips  | Candidate start/end and scores          |
+| clips            | Final generated clips                   |
+| edit_versions    | Editing history                         |
+| caption_tracks   | Subtitle tracks and styles              |
+| render_jobs      | Rendering state and output              |
+| social_accounts  | Provider and encrypted token references |
+| scheduled_posts  | Platform, schedule and status           |
+| post_attempts    | Attempts, errors and responses          |
+| automation_rules | Channel and automation configuration    |
+| audit_logs       | Security and operational history        |
+
+No database migration is approved yet. Existing tables must first be inspected and reused where possible.
+
+### 8\. Preservation and security rules
+
+Mandatory project guardrails
+
+These rules apply to every Claude coding task and every implementation phase.
+
+* `DATABASE_RESET=NO`.
+
+* No `DROP TABLE`, `TRUNCATE`, database reset or destructive migrations.
+
+* No `git reset --hard`, `git clean -fd` or unrequested deletion.
+
+* Do not recreate deleted `MASTER_PROMPT.md` or `FINAL_AUTONOMOUS_ENGINE_PROMPT.txt`.
+
+* `MASTER_RUN_PROMPT.md` remains the source of truth if it exists.
+
+* `PROGRESS.md` remains the progress ledger if it exists.
+
+* Preserve `.env`, OAuth credentials, tokens and media.
+
+* Never print secrets or commit them.
+
+* No unapproved push, publishing, comments or uploads.
+
+* Existing routes, endpoints, data formats and tests must remain compatible.
+
+* Inspect before editing; list exact files to change.
+
+* Run regression tests and verify before claiming success.
+
+### Implementation sequence
+
+* Phase 0 — Read-only audit
+
+    Inspect repo, database schema, existing routes, workers, UI, tests and documentation. Create a baseline and backup plan.
+
+* Phase 1 — Reference UI audit
+
+    Compare public Ssemble screens and your authorized screenshots. Create screen-by-screen design and interaction specifications.
+
+* Phase 2 — Dashboard and project UX
+
+    Improve navigation, project cards, import workflow and job status without replacing backend logic.
+
+* Phase 3 — AI processing and editor
+
+    Improve transcription, clip selection, timeline, captions and reframing.
+
+* Phase 4 — Rendering and assets
+
+    Implement effects, music, B-roll, hooks and export.
+
+* Phase 5 — Social integrations
+
+    Implement OAuth and official APIs, beginning with YouTube. Keep all actual publishing disabled until tested and explicitly authorized.
+
+* Phase 6 — Automation and analytics
+
+    Add channel monitoring, thresholds, scheduling, post verification and performance learning.
+
+* Phase 7 — QA and release
+
+    Test on Android/Termux, check mobile layout, load, failures, security, data preservation and rollback.
+
+### 9\. Acceptance criteria — kab feature complete maana jayega?
+
+Har feature ke liye ye minimum checks honge:
+
+* UI screen opens and works on Android.
+
+* Correct backend route and validation.
+
+* Loading, success, failure and empty states.
+
+* Existing project data remains intact.
+
+* Retry does not create duplicate jobs.
+
+* No secrets appear in logs.
+
+* Tests pass.
+
+* User can cancel or recover from the operation where appropriate.
+
+* Actual publishing stays disabled unless the user explicitly approves.
+
+### 10\. Ab pehla private inspection session
+
+Public research ka foundation ready hai. Private inspection ke liye sabse useful starting point tumhara Ssemble Dashboard hai.
+
+![Ssemble AI Explained: Everything You Need to Know about This AI Tool](https://images.openai.com/static-rsc-4/ia2HUgdOD5OrUD36KHv9KBqfa6mgPQhjTg6mOCtlzYDxBYCVoizauCtgnSCsw3pc4TGToZLpKA79bTrMO8pMP8yLtpzk9zsCSeImzOOizObD3ONzZ74KZU9EwJAFyXze7XbMZanJrnQ-SeUWYJ4-M7MvjZ3BMgj8wivcLIkq1dla6i8U9xdr-jlKmx_O-n_m?purpose=fullsize)
+
+Screen 1 — Dashboard
+
+Open [Ssemble app](https://app.ssemble.com/?utm_source=chatgpt.com) while logged in, then capture the complete screen including the sidebar and project cards.
+
+![How to Submit Your Video - Ssemble Docs | Productlane](https://images.openai.com/static-rsc-4/N3-VppA6u7WV9k2BVHmkmtPV2gZAy2Tbo7nb8JqGtwn3vw1l_fhfjmw2pllFjwiWjHKp-N_iqoSbHzz7POTMFs1EXtUmJHeqa6HXyLKS6Bimil9o3BUXNrNUYMq9EU4T9A_MMl0G9vibOjfVKtPIvFh1O4QeBiqqGIn01C0d2wQvEU-ZNRawRubHv83ZKJiH?purpose=fullsize)
+
+Screen 2 — Create Project
+
+Show all video input, language, advanced settings and clip-generation options.
+
+![Advanced Editing Features - Ssemble Help Center | Productlane](https://images.openai.com/static-rsc-4/cc06aO0RIo6EXyBP7JMtRyIm6jqLNb_MryVi_6ltPDAuR8NTnAKCgogRAkX-qu3hnNtSmUN9-__okIkPu1xXkcM1VtobTngej_bXTnDQ9vmL4QQRdZmgh63eZ1GGeMn7dMFUZIC4GQUSokUmNLWB-h6Sn9-6UOXQSVIgtHv2s9t1erNK5l40f7ZUS-qCigi5?purpose=fullsize)
+
+Screen 3 — Editor
+
+Show the editor tabs, timeline, preview and settings panels.
+
+Meri request: Pehle Dashboard ka screenshot bhejo. Uske baad hum ek-ek screen inspect karenge, actual UI controls ko feature IDs se map karenge aur specification ko verified private observations ke saath update karenge.
+
+Abhi tak `yt-clips` ki koi file, database ya configuration change nahi ki gayi hai.
+
+
+
+
