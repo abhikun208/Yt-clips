@@ -15,6 +15,10 @@ const VOD_HOSTS = /^(www\.|m\.)?(twitch\.tv|kick\.com)$/i;
 /** Accept only https YouTube URLs. Returns kind + normalized URL. Throws on anything else (no arbitrary-host fetching). */
 export function parseYoutubeUrl(raw: string): { kind: YtKind; url: string; videoId?: string; web?: boolean } {
   let u: URL; try { u = new URL(raw.trim()); } catch { throw new Error('invalid URL'); }
+  if (u.protocol === 'https:' && /^(www\.|player\.)?vimeo\.com$/i.test(u.hostname)) { // Vimeo (public / unlisted) as a single video; yt-dlp has the extractor (NOT run against the real site from this sandbox)
+    const m = /^\/(?:video\/)?(\d{6,12})(?:\/([0-9a-f]{8,16}))?\/?$/i.exec(u.pathname); if (!m) throw new Error('unsupported Vimeo URL (use vimeo.com/ID or player.vimeo.com/video/ID)');
+    return { kind: 'video', web: true, videoId: m[1], url: `https://vimeo.com/${m[1]}${m[2] ? '/' + m[2] : ''}` };
+  }
   if (u.protocol === 'https:' && VOD_HOSTS.test(u.hostname)) {
     if (!/^\/(videos\/\d{5,14}|video\/[0-9a-f-]{20,40}|[\w.-]{2,40}\/(videos|clips)\/[\w-]{5,60})\/?$/i.test(u.pathname)) throw new Error('unsupported VOD URL (use a twitch.tv/videos/ID or kick.com/video/ID link)');
     return { kind: 'video', web: true, videoId: u.pathname.replace(/\/$/, '').split('/').pop(), url: `https://${u.hostname.replace(/^(www\.|m\.)/, '')}${u.pathname.replace(/\/$/, '')}` };

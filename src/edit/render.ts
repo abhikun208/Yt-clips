@@ -167,7 +167,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text
   if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
-    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
+    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, punctuation: cfg.edit.captionPunctuation, cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
     writeFileSync(assPath, cap.ass, 'utf8');
   }

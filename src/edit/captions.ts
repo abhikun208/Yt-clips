@@ -30,7 +30,7 @@ const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').tri
 interface TWord { w: string; a: number; b: number }
 export interface CaptionResult { ass: string; timing: 'measured' | 'approximate' | 'none'; font: string; script: Script; presetId: string; warnings: string[] }
 export interface CaptionOpts {
-  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number;
+  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
 }
 
 /** Word timeline for the clip window. Uses real per-word timestamps when the cue has them; else splits by word length (approximate). */
@@ -80,7 +80,8 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   const warnings: string[] = [];
   let preset: Preset | undefined = getPreset(o.preset ?? DEFAULT_PRESET);
   if (!preset) { warnings.push(`unknown caption preset "${o.preset}", using ${DEFAULT_PRESET}`); preset = getPreset(DEFAULT_PRESET)!; }
-  const { words, timing } = timeWords(cues, clipStart, clipEnd);
+  const tw = timeWords(cues, clipStart, clipEnd); const timing = tw.timing;
+  const words = o.punctuation === false ? tw.words.map((x) => ({ ...x, w: x.w.replace(/[.,!?;:"“”।]+/g, '') })).filter((x) => x.w) : tw.words;
   const dur = clipEnd - clipStart;
   const script = detectScript(words.map((w) => w.w).join(' ') + ' ' + (title ?? ''));
   let f = pickFont(script, o.resolveFont); if (f.warning) warnings.push(f.warning);

@@ -51,3 +51,12 @@ test('captions are always Roman Hinglish: Urdu script is romanised by the AI or 
   const r2 = await applyCaptionLanguage(cues, 'auto', 'hi', [{ baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }], f);
   assert.equal(r2.cues[0]!.text, 'ye kya kar diya');
 });
+test('Vimeo URLs are accepted as single videos; caption punctuation can be switched off', async () => {
+  const { parseYoutubeUrl } = await import('../src/sources/youtube.ts'); const { buildStyledAss } = await import('../src/edit/captions.ts');
+  assert.deepEqual(parseYoutubeUrl('https://vimeo.com/123456789'), { kind: 'video', web: true, videoId: '123456789', url: 'https://vimeo.com/123456789' });
+  assert.equal(parseYoutubeUrl('https://player.vimeo.com/video/123456789').url, 'https://vimeo.com/123456789');
+  assert.throws(() => parseYoutubeUrl('https://vimeo.com/channels/staffpicks'));
+  const cues = [{ start: 0, end: 2, text: 'Bhai, ye kya hai!' }];
+  const withP = buildStyledAss(cues, 0, 3, null, { width: 540, height: 960 }), noP = buildStyledAss(cues, 0, 3, null, { width: 540, height: 960, punctuation: false });
+  assert.match(withP.ass, /kya|KYA/i); assert.ok(/hai!|HAI!/i.test(withP.ass)); assert.ok(!/hai!|HAI!|Bhai,|BHAI,/i.test(noP.ass));
+});
