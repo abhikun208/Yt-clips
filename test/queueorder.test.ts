@@ -36,3 +36,9 @@ test('related topics: whole-word + Roman only; self-harm slang never becomes a h
   const md = buildMetadata({ transcript: 'kys kys kys bhai kys wahi kys', category: 'general', language: 'hi', duration: 15 });
   assert.ok(![...md.hashtags, ...md.tags, ...md.keywords].some((x) => /kys/i.test(x)), JSON.stringify(md.hashtags));
 });
+test('foreign-script leak ("vЕЛЕЙmi") is transliterated/removed and reported; Devanagari/Latin untouched', async () => {
+  const { stripForeignScripts } = await import('../src/ai/hinglish.ts');
+  assert.deepEqual(stripForeignScripts('from vЕЛЕЙmi'), { text: 'from vELEYmi', removed: 0 });
+  assert.equal(stripForeignScripts('aaj مرحبا bhai').removed, 5); assert.equal(stripForeignScripts('aaj مرحبا bhai').text, 'aaj bhai');
+  assert.deepEqual(stripForeignScripts('मुझे ye pasand hai 😀'), { text: 'मुझे ye pasand hai 😀', removed: 0 });
+});

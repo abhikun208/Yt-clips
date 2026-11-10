@@ -78,3 +78,12 @@ function word(w: string): string {
 }
 const TOKEN = /[ऀ-ॿ‌‍]+/g;
 export function toHinglish(text: string): string { return hasDevanagari(text) ? text.replace(TOKEN, (m) => word(m)).replace(/।/g, '.').replace(/\s+/g, ' ').trim() : text; }
+
+const CYR: Record<string, string> = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+/** Letters of a script that is neither Latin nor Devanagari (Cyrillic, Arabic/Urdu, CJK ...): speech models sometimes leak them into a Hindi transcript ("vЕЛЕЙmi" in the owner's caption). Cyrillic is transliterated, any other foreign script is removed and COUNTED so the caller can report it (never silent). Devanagari is left to toHinglish. */
+export function stripForeignScripts(text: string): { text: string; removed: number } {
+  let removed = 0;
+  const out = text.replace(/[\u0400-\u04FF]/g, (c) => { const l = CYR[c.toLowerCase()]; if (l === undefined) { removed++; return ''; } return c === c.toLowerCase() ? l : l.toUpperCase(); })
+    .replace(/[\u0590-\u08FF\u0980-\u1FFF\u2E80-\uD7FF\uF900-\uFDFF\uFE70-\uFEFF\uFF66-\uFFDC]/g, (c) => { if (/[\u0900-\u097F]/.test(c)) return c; removed++; return ''; });
+  return { text: out.replace(/\s{2,}/g, ' ').trim(), removed };
+}

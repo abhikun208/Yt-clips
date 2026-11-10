@@ -1,4 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { stripForeignScripts } from '../ai/hinglish.ts';
+import { warn } from '../util/log.ts';
 
 export interface Word { start: number; end: number; text: string }
 export interface Cue { start: number; end: number; text: string; /** real per-word timing when the STT engine provided it */ words?: Word[]; /** engine confidence when it reports one (faster-whisper): avg_logprob (0 = sure, < -1 = doubtful) and no_speech_prob */ conf?: { logprob: number; no_speech: number } }
@@ -27,6 +29,12 @@ export function parseSubtitles(text: string): Cue[] {
 
 /** Load a sidecar transcript if present (.srt/.vtt/.json [{start,end,text}]). Returns [] when none (no fake transcript). */
 export function loadTranscript(base: string): Cue[] {
+  const cues = loadTranscriptRaw(base); let removed = 0;
+  const out = cues.map((c) => { const t = stripForeignScripts(c.text); removed += t.removed; return { ...c, text: t.text, words: c.words?.map((w) => { const x = stripForeignScripts(w.text); removed += x.removed; return { ...w, text: x.text }; }).filter((w) => w.text) }; }).filter((c) => c.text);
+  if (removed) warn('foreign-script letters found in the transcript (Cyrillic -> Latin, other scripts removed)', { removed, file: base.split('/').pop() });
+  return out;
+}
+function loadTranscriptRaw(base: string): Cue[] {
   if (existsSync(base + '.edited.json')) { const e = loadJsonCues(base + '.edited.json'); if (e.length) return e; }
   for (const ext of ['.srt', '.vtt']) if (existsSync(base + ext)) return parseSubtitles(readFileSync(base + ext, 'utf8'));
   if (existsSync(base + '.json')) return loadJsonCues(base + '.json');
