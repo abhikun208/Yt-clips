@@ -22,7 +22,7 @@ test('split_gameplay: real ffmpeg, 2 inputs → 9:16 output; filler pick determi
 test('CTA overlay appears in the last seconds of the ASS; not for tiny clips', () => {
   const cues = [{ start: 0, end: 3, text: 'bhai yeh dekho kya hua' }];
   const a = buildStyledAss(cues, 0, 20, null, { width: 1080, height: 1920, cta: 'AGLA PART DEKHO' });
-  assert.match(a.ass, /Dialogue: 1,0:00:17\.00,0:00:20\.00,Title,.*AGLA PART DEKHO/);
+  assert.match(a.ass, /Dialogue: 1,0:00:17\.00,0:00:20\.00,Title,.*AGLA PART( |\\N)DEKHO/);
   assert.ok(!/AGLA PART/.test(buildStyledAss(cues, 0, 4, null, { width: 1080, height: 1920, cta: 'AGLA PART DEKHO' }).ass));
 });
 import { LENGTHS, isLengthBucket } from '../src/analysis/analyzer.ts';
