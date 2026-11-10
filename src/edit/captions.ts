@@ -88,7 +88,7 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   // Preset display font (Anton, Bebas Neue ...) only for Latin text and only when it is actually installed/bundled; otherwise keep the normal font.
   const dispFont = script === 'latin' && p.font && o.resolveFont ? o.resolveFont([p.font]) : undefined;
   if (dispFont) f = { font: dispFont };
-  const SC = Math.min(1.6, Math.max(0.7, o.sizeScale ?? Number(process.env.YT_CLIPS_CAPTION_SCALE ?? 1.25))); // owner: text was too small on a phone -> 25% bigger by default
+  const SC = Math.min(2.4, Math.max(0.7, o.sizeScale ?? Number(process.env.YT_CLIPS_CAPTION_SCALE ?? 1.9))); // owner: text was too small on a phone -> 25% bigger by default
   const size = Math.round((H * p.sizePct * SC) / 100), outline = Math.max(2, Math.round((H * p.outlinePct) / 100)), shadow = Math.round((H * p.shadowPct) / 100);
   const align = p.position === 'bottom' ? 2 : p.position === 'center' ? 5 : 8;
   const marginV = p.position === 'bottom' ? Math.round(H * 0.2) : p.position === 'top' ? Math.round(H * 0.16) : 0;
@@ -98,7 +98,7 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   const borderStyle = p.box ? 3 : 1;
   const outColor = p.box ? assColor(pal.box, 0x30) : p.glow ? assColor(pal.active, 0x60) : assColor(pal.outline);
   const style = `Style: Cap,${f.font},${size},${assColor(capStyle.primary)},${assColor(capStyle.secondary)},${outColor},${assColor('#000000', 0x70)},${bold},0,${p.underline ? -1 : 0},0,100,100,0,0,${borderStyle},${p.glow ? Math.round(outline * 1.8) : outline},${shadow},${align},60,60,${marginV},1`;
-  const tSize = Math.round(H * 0.036 * Math.min(1.6, Math.max(0.7, o.sizeScale ?? Number(process.env.YT_CLIPS_CAPTION_SCALE ?? 1.25))));
+  const tSize = Math.round(H * 0.036 * Math.min(2.4, Math.max(0.7, o.sizeScale ?? Number(process.env.YT_CLIPS_CAPTION_SCALE ?? 1.9))));
   const head = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${o.width}
