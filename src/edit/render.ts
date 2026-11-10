@@ -148,7 +148,7 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
     } catch (e) { warn('clip transcription error', { err: (e as Error).message.slice(0, 120) }); }
   } const cues0 = cuts ? remapCuesCuts(cuesRaw, c.start_sec, cuts) : cuesRaw;
   let cues = ramp ? remapCues(cues0, c.start_sec, ramp) : cues0; const effEnd = c.start_sec + m.duration;
-  const chan0 = channelOfVideo(store, c.video_id); const toLang = ro.translateTo ?? chan0.config.translateTo ?? cfg.edit.captionLanguage ?? 'auto'; let translation: string | null = null;
+  const chan0 = channelOfVideo(store, c.video_id); const toLang: CaptionTarget = 'auto'; /* owner rule: ALL captions are Roman Hinglish (Hindi/Urdu words in English letters), never Devanagari/Urdu script, never a translation: the old en/hi/original choices are ignored */ let translation: string | null = null;
   if (toLang && cues.length) { const tr = await applyCaptionLanguage(cues.filter((q) => q.end > c.start_sec && q.start < effEnd), toLang, chan0.config.language, llmChain(cfg)); if (tr.used) { cues = tr.cues; translation = `${toLang} via ${tr.used}`; } else if (tr.note) translation = `not translated: ${tr.note}`; }
   if (cues.length && toLang !== 'original') { const { loadCorrections, correctCues } = await import('../ai/corrections.ts'); cues = correctCues(cues, loadCorrections(cfg.dataDir)); } // one standard spelling for common Hinglish variants + the owner's own corrections.json
   if (cues.length && toLang !== 'original' && cfg.edit.llmCaptionFix !== false) { // self-healing spelling/brand-name pass by the owner's LLM chain (guarded: same word count, close words only); no key = skipped

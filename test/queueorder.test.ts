@@ -39,6 +39,15 @@ test('related topics: whole-word + Roman only; self-harm slang never becomes a h
 test('foreign-script leak ("vЕЛЕЙmi") is transliterated/removed and reported; Devanagari/Latin untouched', async () => {
   const { stripForeignScripts } = await import('../src/ai/hinglish.ts');
   assert.deepEqual(stripForeignScripts('from vЕЛЕЙmi'), { text: 'from vELEYmi', removed: 0 });
-  assert.equal(stripForeignScripts('aaj مرحبا bhai').removed, 5); assert.equal(stripForeignScripts('aaj مرحبا bhai').text, 'aaj bhai');
+  assert.equal(stripForeignScripts('aaj 日本 bhai').removed, 2); assert.equal(stripForeignScripts('aaj 日本 bhai').text, 'aaj bhai'); assert.equal(stripForeignScripts('aaj مرحبا bhai').removed, 0); // Urdu script is romanised later by the AI step
   assert.deepEqual(stripForeignScripts('मुझे ye pasand hai 😀'), { text: 'मुझे ye pasand hai 😀', removed: 0 });
+});
+test('captions are always Roman Hinglish: Urdu script is romanised by the AI or removed, never shown', async () => {
+  const { applyCaptionLanguage } = await import('../src/ai/translate.ts');
+  const cues = [{ start: 0, end: 2, text: 'یہ کیا کر دیا' }, { start: 2, end: 4, text: 'bhai suno' }];
+  const r = await applyCaptionLanguage(cues, 'auto', 'hi', []);
+  assert.ok(r.cues.every((c) => !/[؀-ۿ]/.test(c.text)) && r.cues.some((c) => c.text === 'bhai suno'));
+  const f = (async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"lines":["ye kya kar diya","bhai suno"]}' } }] }))) as unknown as typeof fetch;
+  const r2 = await applyCaptionLanguage(cues, 'auto', 'hi', [{ baseUrl: 'http://x/v1', apiKey: 'k', model: 'm' }], f);
+  assert.equal(r2.cues[0]!.text, 'ye kya kar diya');
 });

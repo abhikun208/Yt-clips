@@ -1,7 +1,7 @@
 import type { Cue } from '../analysis/transcript.ts';
 import { llmFetch, orderChain } from './health.ts';
 import type { AiCreds } from './settings.ts';
-import { toHinglish, hasDevanagari } from './hinglish.ts';
+import { toHinglish, hasDevanagari, hasUrdu, stripUrdu } from './hinglish.ts';
 import { guessLanguage } from '../analysis/transcript.ts';
 
 /**
@@ -46,6 +46,11 @@ export async function translateCues(cues: Cue[], to: Lang, chain: AiCreds[], fet
 export async function applyCaptionLanguage(cues: Cue[], target: CaptionTarget, channelLang: string | undefined, chain: AiCreds[], fetchFn: typeof fetch = fetch, engine: 'rules' | 'llm' = 'rules'): Promise<{ cues: Cue[]; used: string | null; note?: string }> {
   if (!cues.length || target === 'original') return { cues, used: null };
   const text = cues.map((c) => c.text).join(' ');
+  if (hasUrdu(text) && target !== 'original') { // Urdu script -> Roman Hinglish through the owner's LLM chain; without one the Urdu-script words are REMOVED and reported (never shown as Urdu script)
+    const r = await translateCues(cues, 'hinglish', chain, fetchFn); if (r.used && !r.cues.some((c) => hasUrdu(c.text))) return r;
+    const kept = cues.map((c) => ({ ...c, text: stripUrdu(c.text), words: undefined })).filter((c) => c.text);
+    return { cues: kept, used: 'urdu script removed', note: r.note ?? 'Urdu-script words could not be romanised (no working AI) and were removed' };
+  }
   const hindiChannel = channelLang === 'hi' || channelLang === 'hinglish';
   const to: Lang | null = target === 'auto' ? (hindiChannel || hasDevanagari(text) ? 'hinglish' : null) : target;
   if (!to) return { cues, used: null };

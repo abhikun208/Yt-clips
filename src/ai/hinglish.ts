@@ -84,6 +84,10 @@ const CYR: Record<string, string> = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd
 export function stripForeignScripts(text: string): { text: string; removed: number } {
   let removed = 0;
   const out = text.replace(/[\u0400-\u04FF]/g, (c) => { const l = CYR[c.toLowerCase()]; if (l === undefined) { removed++; return ''; } return c === c.toLowerCase() ? l : l.toUpperCase(); })
-    .replace(/[\u0590-\u08FF\u0980-\u1FFF\u2E80-\uD7FF\uF900-\uFDFF\uFE70-\uFEFF\uFF66-\uFFDC]/g, (c) => { if (/[\u0900-\u097F]/.test(c)) return c; removed++; return ''; });
+    .replace(/[\u0590-\u08FF\u0980-\u1FFF\u2E80-\uD7FF\uF900-\uFDFF\uFE70-\uFEFF\uFF66-\uFFDC]/g, (c) => { if (/[\u0900-\u097F\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(c)) return c; removed++; return ''; }); // Devanagari -> toHinglish, Urdu/Arabic script -> applyCaptionLanguage (LLM), not here
+
   return { text: out.replace(/\s{2,}/g, ' ').trim(), removed };
 }
+
+export const hasUrdu = (s: string): boolean => /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(s);
+export const stripUrdu = (s: string): string => s.replace(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
