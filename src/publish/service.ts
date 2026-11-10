@@ -133,8 +133,8 @@ export interface TickResult { queued: number; advanced: number; published: numbe
  */
 export async function automationTick(store: Store, cfg: Config, now = new Date()): Promise<TickResult> {
   const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
+  if (cfg.automation.blockGenericMetadata !== false) await healGenericMetadata(store, cfg); // runs even when auto-queue is off: a title must come from the video itself, not from a button
   if (!cfg.automation.autoQueue) return r;
-  if (cfg.automation.blockGenericMetadata !== false) await healGenericMetadata(store, cfg); // a clip whose title/description had no real speech to work from is re-analysed (max 2 tries) instead of being published generic
   for (const ch of listChannels(store)) for (const platform of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
     if (!cfg.automation.platforms.includes(platform)) continue; // the global list is the owner's master switch
     const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, platform, cfg.automation.maxAdvancePerCycle);
@@ -202,11 +202,11 @@ export async function optimizeAccount(store: Store, cfg: Config, ch: Channel, o:
 }
 export function storedAccountKit(store: Store, slug: string): { kit: AccountKit; applied: string[]; at: string } | null { const r = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `account:kit:${slug}`)?.v; return r ? JSON.parse(r) : null; }
 
-/** Re-run the metadata engine for clips that were written without real speech (generic) and are not uploaded yet. Max 2 tries per clip. */
+/** Re-run the metadata engine for clips that were written without real speech (generic) and are not uploaded yet. Max 5 tries per clip (one per automation tick). */
 export async function healGenericMetadata(store: Store, cfg: Config, limit = 3): Promise<number> {
   let n = 0;
   for (const c of store.all<{ id: number }>(`SELECT c.id FROM clips c WHERE c.metadata_json IS NOT NULL AND (${isGenericSql('c')}) AND c.edited_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.remote_id IS NOT NULL) ORDER BY c.id DESC LIMIT 20`)) {
-    if (n >= limit) break; const k = `remeta:tries:${c.id}`; const tries = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', k)?.v ?? 0); if (tries >= 2) continue;
+    if (n >= limit) break; const k = `remeta:tries:${c.id}`; const tries = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', k)?.v ?? 0); if (tries >= 5) continue;
     store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, k, String(tries + 1));
     try { await metaForClip(store, cfg, c.id, { notifyOwner: false }); n++; } catch { /* next tick */ }
   }

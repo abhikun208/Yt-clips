@@ -66,6 +66,7 @@ test('transparency: each clip records which AI wrote its metadata (host · model
   store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (1,1,'o1','/nonexistent.mp4',1)`);
   const md = await metaForClip(store, cfg, 1, { notifyOwner: false });
   assert.equal(md.generatedBy, 'rules (no AI answered)');
+  assert.equal(md.generic, false); // no AI configured at all: rules text is the best available, not 'generic' (must not block publishing)
   assert.equal((JSON.parse(store.get<{ metadata_json: string }>('SELECT metadata_json FROM clips WHERE id=1')!.metadata_json) as { generatedBy: string }).generatedBy, 'rules (no AI answered)');
 });
 
@@ -169,4 +170,16 @@ test('local retention: original + raw cut of a fully published video are deleted
   assert.equal(fs.existsSync(src2), true); assert.equal(fs.existsSync(src3), true);
   assert.equal(pruneFinishedLocal(store, { ...cfg, storage: { ...cfg.storage, localKeepDays: 0 } }).videos, 0, '0 = keep forever');
   assert.equal(pruneFinishedLocal(store, cfg, true).videos, 1, 'disk emergency (force) also takes the recent published one'); assert.equal(fs.existsSync(src3), true);
+});
+
+test('an AI is configured but did not answer -> metadata is marked generic so automation re-tries it (healGenericMetadata)', async () => {
+  const { metaForClip } = await import('../src/seo/clipmeta.ts'); const { loadConfig } = await import('../src/config.ts'); const { mkdtempSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const cfg = loadConfig(process.cwd(), { dataDir: mkdtempSync(join(tmpdir(), 'gc-')) }); process.env.LLM_API_BASE = 'http://127.0.0.1:9/v1'; process.env.LLM_API_KEY = 'k'; // an AI is configured but unreachable
+  try {
+  const store = new Store(':memory:'); store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (1,'/x/a.mp4','f')`);
+  store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint, transcript, language) VALUES (1,1,0,20,.5,'c','aaj main aapko batata hoon ki paisa kaise bachaya jata hai bahut aasan tarika hai dekho','hi')`);
+  store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (1,1,'o1','/nonexistent.mp4',1)`);
+  const md = await metaForClip(store, cfg, 1, { notifyOwner: false });
+  assert.equal(md.generatedBy, 'rules (no AI answered)'); assert.equal(md.generic, true);
+  } finally { delete process.env.LLM_API_BASE; delete process.env.LLM_API_KEY; }
 });
