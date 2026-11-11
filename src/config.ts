@@ -18,7 +18,7 @@ export interface Config {
     width: number; height: number; fps: number; crf: number; preset: string; encoder: 'auto' | 'libx264' | 'h264_nvenc' | 'h264_videotoolbox' | 'h264_mediacodec';
     reframe: 'crop' | 'fit_blur'; fitZoom?: number; fitZoomBurned?: number; silenceGate?: boolean; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
     vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean };
-    jumpCuts: boolean; closeups?: boolean; llmCaptionFix?: boolean; captionPunctuation?: boolean; emphasisZoom: boolean; hookTitle?: boolean; narration?: boolean; memeHook?: boolean; musicVolume?: number; speakerFollow?: boolean; cta?: string; captionLanguage?: 'auto' | 'hinglish' | 'hi' | 'en' | 'original'; pace: 'fast' | 'medium' | 'relaxed' | 'off';
+    jumpCuts: boolean; /** synthesised whoosh/pop sound effects (default on) */ sfx?: boolean; /** built-in synthesised background music when assets/music is empty (default on) */ autoMusic?: boolean; closeups?: boolean; llmCaptionFix?: boolean; captionPunctuation?: boolean; emphasisZoom: boolean; hookTitle?: boolean; narration?: boolean; memeHook?: boolean; musicVolume?: number; speakerFollow?: boolean; cta?: string; captionLanguage?: 'auto' | 'hinglish' | 'hi' | 'en' | 'original'; pace: 'fast' | 'medium' | 'relaxed' | 'off';
   };
   schedule: { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number };
   /** Safety gates. ALL default to disabled. They are only enabled by explicit owner action in data/config.json. */

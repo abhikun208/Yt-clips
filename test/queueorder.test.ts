@@ -110,3 +110,17 @@ test('reanalyze maxClips: validated and limits the number of clips', { timeout: 
   const src = join(tmpDir(), 'mc.mp4'); await makeFixture(src, 40); const r = await ingestLocal(s, cfg, src);
   const one = await analyzeVideo(s, cfg, r.videoId, { force: true, maxClips: 1 }); assert.equal(one.candidates, 1);
 });
+test('sfx: whoosh + pops are synthesised inside the audio graph (no files) and ffmpeg accepts it, with and without music', { timeout: 60_000 }, async () => {
+  const { buildAudioGraph } = await import('../src/edit/filters.ts'); const { run } = await import('../src/util/proc.ts'); const { tmpDir } = await import('./helpers.ts'); const { join } = await import('node:path'); const { statSync } = await import('node:fs');
+  for (const music of [false, true]) {
+    const ag = buildAudioGraph({ hasAudio: true, targetLufs: -14, music, duration: 4, sfx: { whoosh: [0.05], pop: [1.2, 2.5] } }); assert.ok(ag.treatments.some((t) => t.dimension === 'sound_effects' && t.applied));
+    const out = join(tmpDir(), `s${music}.m4a`);
+    const r = await run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=f=300:d=4', ...(music ? ['-f', 'lavfi', '-i', 'sine=f=200:d=4'] : []), '-filter_complex', ag.graph!, '-map', '[aout]', '-t', '4', out], { timeoutMs: 30_000 });
+    assert.equal(r.code, 0, r.stderr); assert.ok(statSync(out).size > 2000);
+  }
+});
+test('built-in synthesised music: made once when assets/music is empty, picked by mood, skipped when owner has files', { timeout: 120_000 }, async () => {
+  const { ensureSynthMusic } = await import('../src/edit/synthmusic.ts'); const { pickMusicTrack } = await import('../src/edit/music.ts'); const { tmpDir } = await import('./helpers.ts'); const { join } = await import('node:path'); const { statSync } = await import('node:fs');
+  const d = tmpDir(); const n = await ensureSynthMusic(d); assert.equal(n, 3);
+  const pk = pickMusicTrack(d, { mood: 'gaming', seed: 1 })!; assert.ok(pk.matchedMood); assert.match(pk.path, /energy/); assert.ok(statSync(pk.path).size > 50_000); assert.match(pk.license ?? '', /CC0/);
+});

@@ -130,7 +130,7 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
   return { graph: parts.join(';') + `;[${cur}]null[vout]`, treatments: t };
 }
 
-export interface AudioGraphOpts { hasAudio: boolean; targetLufs: number; music?: boolean; musicVolume?: number; duration: number }
+export interface AudioGraphOpts { hasAudio: boolean; targetLufs: number; music?: boolean; musicVolume?: number; duration: number; /** synthesised (no files, no licence issue) hook whoosh + emphasis pops, clip-relative seconds */ sfx?: { whoosh: number[]; pop: number[]; volume?: number } }
 
 export function buildAudioGraph(o: AudioGraphOpts): { graph: string | null; treatments: Treatment[] } {
   const t: Treatment[] = [];
@@ -142,12 +142,18 @@ export function buildAudioGraph(o: AudioGraphOpts): { graph: string | null; trea
   t.push({ dimension: 'voice_enhance', applied: true, detail: 'highpass + compressor + presence EQ' });
   t.push({ dimension: 'noise_reduction', applied: true, detail: 'afftdn nr=12dB' });
   const fade = `afade=t=in:st=0:d=0.1,afade=t=out:st=${Math.max(0, o.duration - 0.3).toFixed(2)}:d=0.3`;
+  const sv = Math.min(1, Math.max(0.05, o.sfx?.volume ?? 0.35));
+  const ev: string[] = [];
+  for (const w of (o.sfx?.whoosh ?? []).slice(0, 4)) ev.push(`anoisesrc=d=0.5:c=pink:a=0.8:r=48000,highpass=f=500,lowpass=f=5500,afade=t=in:st=0:d=0.25,afade=t=out:st=0.25:d=0.25,adelay=${Math.max(0, Math.round(w * 1000))}:all=1,volume=${sv.toFixed(2)}`);
+  for (const q of (o.sfx?.pop ?? []).slice(0, 6)) ev.push(`sine=f=620:d=0.12:r=48000,afade=t=out:st=0:d=0.12,adelay=${Math.max(0, Math.round(q * 1000))}:all=1,volume=${(sv * 0.8).toFixed(2)}`);
+  const head = ev.length ? `${voice}[vx];${ev.map((e, i) => `${e}[sx${i}]`).join(';')};[vx]${ev.map((_, i) => `[sx${i}]`).join('')}amix=inputs=${ev.length + 1}:duration=first:normalize=0[vsx];[vsx]` : `${voice},`;
+  if (ev.length) t.push({ dimension: 'sound_effects', applied: true, detail: `${o.sfx?.whoosh.length ?? 0} whoosh + ${o.sfx?.pop.length ?? 0} pop (synthesised, copyright-free)` });
   let g: string;
   if (o.music) {
-    g = `${voice},asplit=2[vo][sc];[1:a]volume=${Math.min(1, Math.max(0.02, o.musicVolume ?? 0.18)).toFixed(2)},aloop=loop=-1:size=2e9,atrim=0:${o.duration.toFixed(2)}[m];[m][sc]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[md];[vo][md]amix=inputs=2:duration=first:normalize=0,loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
+    g = `${head}asplit=2[vo][sc];[1:a]volume=${Math.min(1, Math.max(0.02, o.musicVolume ?? 0.18)).toFixed(2)},aloop=loop=-1:size=2e9,atrim=0:${o.duration.toFixed(2)}[m];[m][sc]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[md];[vo][md]amix=inputs=2:duration=first:normalize=0,loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
     t.push({ dimension: 'music_ducking', applied: true, detail: 'authorized BGM ducked under voice (sidechain)' });
   } else {
-    g = `${voice},loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
+    g = `${head}loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
     t.push({ dimension: 'music_ducking', applied: false, detail: 'no authorized music file in assets/music' });
   }
   t.push({ dimension: 'loudness_norm', applied: true, detail: `loudnorm I=${o.targetLufs} LUFS TP=-1.5` });
