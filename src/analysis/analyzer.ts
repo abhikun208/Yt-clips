@@ -104,6 +104,8 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       store.exec(`UPDATE videos SET state='ANALYZED', intro_end=?, outro_start=?, analysis_path=?, error=NULL, updated_at=datetime('now') WHERE id=?`, a.introEnd, a.outroStart, analysisPath, videoId);
     });
     store.logState('video', videoId, prev, 'ANALYZED', `${cands.length} candidates, ${inserted} new (${basename(v.path)})`);
+    if (cands.length) info('analysis result', { videoId, clips: cands.length, scores: cands.slice(0, 4).map((x) => +x.score.toFixed(2)) });
+    else warn('analysis found NO clip', { videoId, duration: Math.round(a.duration), minSec: cfg.clip.minSec, why: a.duration < cfg.clip.minSec ? 'video clip-minimum se chhoti hai: Re-analyze > Original mode (whole) use karo' : 'koi hissa minScore paar nahi kar paya ya bolne wala hissa nahi mila: Re-analyze karo ya minScore kam karo' });
     return { candidates: cands.length, analysisPath };
   } catch (e) {
     store.exec(`UPDATE videos SET state='FAILED', error=?, updated_at=datetime('now') WHERE id=?`, (e as Error).message.slice(0, 500), videoId);

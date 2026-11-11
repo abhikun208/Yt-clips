@@ -157,3 +157,7 @@ test('transition + caption position options reach the render (ASS alignment, gra
   const al = (r: { ass: string }) => /Style: Cap,[^\n]*/.exec(r.ass)?.[0] ?? '';
   assert.notEqual(al(mk('top') as never), al(mk('bottom') as never));
 });
+test('on-screen title never carries Cyrillic/foreign letters (owner clip_057 showed "vелеиmi")', async () => {
+  const { realHook } = await import('../src/seo/hook.ts');
+  const h = realHook('ab aapa saara велеиmi kare baahgi ile liya ab aaj bahut mazaa aaya')!; assert.ok(h); assert.doesNotMatch(h, /[Ѐ-ӿ]/);
+});

@@ -169,6 +169,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
     if (ro.title === undefined && cfg.edit.hookTitle === true) { const h = realHook(inClip); if (h) ro = { ...ro, title: h }; } }
   { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; // visible series label
     if (pn && pt) { const lbl = `PART ${pn}/${pt}`; ro = { ...ro, title: ro.title ? `${lbl} • ${ro.title}`.slice(0, 64) : lbl }; } }
+  if (ro.title) { const { stripForeignScripts } = await import('../ai/hinglish.ts'); const sf = stripForeignScripts(ro.title); if (sf.removed) { warn('on-screen title had foreign-script letters (Cyrillic/Urdu/etc): cleaned', { clip: c.id, removed: sf.removed }); ro = { ...ro, title: sf.text.replace(/\s+/g, ' ').trim() || null }; } }
   if (ro.title && (toLang === 'auto' || toLang === 'hinglish')) { const { toHinglish, hasDevanagari } = await import('../ai/hinglish.ts'); if (hasDevanagari(ro.title)) ro = { ...ro, title: toHinglish(ro.title) }; } // the on-screen title uses the same script as the captions (Roman Hinglish), not Devanagari above Roman captions
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text

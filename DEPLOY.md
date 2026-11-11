@@ -28,6 +28,9 @@ sudo systemctl status yt-clips ; journalctl -u yt-clips -f
 ```
 HTTPS ke liye `deploy/Caddyfile` (domain badlo) — Caddy khud certificate leta hai. Token `/etc/yt-clips.env` mein.
 
+## 3a) Kisi bhi cloud par (Docker image sab jagah chalti hai)
+Fly.io: `fly.toml` (volume + token commands upar likhe hain). Render / Railway / Koyeb / Cloud Run / VPS: `Dockerfile` use karo, PORT apne aap padhta hai.
+
 ## 3a) Render / Railway / Replit (ready-made files)
 - **Render:** New > Blueprint > repo (`render.yaml`). Free 512MB plan video render nahi kar sakta, `starter` use karo.
 - **Railway:** repo connect (`railway.json` Dockerfile use karta hai); Volume `/data` par mount karo.
