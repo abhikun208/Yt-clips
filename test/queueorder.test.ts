@@ -104,3 +104,9 @@ test('PaaS boot: PORT set, no HOST, no token -> listens on 0.0.0.0 with an auto 
   try { const app = createApp({ dataDir: d, rootDir: d, port: 0 } as never); const port = await app.start(); assert.ok(port > 0); const r = await fetch(`http://127.0.0.1:${port}/healthz`); assert.ok(r.ok); assert.ok(existsSync(join(d, 'auto-token.txt'))); const u = await fetch(`http://127.0.0.1:${port}/api/clips`); assert.equal(u.status, 401); await app.stop(); }
   finally { if (oh !== undefined) process.env.HOST = oh; if (ot !== undefined) process.env.YT_CLIPS_TOKEN = ot; if (op !== undefined) process.env.PORT = op; else delete process.env.PORT; }
 });
+test('reanalyze maxClips: validated and limits the number of clips', { timeout: 120_000 }, async () => {
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 8, targetSec: 6, maxClipsPerVideo: 8, minScore: 0.01 } } as never); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'mc.mp4'); await makeFixture(src, 40); const r = await ingestLocal(s, cfg, src);
+  const one = await analyzeVideo(s, cfg, r.videoId, { force: true, maxClips: 1 }); assert.equal(one.candidates, 1);
+});

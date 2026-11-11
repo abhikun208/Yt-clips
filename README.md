@@ -129,3 +129,7 @@ Open `http://<server>:8080/studio` (or the ✨ Studio button in the dashboard). 
 - Facial mood: `pip install mediapipe opencv-python` (model downloads once); on Termux plain OpenCV 4 gives a smile-only signal. Disable: `clip.faceMood=false`.
 - Face-follow crop needs OpenCV (setup.sh installs it); on OpenCV 5 a small YuNet model is downloaded once to data/models.
 - Copyright pre-check: free key at acoustid.org, put `ACOUSTID_KEY=...` in `.env` (or `copyright.acoustidKey`). Advisory only.
+
+
+## Social accounts
+YouTube/TikTok/Instagram/X sirf **official OAuth Connect** se jodte hain (Setup tab). ID/password se site par login-automation supported nahi hai (platform ToS + account ban risk).
