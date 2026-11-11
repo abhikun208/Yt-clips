@@ -104,3 +104,27 @@ test('notify: owner Telegram message once per key; silent when not configured; f
     process.env.TELEGRAM_API_BASE = 'http://127.0.0.1:1'; assert.equal(await notify(store, cfg, 'k2', 'x'), false);
   } finally { f.close(); process.env = old; }
 });
+
+test('bluesky: login with handle + app password, service-auth, video upload, job poll, post with video embed (fake server)', async () => {
+  const { BlueskyAdapter, saveCredentials } = await import('../src/publish/direct.ts'); const { createServer } = await import('node:http');
+  const log: { method: string; url: string; auth?: string; body: string }[] = [];
+  const srv = createServer((req, res) => { const ch: Buffer[] = []; req.on('data', (c) => ch.push(c)); req.on('end', () => {
+    const url = req.url!; log.push({ method: req.method!, url, auth: req.headers.authorization, body: ch.length && !url.includes('uploadVideo') ? Buffer.concat(ch).toString() : '' }); res.setHeader('content-type', 'application/json');
+    if (url.includes('createSession')) return res.end(JSON.stringify({ accessJwt: 'jwt1', did: 'did:plc:abc', didDoc: { service: [{ serviceEndpoint: `http://127.0.0.1:${(srv.address() as { port: number }).port}` }] } }));
+    if (url.includes('getServiceAuth')) return res.end(JSON.stringify({ token: 'svc-token' }));
+    if (url.includes('uploadVideo')) return res.end(JSON.stringify({ jobId: 'job9', state: 'JOB_STATE_CREATED' }));
+    if (url.includes('getJobStatus')) return res.end(JSON.stringify({ jobStatus: { jobId: 'job9', state: 'JOB_STATE_COMPLETED', blob: { $type: 'blob', ref: { $link: 'bafy' }, mimeType: 'video/mp4', size: 2048 } } }));
+    if (url.includes('createRecord')) return res.end(JSON.stringify({ uri: 'at://did:plc:abc/app.bsky.feed.post/3k', cid: 'c' }));
+    res.statusCode = 404; res.end('{}'); }); });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r())); const base = `http://127.0.0.1:${(srv.address() as { port: number }).port}`; const old = { ...process.env };
+  Object.assign(process.env, { BLUESKY_PDS: base, BLUESKY_VIDEO: base, YT_CLIPS_ALLOW_LOOPBACK_HTTP: '1', BLUESKY_POLL_MS: '5' });
+  try {
+    const file = join(tmpDir(), 'b.mp4'); writeFileSync(file, Buffer.alloc(2048, 7)); const store = new Store(':memory:');
+    const b = new BlueskyAdapter(store, { handle: 'me.bsky.social', appPassword: 'abcd-efgh-ijkl-mnop' }); const id = await stage(b, file, 'bk1'); assert.equal(log.length, 0, 'staging touches no network');
+    const r = await b.publish(id, null); assert.match(String(r && r.remoteId), /^bluesky:at:\/\/did:plc:abc\/app\.bsky\.feed\.post\/3k$/);
+    assert.deepEqual(log.map((x) => x.url.split('?')[0]), ['/xrpc/com.atproto.server.createSession', '/xrpc/com.atproto.server.getServiceAuth', '/xrpc/app.bsky.video.uploadVideo', '/xrpc/app.bsky.video.getJobStatus', '/xrpc/com.atproto.repo.createRecord']);
+    assert.equal(log[2]!.auth, 'Bearer svc-token'); assert.equal(log[4]!.auth, 'Bearer jwt1'); assert.ok(log[4]!.body.includes('app.bsky.embed.video') && log[4]!.body.includes('"repo":"did:plc:abc"'));
+    const n = log.length; await b.publish(id, null); assert.equal(log.length, n, 'no double post');
+    const sec = new (await import('../src/publish/secrets.ts')).SecretStore(tmpDir(), 'k'.repeat(32)); assert.throws(() => saveCredentials(sec, 'bluesky', { handle: 'me.bsky.social', appPassword: 'my-main-password' }), /appPassword/); saveCredentials(sec, 'bluesky', { handle: '@me.bsky.social', appPassword: 'abcd-efgh-ijkl-mnop' }); assert.equal(sec.read<{ handle: string }>('bluesky')!.handle, 'me.bsky.social');
+  } finally { srv.close(); process.env = old; }
+});

@@ -14,7 +14,7 @@ import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
 import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish } from './meta.ts';
-import { TelegramAdapter, DiscordAdapter, MastodonAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
+import { TelegramAdapter, DiscordAdapter, MastodonAdapter, BlueskyAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { notify } from '../notify.ts';
 import { planFromStore } from '../schedule/analytics.ts';
 import { getChannel, listChannels, scheduleFor, ytSecretName, mainChannel, type Channel } from '../channels.ts';
@@ -47,7 +47,7 @@ export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Cha
   if (info?.kind === 'direct' && info.secret) {
     const sec = secretsFor(cfg); const cred = (ch && sec.read<Record<string, string>>(`${info.secret}-${ch.slug}`)) || sec.read<Record<string, string>>(info.secret);
     if (!cred) throw new Error(`AUTH_NOT_CONNECTED: save the ${info.label} credentials first (Setup -> Platforms)`);
-    return platform === 'telegram' ? new TelegramAdapter(store, cred) : platform === 'discord' ? new DiscordAdapter(store, cred) : new MastodonAdapter(store, cred);
+    return platform === 'telegram' ? new TelegramAdapter(store, cred) : platform === 'discord' ? new DiscordAdapter(store, cred) : platform === 'bluesky' ? new BlueskyAdapter(store, cred) : new MastodonAdapter(store, cred);
   }
   throw new Error(`AUTH_NOT_CONNECTED: no adapter for platform "${platform}" (only youtube_shorts has a real adapter; others need owner credentials)`);
 }

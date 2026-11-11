@@ -117,3 +117,13 @@ test('END TO END with AI: upload -> API transcript -> clips with MEASURED captio
     assert.ok(c.coverage.applied >= 8, `editing features applied: ${c.coverage.applied}`);
   } finally { await app.stop(); await new Promise((ok) => ai.close(ok)); }
 });
+
+test('groq turbo junk -> the same key is asked again with whisper-large-v3 and the cleaner transcript wins', async () => {
+  const models: string[] = []; const s = createServer(async (req, res) => {
+    const ch: Buffer[] = []; for await (const c of req) ch.push(c as Buffer); const body = Buffer.concat(ch).toString('latin1'); const turbo = body.includes('whisper-large-v3-turbo'); if (/audio/.test(req.url ?? '')) models.push(turbo ? 'turbo' : 'full');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(turbo ? { language: 'hindi', text: '@@@@ #### $$$$', segments: [{ start: 0, end: 2.5, text: '@@@@ #### $$$$ %%%% &&&&' }], words: [] } : { language: 'hindi', text: 'namaste dosto aaj', segments: [{ start: 0, end: 2.5, text: ' namaste dosto aaj' }], words: [{ word: 'namaste', start: 0.1, end: 0.8 }, { word: 'dosto', start: 0.9, end: 1.5 }, { word: 'aaj', start: 1.6, end: 2.2 }] }));
+  }); await new Promise<void>((ok) => s.listen(0, '127.0.0.1', ok)); const base = `http://127.0.0.1:${(s.address() as { port: number }).port}`;
+  const d = tmpDir(); const v = join(d, 'v.mp4'); await makeFixture(v, 3); const cfg = loadConfig(process.cwd(), { dataDir: join(d, 'data') }); saveAi(cfg, 'stt', { apiKey: 'gsk_savedkey123', baseUrl: base });
+  try { const r = await transcribeVideo(cfg, v); assert.equal(r.status, 'ok'); assert.deepEqual(models.slice(0, 2), ['turbo', 'full']); assert.match(r.cues.map((c) => c.text).join(' '), /namaste/); } finally { await new Promise((ok) => s.close(ok)); }
+});

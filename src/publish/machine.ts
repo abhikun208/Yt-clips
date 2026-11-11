@@ -22,6 +22,7 @@ export const PLATFORM_CONSTRAINTS: Record<string, Constraints> = {
   telegram: { maxDurationSec: 600, minDurationSec: 1, aspect: 'any', maxTitle: 200, maxDescription: 800, note: 'caption limit 1024 incl. title; bot upload ~50MB (verify)' },
   discord: { maxDurationSec: 600, minDurationSec: 1, aspect: 'any', maxTitle: 200, maxDescription: 1700, note: 'message limit 2000; file limit depends on server boost (25MB default, verify)' },
   mastodon: { maxDurationSec: 120, minDurationSec: 1, aspect: 'any', maxTitle: 150, maxDescription: 300, note: 'status 500 chars default; instance limits differ (verify)' },
+  bluesky: { maxDurationSec: 60, minDurationSec: 1, aspect: 'any', maxTitle: 120, maxDescription: 170, note: 'post text 300 graphemes; video service limit ~60s/50MB (verify)' },
   x: { maxDurationSec: 140, minDurationSec: 1, aspect: 'any', maxTitle: 120, maxDescription: 150, note: 'manual; verify limits' },
   linkedin: { maxDurationSec: 600, minDurationSec: 3, aspect: 'any', maxTitle: 150, maxDescription: 2900, note: 'manual; verify limits' },
   pinterest: { maxDurationSec: 300, minDurationSec: 4, aspect: 'any', maxTitle: 100, maxDescription: 500, note: 'manual; verify limits' },

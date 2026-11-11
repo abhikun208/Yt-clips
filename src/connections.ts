@@ -108,10 +108,16 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
   return [false, 'unknown target'];
 }
 
+/** Turns a raw connection error into the plain sentence the owner should see. 'reconnect' used to match /ECONN/ and was shown as a network failure. */
+export function explainConnError(m: string): string | null {
+  if (/AUTH_REVOKED|invalid_grant/i.test(m)) return `Google ne YouTube login wapas le liya (${m.slice(0, 60)}). Sabse common wajah: Google Cloud ka OAuth app "Testing" mode mein hai, isme token 7 din mein expire hota hai. Fix: Google Cloud > APIs & Services > OAuth consent screen > "Publish app" (Production). Phir yahan Connect dobara dabao.`;
+  return null;
+}
 export async function testConnection(store: Store, cfg: Config, target: string): Promise<ConnResult> {
   if (!/^(llm(:[123])?|stt|telegram(:[\w-]+)?|notify|discord(:[\w-]+)?|mastodon(:[\w-]+)?|youtube(:[\w-]+)?|google-client)$/.test(target)) throw new Error('invalid: unknown target');
   let ok = false, detail = '';
-  try { [ok, detail] = await check(store, cfg, target); } catch (e) { const m = short(e); ok = false; detail = /fetch failed|ENOTFOUND|ECONN|timeout|aborted/i.test(m) ? `server tak pahunch nahi paya (${(() => { try { const c = target.startsWith('stt') ? sttCreds(cfg) : target.startsWith('llm') ? llmSlot(cfg, Number(target.split(':')[1] ?? 1)) : null; return c ? new URL(c.baseUrl).host : 'internet/URL'; } catch { return 'URL galat'; } })()}): ${m}` : m; }
+  try { [ok, detail] = await check(store, cfg, target); } catch (e) { const m = short(e); ok = false; detail = /fetch failed|ENOTFOUND|\bECONN[A-Z]*|ETIMEDOUT|\btimeout\b|\baborted\b/i.test(m) && !/^AUTH_/.test(m) ? `server tak pahunch nahi paya (${(() => { try { const c = target.startsWith('stt') ? sttCreds(cfg) : target.startsWith('llm') ? llmSlot(cfg, Number(target.split(':')[1] ?? 1)) : null; return c ? new URL(c.baseUrl).host : 'internet/URL'; } catch { return 'URL galat'; } })()}): ${m}` : m; }
+  { const ex = !ok ? explainConnError(detail) : null; if (ex) detail = ex; }
   const res: ConnResult = { target, ok, detail, at: new Date().toISOString() };
   store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, keyOf(target), JSON.stringify(res));
   return res;

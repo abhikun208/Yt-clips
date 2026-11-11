@@ -18,6 +18,9 @@ export async function ingestLocal(store: Store, cfg: Config, file: string, opts:
   const existing = store.get<{ id: number; path: string; state: string }>('SELECT id, path, state FROM videos WHERE fingerprint=?', fp);
   if (existing) { // same file again: if it was PARKED (fresh-start) or never finished, the owner clearly wants it processed now -> wake it up instead of silently doing nothing
     if (existing.state === 'PARKED') { store.exec(`UPDATE videos SET state='NEW', updated_at=datetime('now') WHERE id=?`, existing.id); store.exec(`UPDATE candidates SET status='candidate' WHERE video_id=? AND status='parked'`, existing.id); store.logState('video', existing.id, 'PARKED', 'NEW', 'same file uploaded again: un-parked'); }
+    else if (['ANALYZED', 'DONE', 'FAILED', 'ERROR'].includes(existing.state) && !store.get('SELECT 1 FROM clips k JOIN candidates c ON c.id=k.candidate_id WHERE c.video_id=?', existing.id)) { // same file again but every clip was deleted/rejected (or analysis ended with 0 clips): the owner wants clips again, so re-analyze instead of doing nothing
+      store.exec(`UPDATE candidates SET status='superseded' WHERE video_id=? AND status IN ('rejected','rendered','candidate','parked')`, existing.id); store.exec(`UPDATE videos SET state='NEW', error=NULL, updated_at=datetime('now') WHERE id=?`, existing.id); store.logState('video', existing.id, existing.state, 'NEW', 'same file uploaded again with no clips left: re-analysing');
+    }
     return { videoId: existing.id, duplicate: true, path: existing.path };
   }
   const info = await probe(abs); // throws on corrupt / no video stream

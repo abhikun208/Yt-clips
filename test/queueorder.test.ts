@@ -161,3 +161,23 @@ test('on-screen title never carries Cyrillic/foreign letters (owner clip_057 sho
   const { realHook } = await import('../src/seo/hook.ts');
   const h = realHook('ab aapa saara велеиmi kare baahgi ile liya ab aaj bahut mazaa aaya')!; assert.ok(h); assert.doesNotMatch(h, /[Ѐ-ӿ]/);
 });
+test('same file uploaded again after its clips were deleted is re-analysed (owner: "dobara upload kiya par clip nahi bani")', { timeout: 150_000 }, async () => {
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 2, minScore: 0.2 } } as never); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'again.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  s.exec(`UPDATE candidates SET status='rejected' WHERE video_id=?`, r.videoId); // what deleting the clip does
+  const r2 = await ingestLocal(s, cfg, src); assert.equal(r2.videoId, r.videoId); assert.equal(s.get<{ state: string }>('SELECT state FROM videos WHERE id=?', r.videoId)!.state, 'NEW');
+  await analyzeVideo(s, cfg, r.videoId); assert.ok(s.get('SELECT 1 FROM candidates WHERE video_id=? AND status=\'candidate\'', r.videoId), 'candidate revived');
+});
+test('seedJobs wakes a DONE analyze/render job when the work is needed again, but never loops on finished work', async () => {
+  const { seedJobs } = await import('../src/pipeline.ts'); const { enqueue, completeJob, claim } = await import('../src/db.ts'); const { testConfig } = await import('./helpers.ts');
+  const cfg = testConfig(); const s = new Store(cfg.dbPath);
+  s.exec(`INSERT INTO sources(kind, uri, title) VALUES ('local','x','x')`); const sid = s.get<{ id: number }>('SELECT id FROM sources')!.id;
+  s.exec(`INSERT INTO videos(source_id, path, fingerprint, state) VALUES (?, '/x.mp4', 'fp', 'NEW')`, sid); const vid = s.get<{ id: number }>('SELECT id FROM videos')!.id;
+  enqueue(s, 'analyze', `analyze:${vid}`); const j = claim(s)!; completeJob(s, j.id); assert.equal(claim(s), undefined);
+  assert.ok(seedJobs(s, cfg) >= 1); assert.ok(claim(s), 'DONE analyze job woke up for a NEW video');
+});
+test('AUTH_REVOKED is explained as a Google login problem, not a network failure ("reconnect" matched /ECONN/)', async () => {
+  const { explainConnError } = await import('../src/connections.ts');
+  assert.match(explainConnError('AUTH_REVOKED: invalid_grant — reconnect the YouTube account')!, /Testing.*Production|Publish app/s); assert.equal(explainConnError('fetch failed'), null);
+});

@@ -27,7 +27,7 @@ export const PLATFORMS: PlatformInfo[] = [
   { id: 'pinterest', openUrl: 'https://www.pinterest.com/pin-creation-tool/', label: 'Pinterest', kind: 'manual', note: 'Manual task.' },
   { id: 'snapchat', openUrl: 'https://www.snapchat.com/', label: 'Snapchat Spotlight', kind: 'manual', note: 'Manual task.' },
   { id: 'threads', openUrl: 'https://www.threads.net/', label: 'Threads', kind: 'manual', note: 'Manual task.' },
-  { id: 'bluesky', openUrl: 'https://bsky.app/', label: 'Bluesky', kind: 'manual', note: 'Manual task (adapter not built).' },
+  { id: 'bluesky', openUrl: 'https://bsky.app/', label: 'Bluesky', kind: 'direct', secret: 'bluesky', fields: [{ name: 'handle', label: 'Handle (name.bsky.social)' }, { name: 'appPassword', label: 'App password (Settings > Privacy and security > App passwords; NOT your main password)', secret: true }], note: 'Official AT Protocol login with an app password (revocable, limited). Video up to ~60s / 50MB. Fake-tested only, never run against real Bluesky.' },
   { id: 'reddit', openUrl: 'https://www.reddit.com/submit', label: 'Reddit', kind: 'manual', note: 'Manual task.' },
 ];
 export const platformInfo = (id: string) => PLATFORMS.find((p) => p.id === id);
@@ -48,6 +48,7 @@ export function saveCredentials(secrets: SecretStore, platform: string, v: Recor
   let out: Record<string, unknown>;
   if (platform === 'telegram' || platform === 'notify') { const botToken = s('botToken', 200), chatId = s('chatId', 100); if (!/^\d{5,}:[\w-]{20,}$/.test(botToken)) throw new Error('invalid: botToken format'); if (!/^(-?\d{5,20}|@[\w]{4,64})$/.test(chatId)) throw new Error('invalid: chatId format'); out = { botToken, chatId }; }
   else if (platform === 'discord') { const u = safeHttp(s('webhookUrl'), 'webhookUrl', /(^|\.)(discord|discordapp)\.com$/i); if (!/^\/api\/webhooks\/\d+\/[\w-]+/.test(u.pathname)) throw new Error('invalid: webhookUrl path'); out = { webhookUrl: u.toString() }; }
+  else if (platform === 'bluesky') { const handle = s('handle', 100).replace(/^@/, ''); if (!/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i.test(handle)) throw new Error('invalid: handle format (name.bsky.social)'); const appPassword = s('appPassword', 40); if (!/^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/i.test(appPassword)) throw new Error('invalid: appPassword format (xxxx-xxxx-xxxx-xxxx; make one in Bluesky Settings > App passwords)'); out = { handle, appPassword }; }
   else { const u = safeHttp(s('instance'), 'instance'); out = { instance: u.origin, accessToken: s('accessToken', 400) }; }
   secrets.write(name ?? info.secret, out);
 }
@@ -126,6 +127,40 @@ export class MastodonAdapter extends StagedAdapter {
     if (st.status === 429) throw new Error('NOT_READY: mastodon rate limit');
     if (st.status >= 300 || !st.json?.id) throw new Error(`mastodon status error ${st.status}: ${String(st.json?.error ?? '').slice(0, 120)}`);
     return `mastodon:${st.json.url ?? st.json.id}`;
+  }
+}
+
+/** Bluesky (AT Protocol): createSession with handle + APP PASSWORD -> service-auth token -> video.bsky.app upload -> job poll -> app.bsky.feed.post with a video embed. */
+export class BlueskyAdapter extends StagedAdapter {
+  readonly name = 'bluesky';
+  protected async send(s: { file: string; title: string; description: string }, id: string) {
+    const pds = (process.env.BLUESKY_PDS ?? 'https://bsky.social').replace(/\/$/, ''); const vid = (process.env.BLUESKY_VIDEO ?? 'https://video.bsky.app').replace(/\/$/, '');
+    safeHttp(pds, 'pds'); safeHttp(vid, 'video service');
+    const ses = await http(`${pds}/xrpc/com.atproto.server.createSession`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier: this.cred.handle, password: this.cred.appPassword }) });
+    if (ses.status === 401 || ses.status === 400) throw new Error('AUTH_BLUESKY: handle / app password wrong or revoked');
+    if (ses.status === 429) throw new Error('NOT_READY: bluesky rate limit');
+    if (ses.status >= 300 || !ses.json?.accessJwt) throw new Error(`bluesky login error ${ses.status}: ${String(ses.json?.message ?? '').slice(0, 120)}`);
+    const jwt = String(ses.json.accessJwt), did = String(ses.json.did);
+    const svc = (ses.json.didDoc?.service as { serviceEndpoint?: string }[] | undefined)?.find((x) => x.serviceEndpoint)?.serviceEndpoint ?? pds; const aud = `did:web:${new URL(svc).hostname}`;
+    const au = await http(`${pds}/xrpc/com.atproto.server.getServiceAuth?aud=${encodeURIComponent(aud)}&lxm=com.atproto.repo.uploadBlob&exp=${Math.floor(Date.now() / 1000) + 1800}`, { headers: { authorization: `Bearer ${jwt}` } });
+    if (au.status >= 300 || !au.json?.token) throw new Error(`bluesky service-auth error ${au.status}: ${String(au.json?.message ?? '').slice(0, 120)}`);
+    const body = await fileBlob(s.file, 50 * 1024 * 1024);
+    const up = await http(`${vid}/xrpc/app.bsky.video.uploadVideo?did=${encodeURIComponent(did)}&name=${encodeURIComponent(basename(s.file))}`, { method: 'POST', headers: { authorization: `Bearer ${au.json.token}`, 'content-type': 'video/mp4' }, body });
+    const jobId = up.json?.jobId ?? up.json?.jobStatus?.jobId; // 409 "already_exists" also carries the jobId: the upload is idempotent
+    if (!jobId) throw new Error(`bluesky video upload error ${up.status}: ${String(up.json?.message ?? up.json?.error ?? '').slice(0, 160)}`);
+    let blob: unknown = up.json?.jobStatus?.blob;
+    for (let i = 0; i < 60 && !blob; i++) {
+      await new Promise((r) => setTimeout(r, Number(process.env.BLUESKY_POLL_MS ?? 2000)));
+      const g = await http(`${vid}/xrpc/app.bsky.video.getJobStatus?jobId=${encodeURIComponent(String(jobId))}`, {}); const st = g.json?.jobStatus;
+      if (st?.state === 'JOB_STATE_FAILED' || st?.error) throw new Error(`bluesky could not process the video: ${String(st?.error ?? st?.message ?? 'failed').slice(0, 120)}`);
+      if (st?.blob) blob = st.blob;
+    }
+    if (!blob) throw new Error('NOT_READY: bluesky still processing the video');
+    const text = `${s.title}\n\n${s.description}`.trim().slice(0, 290);
+    const rec = await http(`${pds}/xrpc/com.atproto.repo.createRecord`, { method: 'POST', headers: { authorization: `Bearer ${jwt}`, 'content-type': 'application/json' }, body: JSON.stringify({ repo: did, collection: 'app.bsky.feed.post', record: { $type: 'app.bsky.feed.post', text, createdAt: new Date().toISOString(), langs: ['hi', 'en'], embed: { $type: 'app.bsky.embed.video', video: blob, aspectRatio: { width: 9, height: 16 } } } }) });
+    if (rec.status === 429) throw new Error('NOT_READY: bluesky rate limit');
+    if (rec.status >= 300 || !rec.json?.uri) throw new Error(`bluesky post error ${rec.status}: ${String(rec.json?.message ?? '').slice(0, 120)}`);
+    void id; return `bluesky:${rec.json.uri}`;
   }
 }
 

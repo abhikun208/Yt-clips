@@ -21,8 +21,10 @@ const chMeta = (ch: Channel) => ({ channelName: ch.name, ownerLinks: ch.config.l
 /** Seed jobs for anything not yet processed. Keys make it idempotent: re-running never duplicates work. */
 export function seedJobs(store: Store, cfg: Config): number {
   let n = 0;
-  for (const v of store.all<{ id: number }>(`SELECT id FROM videos WHERE state IN ('NEW','ANALYZING')`)) n += enqueue(store, 'analyze', `analyze:${v.id}`) ? 1 : 0;
-  for (const c of store.all<{ id: number }>(`SELECT id FROM candidates WHERE status='candidate' ORDER BY score DESC`)) n += enqueue(store, 'render', `render:${c.id}`) ? 1 : 0;
+  // A FINISHED job with the same key used to block the work for ever (INSERT OR IGNORE): a re-uploaded video or a revived candidate then did nothing ("dobara upload kiya par clip nahi bani"). Work that is still needed wakes its DONE job again; DEAD stays parked on purpose.
+  const wake = (kind: string, key: string): number => enqueue(store, kind, key) ? 1 : store.exec(`UPDATE jobs SET state='PENDING', attempts=0, run_after=0, lease_until=NULL, last_error=NULL, updated_at=datetime('now') WHERE key=? AND state='DONE'`, key).changes;
+  for (const v of store.all<{ id: number }>(`SELECT id FROM videos WHERE state IN ('NEW','ANALYZING')`)) n += wake('analyze', `analyze:${v.id}`);
+  for (const c of store.all<{ id: number }>(`SELECT id FROM candidates WHERE status='candidate' ORDER BY score DESC`)) n += wake('render', `render:${c.id}`);
   for (const c of store.all<{ id: number }>(`SELECT id FROM clips WHERE metadata_json IS NULL AND edited_path IS NOT NULL`)) n += enqueue(store, 'meta', `meta:${c.id}`) ? 1 : 0;
   void cfg;
   return n;
