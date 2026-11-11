@@ -1,0 +1,11 @@
+# Render: New + > Blueprint > this repo. Token auto-generates (Environment tab shows it).
+services:
+  - type: web
+    name: yt-clips
+    runtime: docker
+    plan: starter        # free (512MB) cannot render video; starter or bigger
+    healthCheckPath: /healthz
+    disk: { name: data, mountPath: /data, sizeGB: 10 }
+    envVars:
+      - { key: YT_CLIPS_TOKEN, generateValue: true }
+      - { key: YT_CLIPS_DATA_DIR, value: /data }

@@ -1,0 +1,4 @@
+[phases.setup]
+nixPkgs = ["nodejs_22", "ffmpeg-full", "python3", "yt-dlp", "noto-fonts"]
+[start]
+cmd = "node --disable-warning=ExperimentalWarning src/server/main.ts"

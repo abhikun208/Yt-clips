@@ -1,0 +1,12 @@
+modules = ["nodejs-22"]
+run = "node --disable-warning=ExperimentalWarning src/server/main.ts"
+[nix]
+channel = "stable-24_05"
+[deployment]
+run = ["sh", "-c", "node --disable-warning=ExperimentalWarning src/server/main.ts"]
+deploymentTarget = "cloudrun"
+[[ports]]
+localPort = 8080
+externalPort = 80
+[env]
+AUTO_OPEN = "0"

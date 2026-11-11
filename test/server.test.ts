@@ -15,7 +15,7 @@ const auth = { authorization: `Bearer ${TOKEN}` };
 const wait = async (f: () => Promise<boolean>, ms = 240_000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await f()) return true; await new Promise((r) => setTimeout(r, 400)); } return false; };
 
 test('startup guards: no token on public host, short token', () => {
-  assert.throws(() => createApp({ host: '0.0.0.0', token: '', dataDir: tmpDir() }), /non-loopback.*YT_CLIPS_TOKEN/);
+  const d = tmpDir(); const a = createApp({ host: '0.0.0.0', token: '', dataDir: d }); assert.ok(a); // no crash: auto token (see queueorder PaaS test)
   assert.throws(() => createApp({ host: '127.0.0.1', token: 'short', dataDir: tmpDir() }), /at least 12/);
 });
 

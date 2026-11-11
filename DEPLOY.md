@@ -28,6 +28,14 @@ sudo systemctl status yt-clips ; journalctl -u yt-clips -f
 ```
 HTTPS ke liye `deploy/Caddyfile` (domain badlo) — Caddy khud certificate leta hai. Token `/etc/yt-clips.env` mein.
 
+## 3a) Render / Railway / Replit (ready-made files)
+- **Render:** New > Blueprint > repo (`render.yaml`). Free 512MB plan video render nahi kar sakta, `starter` use karo.
+- **Railway:** repo connect (`railway.json` Dockerfile use karta hai); Volume `/data` par mount karo.
+- **Replit:** import repo (`.replit` + `replit.nix`: Node 22, ffmpeg, yt-dlp). Run dabao.
+- **Token:** `YT_CLIPS_TOKEN` na do to server khud ek token banata hai (data folder mein `auto-token.txt`) aur **deploy logs mein "LOGIN TOKEN" line** mein dikhata hai. HOST/PORT apne aap sahi ho jate hain.
+- Volume root-owned ho to `deploy/docker-entrypoint.sh` /data ka owner theek karta hai.
+- UNVERIFIED: asli Render/Railway/Replit deploy (sandbox mein Docker/internet nahi). Boot test (PORT set, token nahi) pass hai.
+
 ## 3) PaaS (Render / Railway / Koyeb / Fly …)
 Repo connect karo, **Dockerfile** se deploy karo (ya `Procfile`). Env set karo (`YT_CLIPS_TOKEN`, `HOST=0.0.0.0`), aur ek **persistent disk/volume** `/data` par mount karo (`YT_CLIPS_DATA_DIR=/data`).
 Dhyan: free tiers par CPU/RAM kam hota hai: ek 40s clip render karna 2-vCPU par ~1-4 min leta hai (zoom/glow band karke tez hota hai), aur free tiers ka disk aksar ephemeral hota hai.

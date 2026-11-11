@@ -21,7 +21,8 @@ test('real process: boots from env, serves /healthz, exits 0 on SIGTERM (gracefu
   p.child.kill('SIGTERM'); assert.equal(await p.exited, 0);
 });
 
-test('real process: refuses to expose itself publicly without a token (exit 1, clear message)', { timeout: 30_000 }, async () => {
+test('real process: public host without a token makes an auto token (no crash) and it is guarded', { timeout: 30_000 }, async () => {
   const p = start({ HOST: '0.0.0.0', PORT: '0', YT_CLIPS_DATA_DIR: tmpDir(), YT_CLIPS_TOKEN: '' });
-  const code = await p.exited; assert.notEqual(code, 0); assert.match(p.err, /YT_CLIPS_TOKEN/);
+  await new Promise((r) => setTimeout(r, 4000));
+  assert.match(p.out, /LOGIN TOKEN/); p.child.kill('SIGTERM'); assert.equal(await p.exited, 0);
 });

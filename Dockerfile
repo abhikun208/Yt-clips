@@ -17,14 +17,14 @@ COPY package.json ./
 COPY src ./src
 COPY tools ./tools
 COPY assets ./assets
+COPY deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY MASTER_RUN_PROMPT.md PROGRESS.md README.md ./
 # zero runtime npm dependencies, nothing to `npm install`
 ENV HF_HOME=/opt/hf YT_CLIPS_STT_LOCAL=faster-whisper NODE_ENV=production HOST=0.0.0.0 PORT=8080 YT_CLIPS_DATA_DIR=/data AUTO_RUN=1
 RUN mkdir -p /data /opt/hf && chown -R node:node /data /app /opt/hf
 VOLUME ["/data"]
-USER node
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-ENTRYPOINT ["tini","--"]
+ENTRYPOINT ["tini","--","/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node","--disable-warning=ExperimentalWarning","src/server/main.ts"]

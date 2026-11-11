@@ -75,13 +75,24 @@ async function readBody(req: IncomingMessage, max: number): Promise<Buffer> {
 const safeName = (n: string) => basename(n).replace(/[^\w.\- ]+/g, '_').slice(0, 120) || 'upload.mp4';
 const MIME: Record<string, string> = { '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.png': 'image/png', '.srt': 'text/plain; charset=utf-8', '.vtt': 'text/vtt; charset=utf-8', '.json': 'application/json', '.zip': 'application/zip' };
 
+/** First deploy without YT_CLIPS_TOKEN: make a random one once, keep it in the data dir (survives restarts) and print it so the owner can log in. */
+function autoToken(dataDir: string): string {
+  const f = join(dataDir, 'auto-token.txt');
+  try { const t = readFileSync(f, 'utf8').trim(); if (t.length >= 12) { console.log(`\n  LOGIN TOKEN (auto, YT_CLIPS_TOKEN set nahi tha): ${t}\n`); return t; } } catch { /* first run */ }
+  const t = randomBytes(24).toString('hex');
+  try { mkdirSync(dataDir, { recursive: true }); writeFileSync(f, t + '\n', { mode: 0o600 }); } catch { /* read-only disk: token lives for this run only */ }
+  console.log(`\n  LOGIN TOKEN (auto, YT_CLIPS_TOKEN set nahi tha): ${t}\n  Isko deploy logs se copy karo; permanent karna ho to env YT_CLIPS_TOKEN set karo.\n`);
+  return t;
+}
+
 /** Create the app (HTTP API + UI + background worker). No dependencies. Gates are NOT configurable through the API. */
 export function createApp(o: AppOptions = {}): App {
-  const host = o.host ?? process.env.HOST ?? '127.0.0.1';
-  const token = o.token ?? process.env.YT_CLIPS_TOKEN ?? '';
-  if (!LOOPBACK.has(host) && !token) throw new Error('Refusing to listen on a non-loopback address without YT_CLIPS_TOKEN. Set YT_CLIPS_TOKEN (long random string).');
-  if (token && token.length < 12) throw new Error('YT_CLIPS_TOKEN must be at least 12 characters.');
+  // PaaS (Render/Railway/Replit/Koyeb) set PORT and need 0.0.0.0; without HOST we used to listen on loopback only -> 'no open port' and a failed deploy.
+  const host = o.host ?? process.env.HOST ?? (process.env.PORT || process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.REPL_ID ? '0.0.0.0' : '127.0.0.1');
   const cfg = loadConfig(o.rootDir ?? process.cwd(), { dataDir: o.dataDir, overrides: o.overrides });
+  let token = o.token ?? process.env.YT_CLIPS_TOKEN ?? '';
+  if (!LOOPBACK.has(host) && !token) token = autoToken(cfg.dataDir); // no crash on a fresh deploy: a random token is made once, kept in the data dir and printed in the logs
+  if (token && token.length < 12) throw new Error('YT_CLIPS_TOKEN must be at least 12 characters.');
   const store = new Store(cfg.dbPath);
   const maxUpload = (o.maxUploadMb ?? Number(process.env.MAX_UPLOAD_MB ?? 2048)) * 1024 * 1024;
   const uploadDir = join(cfg.dataDir, 'uploads'); mkdirSync(uploadDir, { recursive: true });

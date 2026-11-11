@@ -98,3 +98,9 @@ test('deleted words really cut the clip: planManualCuts + a real render is short
   const cut = await renderCandidate(s, cfg, cand.id, { zoom: false, glow: false, speedRamp: false, variant: 2, cutRanges: [[cand.start_sec + 2, cand.start_sec + 3.5]] });
   const a = await probe(full.editedPath), b = await probe(cut.editedPath); assert.ok(Math.abs((a.duration - b.duration) - 1.5) < 0.5, `full ${a.duration} cut ${b.duration}`);
 });
+test('PaaS boot: PORT set, no HOST, no token -> listens on 0.0.0.0 with an auto token (no crash)', async () => {
+  const { createApp } = await import('../src/server/app.ts'); const { tmpDir } = await import('./helpers.ts'); const { existsSync } = await import('node:fs'); const { join } = await import('node:path');
+  const d = tmpDir(); const oh = process.env.HOST, ot = process.env.YT_CLIPS_TOKEN, op = process.env.PORT; delete process.env.HOST; delete process.env.YT_CLIPS_TOKEN; process.env.PORT = '0';
+  try { const app = createApp({ dataDir: d, rootDir: d, port: 0 } as never); const port = await app.start(); assert.ok(port > 0); const r = await fetch(`http://127.0.0.1:${port}/healthz`); assert.ok(r.ok); assert.ok(existsSync(join(d, 'auto-token.txt'))); const u = await fetch(`http://127.0.0.1:${port}/api/clips`); assert.equal(u.status, 401); await app.stop(); }
+  finally { if (oh !== undefined) process.env.HOST = oh; if (ot !== undefined) process.env.YT_CLIPS_TOKEN = ot; if (op !== undefined) process.env.PORT = op; else delete process.env.PORT; }
+});
