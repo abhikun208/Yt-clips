@@ -66,12 +66,14 @@ export async function fetchSignals(url: string, base: string): Promise<{ chat: b
   } catch { /* optional */ }
   return res;
 }
-export async function downloadVideo(url: string, dir: string, maxHeight: number, o: { strictH264?: boolean; name?: string } = {}): Promise<string> {
+export async function downloadVideo(url: string, dir: string, maxHeight: number, o: { strictH264?: boolean; name?: string; audioLang?: string; range?: { start: number; end: number } } = {}): Promise<string> {
   mkdirSync(dir, { recursive: true });
-  const fmt = o.strictH264 ? `bv*[height<=${maxHeight}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=${maxHeight}][vcodec!^=av01][vcodec!^=vp09]+ba/b[height<=${maxHeight}][vcodec^=avc1]` : `bv*[height<=${maxHeight}][vcodec!^=av01]+ba/bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`;
+  const fmt0 = o.strictH264 ? `bv*[height<=${maxHeight}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=${maxHeight}][vcodec!^=av01][vcodec!^=vp09]+ba/b[height<=${maxHeight}][vcodec^=avc1]` : `bv*[height<=${maxHeight}][vcodec!^=av01]+ba/bv*[height<=${maxHeight}]+ba/b[height<=${maxHeight}]/b`;
+  const lang = o.audioLang && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(o.audioLang) ? o.audioLang : null; const fmt = lang ? `${fmt0.replace(/\+ba(\[ext=m4a\])?/g, `+ba[language^=${lang}]`)}/${fmt0}` : fmt0; // preferred audio track (e.g. the Hindi dub of a YouTube video), plain best audio if that track does not exist
+  const sect = o.range && Number.isFinite(o.range.start) && o.range.end > o.range.start ? ['--download-sections', `*${Math.floor(o.range.start)}-${Math.ceil(o.range.end)}`, '--force-keyframes-at-cuts'] : [];
   const isYt = /youtu\.?be/i.test(url); const ladder = isYt && !/extractor-args/.test(process.env.YT_DLP_EXTRA_ARGS ?? '') ? YT_CLIENT_LADDER : [[]]; let lastErr = '';
   for (let i = 0; i < ladder.length; i++) {
-    const r = await run('yt-dlp', [...extra(), ...ladder[i]!, '--retries', '5', '--fragment-retries', '10', '--socket-timeout', '30', '--no-playlist', '--no-warnings', '-f', fmt, '--merge-output-format', 'mp4', '-o', join(dir, o.name ?? '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
+    const r = await run('yt-dlp', [...extra(), ...ladder[i]!, '--retries', '5', '--fragment-retries', '10', '--socket-timeout', '30', '--no-playlist', '--no-warnings', ...sect, '-f', fmt, '--merge-output-format', 'mp4', '-o', join(dir, o.name ?? '%(id)s.%(ext)s'), '--print', 'after_move:filepath', url], { timeoutMs: 60 * 60_000 });
     const path = r.stdout.trim().split('\n').filter(Boolean).pop();
     if (r.code === 0 && path && existsSync(path)) { if (i > 0) info('yt-dlp worked with another player client', { attempt: i + 1 }); return path; }
     lastErr = r.stderr.trim().slice(-400);
@@ -81,14 +83,22 @@ export async function downloadVideo(url: string, dir: string, maxHeight: number,
 }
 
 /** Register a source. Owner must confirm authorization; nothing is fetched from an unauthorized source. Idempotent per URL. */
-export function addYoutubeSource(store: Store, rawUrl: string, authorized: boolean, channelId?: number): { id: number; kind: YtKind; duplicate: boolean } {
+/** "10:00-25:00", "1:02:03-1:30:00" or "600-1500" (seconds) -> { start, end }; null when empty; throws on nonsense. Max 4 hours. */
+export function parseRange(raw: string | undefined | null): { start: number; end: number } | null {
+  const t = String(raw ?? '').trim(); if (!t) return null;
+  const sec = (x: string): number => { const p = x.trim().split(':').map(Number); if (!p.length || p.length > 3 || p.some((n) => !Number.isFinite(n) || n < 0)) throw new Error('invalid time range: use 10:00-25:00'); return p.reduce((a, n) => a * 60 + n, 0); };
+  const m = t.split('-'); if (m.length !== 2) throw new Error('invalid time range: use 10:00-25:00');
+  const start = sec(m[0]!), end = sec(m[1]!); if (end <= start) throw new Error('invalid time range: end must be after start'); if (end - start > 4 * 3600) throw new Error('time range too long (max 4 hours)');
+  return { start, end };
+}
+export function addYoutubeSource(store: Store, rawUrl: string, authorized: boolean, channelId?: number, opt: { audioLang?: string; range?: { start: number; end: number } | null } = {}): { id: number; kind: YtKind; duplicate: boolean } {
   if (!authorized) throw new Error('authorization required: confirm you own or have permission to reuse this content');
   const p = parseYoutubeUrl(rawUrl);
   const kind = p.kind === 'channel' ? 'youtube_channel' : 'youtube_video';
   const ex = store.get<{ id: number; status: string }>('SELECT id, status FROM sources WHERE uri=?', p.url);
-  if (ex) { if (ex.status === 'removed') store.exec(`UPDATE sources SET status=?, meta_json=?, channel_id=COALESCE(?, channel_id) WHERE id=?`, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0 } : {}), channelId ?? null, ex.id); return { id: ex.id, kind: p.kind, duplicate: ex.status !== 'removed' }; } // a removed link added again is switched back on
+  if (ex) { if (ex.status === 'removed') store.exec(`UPDATE sources SET status=?, meta_json=?, channel_id=COALESCE(?, channel_id) WHERE id=?`, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0, ...(opt.audioLang ? { audioLang: opt.audioLang } : {}), ...(opt.range ? { range: opt.range } : {}) } : {}), channelId ?? null, ex.id); return { id: ex.id, kind: p.kind, duplicate: ex.status !== 'removed' }; } // a removed link added again is switched back on
   const chId = channelId ?? store.get<{ id: number }>(`SELECT id FROM channels WHERE slug='main'`)!.id;
-  const r = store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', kind, p.url, p.url, 1, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0 } : {}), chId);
+  const r = store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', kind, p.url, p.url, 1, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0, ...(opt.audioLang ? { audioLang: opt.audioLang } : {}), ...(opt.range ? { range: opt.range } : {}) } : {}), chId);
   return { id: r.lastId, kind: p.kind, duplicate: false };
 }
 
@@ -129,12 +139,13 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
   }
   const pending = store.all<{ id: number; uri: string; title: string; meta_json: string }>(`SELECT id, uri, title, meta_json FROM sources WHERE kind='youtube_video' AND status='pending' AND authorized=1 ORDER BY id LIMIT ?`, cfg.youtube.maxPerPoll);
   for (const v of pending) {
-    const meta = JSON.parse(v.meta_json || '{}') as { tries?: number };
+    const meta = JSON.parse(v.meta_json || '{}') as { tries?: number; audioLang?: string; range?: { start: number; end: number } };
     let file: string | undefined;
     try {
-      file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight);
+      file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight, { ...(meta.audioLang ? { audioLang: meta.audioLang } : {}), ...(meta.range ? { range: meta.range } : {}) });
+      if (!meta.range) { // chat/heatmap/captions describe the WHOLE video: their timestamps would not match a cut-out time range
       try { await fetchSignals(v.uri, file.replace(/\.[^.]+$/, '')); } catch { /* optional */ }
-      if (cfg.stt.youtubeCaptions !== false && cfg.stt.mode === 'auto') { const lang = await fetchCaptions(v.uri, file.replace(/\.[^.]+$/, ''), extra()); if (lang) info('YouTube captions mil gaye - speech-to-text model chalane ki zaroorat nahi (key-free, instant)', { uri: v.uri, lang }); }
+      if (cfg.stt.youtubeCaptions !== false && cfg.stt.mode === 'auto') { const lang = await fetchCaptions(v.uri, file.replace(/\.[^.]+$/, ''), extra()); if (lang) info('YouTube captions mil gaye - speech-to-text model chalane ki zaroorat nahi (key-free, instant)', { uri: v.uri, lang }); } }
       await ingestLocal(store, cfg, file, { authorized: true, title: v.title, sourceId: v.id });
       store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
     } catch (e) {

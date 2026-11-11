@@ -23,7 +23,7 @@ import { pickPeaks, planCloseups } from './beats.ts';
 import { planRamp, rampedDuration, remapCues, rampFilter, type Ramp } from './ramp.ts';
 import { audioEnergy } from '../analysis/signals.ts';
 import { findLut } from './vfx.ts';
-import { planCuts, cutFilter, remapCuesCuts, type CutPlan } from './jumpcut.ts';
+import { planManualCuts, planCuts, cutFilter, remapCuesCuts, type CutPlan } from './jumpcut.ts';
 import { detectSilence } from '../analysis/signals.ts';
 import { keyphrases } from '../seo/local.ts';
 import { measureVisualChange } from './change.ts';
@@ -38,7 +38,7 @@ import { clipHash, hashSimilarity } from '../media/phash.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
 
-export interface RenderOptions { closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -60,9 +60,14 @@ async function faceTrack(path: string, root: string): Promise<[number, number][]
  * Render one candidate: (1) frame-accurate raw clip to raw_clips (original-resolution, unedited), (2) edited short to NEW edited_shorts folder.
  * Originals are never touched. Output id is unique; existing outputs are never overwritten. Idempotent per candidate (resumes if clip row exists).
  */
-export async function renderCandidate(store: Store, cfg: Config, candidateId: number, ro: RenderOptions = {}): Promise<{ clipId: number; outputId: string; editedPath: string; qcPass: boolean; reused: boolean }> {
+/** Output shape: 9:16 (default Shorts), 1:1 square or 16:9 landscape. Only width/height change; reframing, captions and QC all read them from cfg.edit. */
+export type Aspect = '9:16' | '1:1' | '16:9';
+export const ASPECT_SIZE: Record<Aspect, [number, number]> = { '9:16': [1080, 1920], '1:1': [1080, 1080], '16:9': [1920, 1080] };
+export const withAspect = (cfg: Config, a?: string | null): Config => { const sz = a && a !== '9:16' ? ASPECT_SIZE[a as Aspect] : undefined; return sz ? { ...cfg, edit: { ...cfg.edit, width: sz[0], height: sz[1] } } : cfg; };
+export async function renderCandidate(store: Store, cfgIn: Config, candidateId: number, ro: RenderOptions = {}): Promise<{ clipId: number; outputId: string; editedPath: string; qcPass: boolean; reused: boolean }> {
   const c = store.get<{ id: number; video_id: number; start_sec: number; end_sec: number; category: string; status: string }>('SELECT id, video_id, start_sec, end_sec, category, status FROM candidates WHERE id=?', candidateId);
   if (!c) throw new Error(`Unknown candidate ${candidateId}`);
+  const cfg = withAspect(cfgIn, ro.aspect ?? channelOfVideo(store, c.video_id).config.aspect);
   const prior = ro.variant ? undefined : store.get<{ id: number; output_id: string; edited_path: string; qc_pass: number }>('SELECT id, output_id, edited_path, qc_pass FROM clips WHERE candidate_id=? AND variant=0', candidateId);
   { // the folder may have been moved/renamed (stored paths absolute): a finished file of this clip under the CURRENT output folder is the same result
     const here = prior ? join(cfg.dirs.editedShorts, `${prior.output_id}.mp4`) : null;
@@ -110,9 +115,10 @@ export async function renderCandidate(store: Store, cfg: Config, candidateId: nu
   let m = await probe(rawPath);
   // 1a) optional jump cuts: dead-air (long silences) removed; captions re-timed. Verified by duration, else rendered without.
   let cuts: CutPlan | null = null; let srcPath = rawPath; let cutNote = 'disabled'; const tmpFiles: string[] = [];
-  if ((ro.jumpCuts ?? cfg.edit.jumpCuts) && m.hasAudio) {
+  if (((ro.jumpCuts ?? cfg.edit.jumpCuts) || ro.cutRanges?.length) && m.hasAudio) {
     try {
-      cuts = planCuts(await detectSilence(rawPath, -35, 0.55), m.duration); cutNote = cuts ? '' : 'no long silences / clip too short';
+      if (ro.cutRanges?.length) { cuts = planManualCuts(ro.cutRanges.map(([x, y]) => ({ start: x - c.start_sec, end: y - c.start_sec })), m.duration); cutNote = cuts ? `owner cut ${cuts.removed.length} part(s), ${cuts.saved}s removed` : 'owner cuts ignored (outside the clip or too little left)'; }
+      else { cuts = planCuts(await detectSilence(rawPath, -35, 0.55), m.duration); cutNote = cuts ? '' : 'no long silences / clip too short'; }
       if (cuts) {
         const cp = join(cfg.dirs.tmp, `${outputId}.cut.mp4`); tmpFiles.push(cp);
         const cr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', cutFilter(cuts!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 15, preset: 'ultrafast' }), '-c:a', 'aac', '-b:a', '192k', cp], { timeoutMs: 20 * 60_000 }));

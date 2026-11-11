@@ -60,3 +60,41 @@ test('Vimeo URLs are accepted as single videos; caption punctuation can be switc
   const withP = buildStyledAss(cues, 0, 3, null, { width: 540, height: 960 }), noP = buildStyledAss(cues, 0, 3, null, { width: 540, height: 960, punctuation: false });
   assert.match(withP.ass, /kya|KYA/i); assert.ok(/hai!|HAI!/i.test(withP.ass)); assert.ok(!/hai!|HAI!|Bhai,|BHAI,/i.test(noP.ass));
 });
+test('1:1 and 16:9 output shapes really render at that size (re-render option and channel setting)', { timeout: 200_000 }, async () => {
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { renderCandidate, withAspect } = await import('../src/edit/render.ts'); const { probe } = await import('../src/media/probe.ts');
+  const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path'); const { cleanConfig } = await import('../src/channels.ts'); const parseChannelConfig = (c: unknown) => cleanConfig(c, () => true);
+  assert.equal(withAspect(testConfig(), '1:1').edit.width, 1080); assert.equal(withAspect(testConfig(), '1:1').edit.height, 1080); assert.equal(withAspect(testConfig(), '16:9').edit.width, 1920);
+  assert.throws(() => parseChannelConfig({ aspect: '4:3' })); assert.equal(parseChannelConfig({ aspect: '1:1' }).aspect, '1:1');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 3, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } } as never); const s = new Store(cfg.dbPath); const src = join(tmpDir(), 'sq.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  const cand = s.get<{ id: number }>('SELECT id FROM candidates ORDER BY score DESC')!;
+  const out = await renderCandidate(s, cfg, cand.id, { aspect: '1:1', zoom: false, glow: false, variant: 1 });
+  const m = await probe(out.editedPath); assert.equal(m.width, 1080); assert.equal(m.height, 1080);
+});
+test('time range + audio language: parsed, validated, stored on the source and handed to yt-dlp', async () => {
+  const { parseRange, addYoutubeSource, downloadVideo } = await import('../src/sources/youtube.ts');
+  assert.deepEqual(parseRange('10:00-25:00'), { start: 600, end: 1500 }); assert.deepEqual(parseRange('1:02:03-1:30:00'), { start: 3723, end: 5400 }); assert.deepEqual(parseRange('600-1500'), { start: 600, end: 1500 }); assert.equal(parseRange(''), null);
+  for (const bad of ['25:00-10:00', 'abc', '1-2-3', '0-99999']) assert.throws(() => parseRange(bad), bad);
+  const s = new Store(':memory:'); s.exec(`INSERT OR IGNORE INTO channels(slug, name) VALUES ('main','Main')`);
+  const r = addYoutubeSource(s, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', true, undefined, { audioLang: 'hi', range: { start: 60, end: 120 } });
+  const meta = JSON.parse(s.get<{ meta_json: string }>('SELECT meta_json FROM sources WHERE id=?', r.id)!.meta_json); assert.equal(meta.audioLang, 'hi'); assert.deepEqual(meta.range, { start: 60, end: 120 });
+  // fake yt-dlp records its arguments
+  const { mkdtempSync, writeFileSync, chmodSync, readFileSync } = await import('node:fs'); const { tmpdir } = await import('node:os'); const { join } = await import('node:path');
+  const d = mkdtempSync(join(tmpdir(), 'yd-')); const bin = join(d, 'yt-dlp'); const out = join(d, 'args.txt');
+  writeFileSync(bin, `#!/bin/sh\necho "$@" > ${out}\necho ${join(d, 'v.mp4')}\ntouch ${join(d, 'v.mp4')}\n`); chmodSync(bin, 0o755);
+  const old = process.env.PATH; process.env.PATH = `${d}:${old}`;
+  try { await downloadVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', join(d, 'dl'), 720, { audioLang: 'hi', range: { start: 60, end: 120 } }); } finally { process.env.PATH = old; }
+  const args = readFileSync(out, 'utf8'); assert.match(args, /--download-sections \*60-120/); assert.match(args, /ba\[language\^=hi\]/); assert.match(args, /--force-keyframes-at-cuts/);
+});
+test('deleted words really cut the clip: planManualCuts + a real render is shorter by the removed time', { timeout: 250_000 }, async () => {
+  const { planManualCuts } = await import('../src/edit/jumpcut.ts');
+  const p = planManualCuts([{ start: 2, end: 3 }, { start: 2.9, end: 4 }, { start: 50, end: 60 }], 10)!; assert.deepEqual(p.removed, [{ start: 2, end: 4 }]); assert.equal(p.saved, 2); assert.deepEqual(p.keep, [{ start: 0, end: 2 }, { start: 4, end: 10 }]);
+  assert.equal(planManualCuts([{ start: 0, end: 9.5 }], 10), null); assert.equal(planManualCuts([], 10), null);
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { renderCandidate } = await import('../src/edit/render.ts'); const { probe } = await import('../src/media/probe.ts');
+  const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 3, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } } as never); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'cut.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  const cand = s.get<{ id: number; start_sec: number; end_sec: number }>('SELECT id, start_sec, end_sec FROM candidates ORDER BY score DESC')!;
+  const full = await renderCandidate(s, cfg, cand.id, { zoom: false, glow: false, jumpCuts: false, speedRamp: false, variant: 1 });
+  const cut = await renderCandidate(s, cfg, cand.id, { zoom: false, glow: false, speedRamp: false, variant: 2, cutRanges: [[cand.start_sec + 2, cand.start_sec + 3.5]] });
+  const a = await probe(full.editedPath), b = await probe(cut.editedPath); assert.ok(Math.abs((a.duration - b.duration) - 1.5) < 0.5, `full ${a.duration} cut ${b.duration}`);
+});

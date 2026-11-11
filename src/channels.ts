@@ -7,6 +7,7 @@ export interface ChannelConfig {
   /** test channel: uploads get a '[TEST] ' title prefix, stay UNLISTED and are never published/scheduled public (QA of the real API path with zero audience) */
   sandbox?: boolean;
   captionPreset?: string; schedule?: Partial<SchedConfig>; platforms?: string[]; links?: { label: string; url: string }[]; hashtags?: string[]; liveUrl?: string; language?: string;
+  aspect?: '9:16' | '1:1' | '16:9';
   facecam?: { x: number; y: number; w: number; h: number }; killfeed?: true | { x: number; y: number; w: number; h: number }; translateTo?: 'en' | 'hi' | 'hinglish' | 'auto' | 'original'; cta?: string; disclaimer?: string; narration?: boolean; vocabulary?: string[]; effects?: 'clean' | 'full'; layout?: 'auto' | 'gamer_stack' | 'split_gameplay';
 }
 export interface Channel { id: number; slug: string; name: string; profile: 'general' | 'gaming'; config: ChannelConfig; archived: boolean }
@@ -29,7 +30,8 @@ const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\w\s
 export function cleanConfig(c: unknown, presetOk: (id: string) => boolean): ChannelConfig {
   if (c === undefined || c === null) return {}; if (typeof c !== 'object' || Array.isArray(c)) throw new Error('invalid: config must be an object');
   const i = c as Record<string, unknown>; const o: ChannelConfig = {};
-  const known = new Set(['captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer', 'narration', 'effects', 'vocabulary', 'sandbox']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
+  const known = new Set(['aspect', 'captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer', 'narration', 'effects', 'vocabulary', 'sandbox']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
+  if (i.aspect !== undefined) { if (i.aspect !== '9:16' && i.aspect !== '1:1' && i.aspect !== '16:9') throw new Error('invalid: aspect must be 9:16, 1:1 or 16:9'); o.aspect = i.aspect; }
   if (i.captionPreset !== undefined) { if (typeof i.captionPreset !== 'string' || (i.captionPreset !== 'none' && !presetOk(i.captionPreset))) throw new Error('invalid: unknown caption preset'); o.captionPreset = i.captionPreset; }
   if (i.platforms !== undefined) { const ok = ALLOWED_PLATFORMS as readonly string[]; if (!Array.isArray(i.platforms) || i.platforms.some((p) => !ok.includes(String(p)))) throw new Error('invalid: platforms'); o.platforms = i.platforms.map(String); }
   if (i.links !== undefined) { if (!Array.isArray(i.links) || i.links.length > 8) throw new Error('invalid: links (max 8)'); o.links = i.links.map((l) => { const x = l as { label?: unknown; url?: unknown }; if (typeof x.label !== 'string' || typeof x.url !== 'string' || !/^https:\/\/[^\s]{3,300}$/.test(x.url) || x.label.length > 40) throw new Error('invalid: link needs label and https url'); return { label: x.label, url: x.url }; }); }

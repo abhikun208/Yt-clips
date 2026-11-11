@@ -43,3 +43,12 @@ export function cutFilter(p: CutPlan, hasAudio: boolean): string {
   const v = `[0:v]select='not(${expr})',setpts=N/FRAME_RATE/TB[v]`;
   return hasAudio ? `${v};[0:a]aselect='not(${expr})',asetpts=N/SR/TB,afade=t=in:st=0:d=0.01[a]` : v;
 }
+
+/** Owner-chosen cuts (words deleted in the transcript editor): clip-relative intervals -> CutPlan. Overlaps merged, anything outside the clip ignored; null when nothing valid is left or less than 1.5 s would remain. */
+export function planManualCuts(ranges: Interval[], duration: number): CutPlan | null {
+  const rs = ranges.map((r) => ({ start: Math.max(0, r.start), end: Math.min(duration, r.end) })).filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end - r.start >= 0.05).sort((a, b) => a.start - b.start);
+  const removed: Interval[] = []; for (const r of rs) { const l = removed[removed.length - 1]; if (l && r.start <= l.end + 0.02) l.end = Math.max(l.end, r.end); else removed.push({ ...r }); }
+  const total = removed.reduce((x, r) => x + r.end - r.start, 0); if (!removed.length || duration - total < 1.5) return null;
+  const keep: Interval[] = []; let cur = 0; for (const r of removed) { if (r.start > cur) keep.push({ start: cur, end: r.start }); cur = r.end; } if (cur < duration) keep.push({ start: cur, end: duration });
+  return { removed: removed.map((r) => ({ start: +r.start.toFixed(3), end: +r.end.toFixed(3) })), keep, saved: +total.toFixed(3) };
+}
