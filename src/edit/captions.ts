@@ -30,7 +30,7 @@ const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').tri
 interface TWord { w: string; a: number; b: number }
 export interface CaptionResult { ass: string; timing: 'measured' | 'approximate' | 'none'; font: string; script: Script; presetId: string; warnings: string[] }
 export interface CaptionOpts {
-  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
+  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** vertical position override (Ssemble-style 'adjust position'); default = the preset's own */ position?: 'top' | 'center' | 'bottom'; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
 }
 
 /** Word timeline for the clip window. Uses real per-word timestamps when the cue has them; else splits by word length (approximate). */
@@ -85,7 +85,7 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   const dur = clipEnd - clipStart;
   const script = detectScript(words.map((w) => w.w).join(' ') + ' ' + (title ?? ''));
   let f = pickFont(script, o.resolveFont); if (f.warning) warnings.push(f.warning);
-  const H = o.height, p = preset, pal = p.palette;
+  const H = o.height, p = o.position ? { ...preset, position: o.position } : preset, pal = p.palette;
   // Preset display font (Anton, Bebas Neue ...) only for Latin text and only when it is actually installed/bundled; otherwise keep the normal font.
   const dispFont = script === 'latin' && p.font && o.resolveFont ? o.resolveFont([p.font]) : undefined;
   if (dispFont) f = { font: dispFont };

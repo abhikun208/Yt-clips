@@ -8,6 +8,7 @@ export interface ChannelConfig {
   sandbox?: boolean;
   captionPreset?: string; schedule?: Partial<SchedConfig>; platforms?: string[]; links?: { label: string; url: string }[]; hashtags?: string[]; liveUrl?: string; language?: string;
   aspect?: '9:16' | '1:1' | '16:9';
+  /** channel automation: preferred clip length bucket, clips per video (1-12), how often to look for new uploads, and the 0-100 viral score an auto-queued clip needs */ clipLength?: 'u30' | '30-60' | '60-90' | '90-180'; maxClips?: number; checkEveryHours?: 6 | 12 | 24 | 168; minViral?: number;
   facecam?: { x: number; y: number; w: number; h: number }; killfeed?: true | { x: number; y: number; w: number; h: number }; translateTo?: 'en' | 'hi' | 'hinglish' | 'auto' | 'original'; cta?: string; disclaimer?: string; narration?: boolean; vocabulary?: string[]; effects?: 'clean' | 'full'; layout?: 'auto' | 'gamer_stack' | 'split_gameplay';
 }
 export interface Channel { id: number; slug: string; name: string; profile: 'general' | 'gaming'; config: ChannelConfig; archived: boolean }
@@ -30,7 +31,7 @@ const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\w\s
 export function cleanConfig(c: unknown, presetOk: (id: string) => boolean): ChannelConfig {
   if (c === undefined || c === null) return {}; if (typeof c !== 'object' || Array.isArray(c)) throw new Error('invalid: config must be an object');
   const i = c as Record<string, unknown>; const o: ChannelConfig = {};
-  const known = new Set(['aspect', 'captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer', 'narration', 'effects', 'vocabulary', 'sandbox']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
+  const known = new Set(['clipLength', 'maxClips', 'checkEveryHours', 'minViral', 'aspect', 'captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer', 'narration', 'effects', 'vocabulary', 'sandbox']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
   if (i.aspect !== undefined) { if (i.aspect !== '9:16' && i.aspect !== '1:1' && i.aspect !== '16:9') throw new Error('invalid: aspect must be 9:16, 1:1 or 16:9'); o.aspect = i.aspect; }
   if (i.captionPreset !== undefined) { if (typeof i.captionPreset !== 'string' || (i.captionPreset !== 'none' && !presetOk(i.captionPreset))) throw new Error('invalid: unknown caption preset'); o.captionPreset = i.captionPreset; }
   if (i.platforms !== undefined) { const ok = ALLOWED_PLATFORMS as readonly string[]; if (!Array.isArray(i.platforms) || i.platforms.some((p) => !ok.includes(String(p)))) throw new Error('invalid: platforms'); o.platforms = i.platforms.map(String); }
@@ -42,6 +43,10 @@ export function cleanConfig(c: unknown, presetOk: (id: string) => boolean): Chan
   if (i.effects !== undefined) { if (i.effects !== 'clean' && i.effects !== 'full') throw new Error('invalid: effects must be clean or full'); o.effects = i.effects; }
   if (i.vocabulary !== undefined) { if (!Array.isArray(i.vocabulary) || i.vocabulary.length > 40 || i.vocabulary.some((w) => typeof w !== 'string' || !w.trim() || w.length > 40)) throw new Error('invalid: vocabulary = list of up to 40 names/words (each up to 40 chars), e.g. ["Jethalal","Bhide","Sodhi"]'); o.vocabulary = i.vocabulary.map((w) => String(w).trim()); }
   if (i.narration !== undefined) { if (typeof i.narration !== 'boolean') throw new Error('invalid: narration must be true/false'); o.narration = i.narration; }
+  if (i.clipLength !== undefined) { if (!['u30', '30-60', '60-90', '90-180'].includes(i.clipLength as string)) throw new Error('invalid: clipLength must be u30, 30-60, 60-90 or 90-180'); o.clipLength = i.clipLength as NonNullable<ChannelConfig['clipLength']>; }
+  if (i.maxClips !== undefined) { if (!Number.isInteger(i.maxClips) || (i.maxClips as number) < 1 || (i.maxClips as number) > 12) throw new Error('invalid: maxClips must be a whole number 1-12'); o.maxClips = i.maxClips as number; }
+  if (i.checkEveryHours !== undefined) { if (![6, 12, 24, 168].includes(i.checkEveryHours as number)) throw new Error('invalid: checkEveryHours must be 6, 12, 24 or 168 (weekly)'); o.checkEveryHours = i.checkEveryHours as 6 | 12 | 24 | 168; }
+  if (i.minViral !== undefined) { if (typeof i.minViral !== 'number' || !(i.minViral >= 0 && i.minViral <= 100)) throw new Error('invalid: minViral must be 0-100'); o.minViral = i.minViral; }
   if (i.sandbox !== undefined) { if (typeof i.sandbox !== 'boolean') throw new Error('invalid: sandbox must be true/false'); if (i.sandbox) o.sandbox = true; }
   if (i.cta !== undefined) { if (typeof i.cta !== 'string' || i.cta.length > 40) throw new Error('invalid: cta must be text up to 40 chars'); o.cta = i.cta; }
   if (i.layout !== undefined) { if (i.layout !== 'auto' && i.layout !== 'gamer_stack' && i.layout !== 'split_gameplay') throw new Error('invalid: layout'); o.layout = i.layout; }

@@ -38,7 +38,7 @@ import { clipHash, hashSimilarity } from '../media/phash.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
 
-export interface RenderOptions { cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; captionPosition?: 'top' | 'center' | 'bottom'; /** effect at the start of the clip/captions */ transition?: 'none' | 'fade' | 'flash' | 'zoom'; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay' | 'auto'; bgColor?: string; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -173,7 +173,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text
   if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
-    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, punctuation: cfg.edit.captionPunctuation, cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
+    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, punctuation: cfg.edit.captionPunctuation, position: ro.captionPosition, cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
     writeFileSync(assPath, cap.ass, 'utf8');
   }
@@ -183,8 +183,11 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
     writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.vtt`), cuesToSubtitles(cues, 'vtt', c.start_sec, m.duration));
   }
   const chan = channelOfVideo(store, c.video_id); const facecam = ro.facecam ?? chan.config.facecam;
-  let reframe: VideoGraphOpts['reframe'] = ro.reframe ?? (chan.config.layout === 'gamer_stack' && facecam ? 'gamer_stack' : chan.config.layout === 'split_gameplay' ? 'split_gameplay' : cfg.edit.reframe); let reframeNote = '';
+  let reframe: VideoGraphOpts['reframe'] | 'auto' = ro.reframe ?? (chan.config.layout === 'gamer_stack' && facecam ? 'gamer_stack' : chan.config.layout === 'split_gameplay' ? 'split_gameplay' : cfg.edit.reframe); let reframeNote = '';
   const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
+  if (reframe === 'auto') { // Auto layout: wide source with a findable face -> Fill (face-tracked crop); wide without a face (screen, scenery, group) -> Fit (nothing cut off); already tall/square -> Fill
+    if (m.width / m.height > 1.2) { const fc = await faceCenter(editSrc, cfg.rootDir).catch(() => undefined); reframe = fc !== undefined ? 'crop' : 'fit_blur'; reframeNote = `auto layout: ${reframe === 'crop' ? 'face found -> fill' : 'no face -> fit'}`; } else reframe = 'crop';
+  }
   let burnedSrc = false;
   if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; burnedSrc = true; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
   const deint = await isInterlaced(editSrc, 0, m.duration);
@@ -200,14 +203,15 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
       const extra = hits.filter((h) => punch.every((q) => Math.abs(q - h) > 1.2)).slice(0, 3); if (extra.length) { punch = [...punch, ...extra].sort((a, b) => a - b); emph = top; }
     } catch { emph = []; }
   }
+  if (ro.transition === 'zoom') punch = [0.4, ...punch.filter((q) => q > 1.4)];
   const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
   if (cfg.edit.autoMusic !== false && m.hasAudio) { const { ensureSynthMusic } = await import('./synthmusic.ts'); await ensureSynthMusic(join(cfg.dataDir, 'synth')).catch(() => 0); }
   let musicPick = pickMusicTrack(cfg.dirs.assets, { mood: c.category, seed: c.id }) ?? (cfg.edit.autoMusic !== false ? pickMusicTrack(join(cfg.dataDir, 'synth'), { mood: c.category, seed: c.id }) : undefined); let musicNote: string | null = null;
   { const { acoustidKey, musicRisk } = await import('../media/acoustid.ts'); const key = acoustidKey(cfg); // pre-clear: an uncleared (no licence in library.json) track that matches a known commercial recording is not used
     if (musicPick && key && cfg.copyright?.checkMusic !== false && !musicPick.license) { const hit = await musicRisk(musicPick.path, key, cfg.copyright?.minScore ?? 0.85).catch(() => null); if (hit) { musicNote = `music skipped: matches "${hit.title}" by ${hit.artist} (AcoustID ${hit.score.toFixed(2)}), no licence listed in library.json`; warn(musicNote); musicPick = undefined; } } }
   const music = musicPick?.path;
-  const vg = buildVideoGraph({ punch, closeups, fitZoom: burnedSrc ? (cfg.edit.fitZoomBurned ?? 0.88) : (cfg.edit.fitZoom ?? 0.8), /* source with its own subtitles: trim only 6% per side (was 0: tiny picture); TV subtitles are normally < 85% wide */  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? true,
-    vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
+  const vg = buildVideoGraph({ bgColor: ro.bgColor ?? cfg.edit.bgColor, punch, closeups, fitZoom: burnedSrc ? (cfg.edit.fitZoomBurned ?? 0.88) : (cfg.edit.fitZoom ?? 0.8), /* source with its own subtitles: trim only 6% per side (was 0: tiny picture); TV subtitles are normally < 85% wide */  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? (ro.transition === 'none' ? false : true),
+    vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.transition === 'flash' ? { flash: true } : ro.transition === 'none' ? { flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...(ro.transition === 'flash' ? [0.35] : []), ...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
   const ag = buildAudioGraph({ hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: musicPick?.volume ?? cfg.edit.musicVolume, duration: m.duration, sfx: cfg.edit.sfx === false || cleanFx ? undefined : { whoosh: [0.05], pop: punch.filter((q) => q > 0.5 && q < m.duration - 0.6).slice(0, 4) } });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
   const argsFor = (enc: string) => ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), ...(fill ? ['-stream_loop', '-1', '-i', fill] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),

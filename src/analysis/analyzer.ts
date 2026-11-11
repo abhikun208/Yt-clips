@@ -31,6 +31,7 @@ export type LengthBucket = 'u30' | '30-60' | '60-90' | '90-180';
 export const LENGTHS: Record<LengthBucket, { minSec: number; maxSec: number; targetSec: number }> = { u30: { minSec: 12, maxSec: 30, targetSec: 22 }, '30-60': { minSec: 30, maxSec: 60, targetSec: 45 }, '60-90': { minSec: 60, maxSec: 90, targetSec: 75 }, '90-180': { minSec: 90, maxSec: 180, targetSec: 130 } };
 export function isLengthBucket(x: unknown): x is LengthBucket { return typeof x === 'string' && x in LENGTHS; }
 export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o: { force?: boolean; override?: { introEnd?: number; outroStart?: number }; length?: LengthBucket; whole?: boolean; maxClips?: number } = {}): Promise<{ candidates: number; analysisPath: string }> {
+  { const cc = channelOfVideo(store, videoId).config; o = { ...o, length: o.length ?? cc.clipLength, maxClips: o.maxClips ?? cc.maxClips }; } // channel automation settings are the default; an explicit request wins
   if (o.length) cfg = { ...cfg, clip: { ...cfg.clip, ...LENGTHS[o.length] } };
   if (o.maxClips && o.maxClips >= 1 && o.maxClips <= 12) cfg = { ...cfg, clip: { ...cfg.clip, maxClipsPerVideo: Math.floor(o.maxClips) } };
   const v = store.get<{ path: string; state: string; analysis_path: string | null }>('SELECT path, state, analysis_path FROM videos WHERE id=?', videoId);

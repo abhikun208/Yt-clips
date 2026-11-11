@@ -1,3 +1,4 @@
+import { getChannel } from '../channels.ts';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
@@ -126,6 +127,8 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
   if (!(await ytdlpAvailable())) return { ...res, error: 'yt-dlp not installed' };
   await prepareYtdlp();
   for (const ch of store.all<{ id: number; uri: string; channel_id: number | null }>(`SELECT id, uri, channel_id FROM sources WHERE kind='youtube_channel' AND status='active' AND authorized=1`)) {
+    { const hrs = (ch.channel_id ? getChannel(store, ch.channel_id).config.checkEveryHours : undefined); const kk = `chpoll:${ch.id}`; // per-channel check frequency (6h / 12h / 24h / weekly)
+      if (hrs) { const last = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', kk)?.v ?? 0); if (Date.now() - last < hrs * 3600_000) continue; store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', kk, String(Date.now())); } }
     res.channels = (res.channels ?? 0) + 1;
     try {
       for (const e of await listChannelVideos(ch.uri, 30)) {

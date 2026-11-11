@@ -27,6 +27,7 @@ export function screenBlendLuma(parts: string[], a: string, b: string, out: stri
   parts.push(`[${a}]format=yuv420p[${a}_y];[${b}]format=yuv420p[${b}_y];[${a}_y][${b}_y]blend=c0_mode=screen:c0_opacity=${opacity}:c1_expr=A:c2_expr=A:shortest=1[${out}]`); // `curves`/LUT can leave RGB planes: force yuv so plane 0 really is luma
 }
 export interface VideoGraphOpts {
+  /** fit layout: solid colour (#rrggbb) behind the picture instead of the blurred copy */ bgColor?: string;
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
   reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; fitZoom?: number; cropXFrac?: number; cropTrack?: [number, number][]; // 0..1 center of subject horizontally (from face tracking), default .5
   deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[]; closeups?: { start: number; end: number }[];
@@ -61,8 +62,8 @@ export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'o
     t.push({ dimension: 'reframe_9x16', applied: true, detail: `gamer stack: gameplay top ${topH}px + facecam bottom ${botH}px` });
   } else if (o.reframe === 'fit_blur') {
     const fz = o.inW / o.inH > 1.2 ? Math.min(1, Math.max(0.6, o.fitZoom ?? 1)) : 1; // wide source: trim the empty sides so the picture is bigger (less blur above/below)
-    parts.push(`[${inLabel}]split=2[bg][fg];[bg]scale=${o.outW}:${o.outH}:force_original_aspect_ratio=increase,crop=${o.outW}:${o.outH},boxblur=24:3,eq=brightness=-0.08[bgb];[fg]${fz < 0.99 ? `crop=w='trunc(iw*${fz.toFixed(3)}/2)*2':h=ih:x='max(0,min(iw-ow,iw*${(o.cropXFrac ?? 0.5).toFixed(3)}-ow/2))':y=0,` : ''}scale=${o.outW}:-2:flags=lanczos[fgs];[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[base]`);
-    t.push({ dimension: 'reframe_9x16', applied: true, detail: fz < 0.99 ? `fit with blurred background, sides trimmed to ${Math.round(fz * 100)}% width (bigger picture)` : 'fit with blurred background (no subject cropped)' });
+    parts.push(`[${inLabel}]split=2[bg][fg];[bg]scale=${o.outW}:${o.outH}:force_original_aspect_ratio=increase,crop=${o.outW}:${o.outH},${/^#[0-9a-f]{6}$/i.test(o.bgColor ?? '') ? `drawbox=x=0:y=0:w=iw:h=ih:color=0x${o.bgColor!.slice(1)}@1:t=fill` : 'boxblur=24:3,eq=brightness=-0.08'}[bgb];[fg]${fz < 0.99 ? `crop=w='trunc(iw*${fz.toFixed(3)}/2)*2':h=ih:x='max(0,min(iw-ow,iw*${(o.cropXFrac ?? 0.5).toFixed(3)}-ow/2))':y=0,` : ''}scale=${o.outW}:-2:flags=lanczos[fgs];[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[base]`);
+    t.push({ dimension: 'reframe_9x16', applied: true, detail: /^#[0-9a-f]{6}$/i.test(o.bgColor ?? '') ? `fit on solid colour ${o.bgColor}` : fz < 0.99 ? `fit with blurred background, sides trimmed to ${Math.round(fz * 100)}% width (bigger picture)` : 'fit with blurred background (no subject cropped)' });
   } else {
     // Crop to 9:16 window around subject centre, then scale. Window width = inH*9/16.
     const cx = Math.min(0.95, Math.max(0.05, o.cropXFrac ?? 0.5));

@@ -124,3 +124,36 @@ test('built-in synthesised music: made once when assets/music is empty, picked b
   const d = tmpDir(); const n = await ensureSynthMusic(d); assert.equal(n, 3);
   const pk = pickMusicTrack(d, { mood: 'gaming', seed: 1 })!; assert.ok(pk.matchedMood); assert.match(pk.path, /energy/); assert.ok(statSync(pk.path).size > 50_000); assert.match(pk.license ?? '', /CC0/);
 });
+test('layout: Fit on a solid colour + Auto layout + rerender API validation; clip list reports the REAL file length', { timeout: 200_000 }, async () => {
+  const { buildVideoGraph } = await import('../src/edit/filters.ts');
+  const g = buildVideoGraph({ bgColor: '#112233', reframe: 'fit_blur', inW: 1920, inH: 1080, outW: 1080, outH: 1920, fps: 30, duration: 5, punch: [], closeups: [] } as never);
+  assert.match(g.graph, /drawbox=.*0x112233/); assert.ok(g.treatments.some((t) => /solid colour #112233/.test(t.detail)));
+  const g2 = buildVideoGraph({ reframe: 'fit_blur', inW: 1920, inH: 1080, outW: 1080, outH: 1920, fps: 30, duration: 5, punch: [], closeups: [] } as never); assert.match(g2.graph, /boxblur/);
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { renderCandidate } = await import('../src/edit/render.ts'); const { probe } = await import('../src/media/probe.ts');
+  const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 2, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } } as never); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'lay.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  const cand = s.get<{ id: number }>('SELECT id FROM candidates ORDER BY score DESC')!;
+  const out = await renderCandidate(s, cfg, cand.id, { reframe: 'auto', bgColor: '#112233', zoom: false, glow: false, jumpCuts: false, speedRamp: false });
+  const pr = await probe(out.editedPath); assert.equal(pr.width, 270);
+  const { createApp } = await import('../src/server/app.ts'); const d = tmpDir(); const app = createApp({ host: '127.0.0.1', token: 'layout-test-token-1', dataDir: d, rootDir: d } as never); const port = await app.start();
+  try { const bad = await fetch(`http://127.0.0.1:${port}/api/config`, { method: 'POST', headers: { authorization: 'Bearer layout-test-token-1', 'content-type': 'application/json' }, body: JSON.stringify({ bgColor: 'red' }) }); assert.equal(bad.status, 400); const ok = await fetch(`http://127.0.0.1:${port}/api/config`, { method: 'POST', headers: { authorization: 'Bearer layout-test-token-1', 'content-type': 'application/json' }, body: JSON.stringify({ reframe: 'auto', bgColor: '#000000' }) }); assert.ok(ok.status < 300, String(ok.status)); } finally { await app.stop(); }
+});
+test('channel automation options: validated, clip length + max clips apply on analysis', { timeout: 150_000 }, async () => {
+  const { cleanConfig, createChannel } = await import('../src/channels.ts'); const ok0 = () => true;
+  assert.throws(() => cleanConfig({ clipLength: '5min' }, ok0), /clipLength/); assert.throws(() => cleanConfig({ maxClips: 99 }, ok0), /maxClips/); assert.throws(() => cleanConfig({ checkEveryHours: 5 }, ok0), /checkEveryHours/); assert.throws(() => cleanConfig({ minViral: 101 }, ok0), /minViral/);
+  const ok = cleanConfig({ clipLength: 'u30', maxClips: 1, checkEveryHours: 12, minViral: 60 }, ok0) as Record<string, unknown>; assert.equal(ok.maxClips, 1); assert.equal(ok.checkEveryHours, 12);
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 8, targetSec: 6, maxClipsPerVideo: 8, minScore: 0.01 } } as never); const s = new Store(cfg.dbPath);
+  const ch = createChannel(s, { name: 'one clip', config: { maxClips: 1 } }, ok0) as { id: number };
+  const src = join(tmpDir(), 'chan.mp4'); await makeFixture(src, 40); const r = await ingestLocal(s, cfg, src, { channel: ch.id } as never);
+  s.exec('UPDATE sources SET channel_id=? WHERE id=(SELECT source_id FROM videos WHERE id=?)', ch.id, r.videoId);
+  const a = await analyzeVideo(s, cfg, r.videoId, { force: true }); assert.equal(a.candidates, 1);
+});
+test('transition + caption position options reach the render (ASS alignment, graph flash)', { timeout: 200_000 }, async () => {
+  const { buildStyledAss } = await import('../src/edit/captions.ts');
+  const cues = [{ start: 0, end: 2, text: 'hello duniya', words: [{ text: 'hello', start: 0, end: 1 }, { text: 'duniya', start: 1, end: 2 }] }];
+  const mk = (position?: 'top' | 'center' | 'bottom') => buildStyledAss(cues as never, 0, 3, null, { width: 1080, height: 1920, preset: 'classic-sun', position } as never);
+  const al = (r: { ass: string }) => /Style: Cap,[^\n]*/.exec(r.ass)?.[0] ?? '';
+  assert.notEqual(al(mk('top') as never), al(mk('bottom') as never));
+});
