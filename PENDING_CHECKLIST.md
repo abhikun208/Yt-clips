@@ -33,3 +33,9 @@
 - [x] Tab bar: second "Studio" button no longer breaks navigation (blank #undefined page); select boxes no longer collapse to blank
 - [x] Insights/Schedule/etc. no longer fail silently: red banner + Retry (+ "Reconnect" hint)
 - [-] Publish queue auto-fill: clips go to the queue automatically when `automation.requireReview` is off; with review on (default) they wait for the owner's Approve on purpose
+- [x] Speed option: exactly one of 1.05 1.06 1.07 1.08 1.09 1.10 (or 1 = off), default 1.05; ranges/other values rejected by API (400); applied after captions so words stay in sync
+- [x] On-screen title: black/white strip glued to the top edge, whole clip start->end, contrasting text, up to 2 lines sized to the title; CTA moves under it
+- [x] SEO package per clip: 50 keywords, tags fitted to YouTube's 500 chars, 50 hashtags (15 real #tags in the description, rest as plain words), 10 highlights, real YouTube search phrases (autocomplete); junk words (bhai/gaya/bees...) filtered everywhere
+- [x] Description about/highlights forced to Roman Hinglish (English answer -> one rewrite request -> else template Hinglish)
+- [ ] UNVERIFIED on device: real autocomplete results, Hinglish quality of the AI rewrite, title strip look on the phone's real video
+- [ ] TubeBuddy/vidIQ: not integrated (paid, login-only, no public API); YouTube search autocomplete + the clip's own keywords are used instead

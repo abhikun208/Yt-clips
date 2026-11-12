@@ -30,7 +30,7 @@ export interface VideoGraphOpts {
   /** fit layout: solid colour (#rrggbb) behind the picture instead of the blurred copy */ bgColor?: string;
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
   reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; fitZoom?: number; cropXFrac?: number; cropTrack?: [number, number][]; // 0..1 center of subject horizontally (from face tracking), default .5
-  deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[]; closeups?: { start: number; end: number }[];
+  /** one of SPEEDS (1 = unchanged); applied after the captions are burned in, so words stay in sync */ speed?: number; deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[]; closeups?: { start: number; end: number }[];
   vfx?: Omit<VfxOpts, 'w' | 'h' | 'fps' | 'duration' | 'mood'>;
 }
 
@@ -128,10 +128,14 @@ export function buildVideoGraph(o: VideoGraphOpts): { graph: string; treatments:
     t.push({ dimension: 'title_animation', applied: false, detail: 'no title overlay' });
   }
   chain('format=yuv420p');
+  if (o.speed && o.speed > 1) chain(`setpts=PTS/${o.speed}`);
   return { graph: parts.join(';') + `;[${cur}]null[vout]`, treatments: t };
 }
 
-export interface AudioGraphOpts { hasAudio: boolean; targetLufs: number; music?: boolean; musicVolume?: number; duration: number; /** synthesised (no files, no licence issue) hook whoosh + emphasis pops, clip-relative seconds */ sfx?: { whoosh: number[]; pop: number[]; volume?: number } }
+export const SPEEDS = [1, 1.05, 1.06, 1.07, 1.08, 1.09, 1.1] as const;
+/** Only the six allowed speeds (or 1 = off) are ever used; anything else (a range, 1.5, text) becomes 1. */
+export const normSpeed = (x: unknown): number => { const n = Number(x); return SPEEDS.find((s) => Math.abs(s - n) < 0.0001) ?? 1; };
+export interface AudioGraphOpts { speed?: number; hasAudio: boolean; targetLufs: number; music?: boolean; musicVolume?: number; duration: number; /** synthesised (no files, no licence issue) hook whoosh + emphasis pops, clip-relative seconds */ sfx?: { whoosh: number[]; pop: number[]; volume?: number } }
 
 export function buildAudioGraph(o: AudioGraphOpts): { graph: string | null; treatments: Treatment[] } {
   const t: Treatment[] = [];
@@ -151,10 +155,10 @@ export function buildAudioGraph(o: AudioGraphOpts): { graph: string | null; trea
   if (ev.length) t.push({ dimension: 'sound_effects', applied: true, detail: `${o.sfx?.whoosh.length ?? 0} whoosh + ${o.sfx?.pop.length ?? 0} pop (synthesised, copyright-free)` });
   let g: string;
   if (o.music) {
-    g = `${head}asplit=2[vo][sc];[1:a]volume=${Math.min(1, Math.max(0.02, o.musicVolume ?? 0.18)).toFixed(2)},aloop=loop=-1:size=2e9,atrim=0:${o.duration.toFixed(2)}[m];[m][sc]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[md];[vo][md]amix=inputs=2:duration=first:normalize=0,loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
+    g = `${head}asplit=2[vo][sc];[1:a]volume=${Math.min(1, Math.max(0.02, o.musicVolume ?? 0.18)).toFixed(2)},aloop=loop=-1:size=2e9,atrim=0:${o.duration.toFixed(2)}[m];[m][sc]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[md];[vo][md]amix=inputs=2:duration=first:normalize=0,loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}${o.speed && o.speed > 1 ? `,atempo=${o.speed}` : ''}[aout]`;
     t.push({ dimension: 'music_ducking', applied: true, detail: 'authorized BGM ducked under voice (sidechain)' });
   } else {
-    g = `${head}loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}[aout]`;
+    g = `${head}loudnorm=I=${o.targetLufs}:TP=-1.5:LRA=11,${fade}${o.speed && o.speed > 1 ? `,atempo=${o.speed}` : ''}[aout]`;
     t.push({ dimension: 'music_ducking', applied: false, detail: 'no authorized music file in assets/music' });
   }
   t.push({ dimension: 'loudness_norm', applied: true, detail: `loudnorm I=${o.targetLufs} LUFS TP=-1.5` });

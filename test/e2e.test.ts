@@ -37,7 +37,7 @@ test('real pipeline: ingest -> analyze -> render -> QC -> metadata/thumbnail; or
   const out = await renderCandidate(s, cfg, cand.id, { title: 'Test', zoom: false, glow: false, jumpCuts: false, speedRamp: false }); // short source = one whole clip; silence trimming would shorten it on purpose
   assert.equal(out.qcPass, true); assert.ok(out.editedPath.includes('edited_shorts'));
   const m = await probe(out.editedPath); assert.equal(m.width, 270); assert.equal(m.height, 480);
-  assert.ok(Math.abs(m.duration - (cand.end_sec - cand.start_sec)) < 0.6);
+  assert.ok(Math.abs(m.duration - (cand.end_sec - cand.start_sec) / (cfg.edit.speed ?? 1)) < 0.6); // default speed 1.05: the clip is exactly that much shorter
   const again = await renderCandidate(s, cfg, cand.id, {}); assert.equal(again.reused, true, 'idempotent: no duplicate render');
   const man = JSON.parse(readFileSync(join(cfg.dirs.manifests, `${out.outputId}.json`), 'utf8'));
   assert.equal(man.qc.pass, true); assert.ok(man.treatmentCoverage.coverage > 0); assert.equal(man.source.candidateId, cand.id);

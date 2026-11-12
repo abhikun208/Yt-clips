@@ -46,12 +46,13 @@ export function composeDescription(d: DescParts): string {
   L.push(d.about.trim() || (d.lang === 'en' ? 'The best moment of this video.' : 'Is video ka sabse khaas moment.'));
   if (d.highlights.length) { L.push('', h.hl); for (const x of d.highlights) L.push(`• ${x}`); }
   if (d.chapters.length >= 3) { L.push('', h.map); for (const c of d.chapters) L.push(`${mmss(c.t)} ${c.label}`); }
-  if (d.searches.length) L.push('', `${h.find}: ${d.searches.slice(0, 5).join(' | ')}`);
-  if (d.related.length) L.push('', `${h.rel}: ${d.related.slice(0, 6).join(', ')}`);
+  if (d.searches.length) L.push('', `${h.find}: ${d.searches.slice(0, 8).join(' | ')}`);
+  if (d.related.length) L.push('', `${h.rel}: ${d.related.slice(0, 12).join(', ')}`);
   if (d.sourceTitle) L.push('', `${h.full}: ${d.sourceTitle}${d.channelName ? ` (${d.channelName})` : ''}`);
   if (d.links?.length) { L.push(''); for (const l of d.links) L.push(`${l.label}: ${l.url}`); }
+  { const extra = d.hashtags.slice(15, 50).map((x) => x.replace(/^#/, '')); if (extra.length) L.push('', extra.join(', ')); } // hashtags 16-50 as plain searchable words: more than 15 real #hashtags can make YouTube ignore all of them
   L.push('', h.more);
-  if (d.hashtags.length) L.push('', d.hashtags.slice(0, 5).join(' '));
+  if (d.hashtags.length) L.push('', d.hashtags.slice(0, 15).join(' '));
   return L.join('\n').slice(0, 4900);
 }
 

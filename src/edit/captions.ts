@@ -15,8 +15,8 @@ export const assColor = (hex: string, alpha = 0): string => {
 };
 const inl = (hex: string) => assColor(hex).replace('&H00', '&H') + '&'; // inline form &HBBGGRR&
 /** Fit an on-screen title into the safe width: wrap to max 2 lines (WrapStyle 2 never wraps by itself), shrink the font if needed, trim at a word as the last resort. Returns ASS text (with \\N and an optional \\fs override). */
-export function fitTitle(text: string, W: number, baseSize: number, minSize: number): string {
-  const usable = W - 140, cw = 0.62; // average glyph width of a bold caps/latin font, in em
+export function fitTitle(text: string, W: number, baseSize: number, minSize: number, margin = 140): string {
+  const usable = W - margin, cw = 0.62; // average glyph width of a bold caps/latin font, in em
   let words = text.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').trim().split(/\s+/).filter(Boolean); if (!words.length) return '';
   const wrap = (n: number): string[] => { const out: string[] = []; let cur = ''; for (const w of words) { if (cur && (cur + ' ' + w).length > n) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; } if (cur) out.push(cur); return out; };
   for (let size = baseSize; size >= minSize; size -= Math.max(2, Math.round(baseSize * 0.06))) {
@@ -30,7 +30,7 @@ const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').tri
 interface TWord { w: string; a: number; b: number }
 export interface CaptionResult { ass: string; timing: 'measured' | 'approximate' | 'none'; font: string; script: Script; presetId: string; warnings: string[] }
 export interface CaptionOpts {
-  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** vertical position override (Ssemble-style 'adjust position'); default = the preset's own */ position?: 'top' | 'center' | 'bottom'; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
+  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** vertical position override (Ssemble-style 'adjust position'); default = the preset's own */ titleBar?: 'black' | 'white' | 'off'; position?: 'top' | 'center' | 'bottom'; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
 }
 
 /** Word timeline for the clip window. Uses real per-word timestamps when the cue has them; else splits by word length (approximate). */
@@ -116,8 +116,15 @@ Style: Title,${f.font},${tSize},${assColor(o.titleColor ?? pal.active)},${assCol
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
   const lines: string[] = [];
-  if (o.cta && dur >= 6) lines.push(`Dialogue: 1,${hms(Math.max(0.5, dur - 3))},${hms(dur)},Title,,0,0,0,,{\\fad(250,200)}${fitTitle(o.cta, o.width, tSize, Math.round(H * 0.026))}`);
-  if (title) lines.push(`Dialogue: 1,${hms(0.2)},${hms(Math.min(3.5, dur))},Title,,0,0,0,,{\\fad(200,300)\\fscx80\\fscy80\\t(0,200,\\fscx100\\fscy100)}${fitTitle(title, o.width, tSize, Math.round(H * 0.026))}`);
+  const bar = title && (o.titleBar ?? 'off') !== 'off' ? o.titleBar! : null; let barH = 0;
+  if (bar) { // title strip glued to the top edge for the WHOLE clip: solid colour box + contrasting text, sized to the title (1-2 lines)
+    const ft = fitTitle(title!, o.width, tSize, Math.round(H * 0.034), 56); const fs = Number(/\\fs(\d+)/.exec(ft)?.[1] ?? tSize); const nl = ft.split('\\N').length;
+    barH = Math.round(nl * fs * 1.25 + H * 0.04); const bg = bar === 'black' ? '000000' : 'FFFFFF'; const fg = bar === 'black' ? '&H00FFFFFF&' : '&H00000000&';
+    lines.push(`Dialogue: 0,${hms(0)},${hms(dur)},Title,,0,0,0,,{\\an7\\pos(0,0)\\p1\\bord0\\shad0\\1c&H${bg}&\\1a&H00&}m 0 0 l ${o.width} 0 l ${o.width} ${barH} l 0 ${barH}{\\p0}`);
+    lines.push(`Dialogue: 1,${hms(0)},${hms(dur)},Title,,0,0,0,,{\\an5\\pos(${Math.round(o.width / 2)},${Math.round(barH / 2 + H * 0.004)})\\bord0\\shad0\\1c${fg}}${ft}`);
+  }
+  if (o.cta && dur >= 6) lines.push(`Dialogue: 1,${hms(Math.max(0.5, dur - 3))},${hms(dur)},Title,,0,0,0,,{\\fad(250,200)${bar ? `\\an8\\pos(${Math.round(o.width / 2)},${barH + Math.round(H * 0.015)})` : ''}}${fitTitle(o.cta, o.width, tSize, Math.round(H * 0.026))}`);
+  if (title && !bar) lines.push(`Dialogue: 1,${hms(0.2)},${hms(Math.min(3.5, dur))},Title,,0,0,0,,{\\fad(200,300)\\fscx80\\fscy80\\t(0,200,\\fscx100\\fscy100)}${fitTitle(title, o.width, tSize, Math.round(H * 0.026))}`);
 
   const emph = new Set([...HOOK_WORDS, ...(o.emphasis ?? [])].map((x) => x.toLowerCase()));
   const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');

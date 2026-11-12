@@ -42,7 +42,7 @@ export async function setThumbnailFrame(store: Store, cfg: Config, id: number, a
 }
 
 /** Re-render the same moment with other options into a NEW output (v2, v3...). The previous output is never overwritten; metadata is copied; thumbnail regenerated. */
-export async function rerenderClip(store: Store, cfg: Config, id: number, opts: Pick<RenderOptions, 'captionPreset' | 'zoom' | 'glow' | 'fade' | 'vfx' | 'jumpCuts' | 'speedRamp' | 'beats'>): Promise<{ clipId: number; outputId: string; qcPass: boolean }> {
+export async function rerenderClip(store: Store, cfg: Config, id: number, opts: Pick<RenderOptions, 'captionPreset' | 'zoom' | 'glow' | 'fade' | 'vfx' | 'jumpCuts' | 'speedRamp' | 'beats' | 'speed' | 'titleBar' | 'aspect' | 'reframe' | 'bgColor' | 'captionPosition' | 'transition' | 'trackSensitivity' | 'cutRanges' | 'pace'>): Promise<{ clipId: number; outputId: string; qcPass: boolean }> {
   const c = clipOf(store, id);
   if (opts.captionPreset && opts.captionPreset !== 'none' && !getPreset(opts.captionPreset)) throw new Error('invalid: unknown caption preset');
   const next = (store.get<{ v: number }>('SELECT COALESCE(MAX(variant),0)+1 v FROM clips WHERE candidate_id=?', c.candidate_id)?.v) ?? 1;
