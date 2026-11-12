@@ -67,14 +67,17 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     if (external.length) info('external signals used', { videoId, series: external.map((x) => x.name) });
     let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming', categoryPrior: learnedCategoryPrior(store, chan.id) },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
-    if (o.whole) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip
-      const t = cands[0]; if (!t) throw new Error('whole-range clip needs at least one scored moment in the range; analyse a longer range');
-      const st = a.introEnd, en = a.outroStart; const txt = textInRange(cues, st, en); const fp = shortHash(`${videoId}:whole:${Math.round(st)}:${Math.round(en)}`, 16);
+    // A SHORT source (<= clip.shortSourceSec, default 75 s) is already a Short: it becomes exactly ONE final clip (captions, effects, metadata added), never cut into several. An explicit length bucket / whole:false still wins.
+    const whole = o.whole === true || (o.whole !== false && !o.length && a.duration > 0 && a.duration <= (cfg.clip.shortSourceSec ?? 75));
+    if (whole && !cands[0] && o.whole) throw new Error('whole-range clip needs at least one scored moment in the range; analyse a longer range');
+    if (whole && cands[0]) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip
+      const t = cands[0]!;
+      const st = o.whole ? a.introEnd : 0, en = o.whole ? a.outroStart : a.duration; const txt = textInRange(cues, st, en); const fp = shortHash(`${videoId}:whole:${Math.round(st)}:${Math.round(en)}`, 16);
       cands = [{ ...t, start: st, end: en, duration: +(en - st).toFixed(2), transcript: txt, language: guessLanguage(txt), fingerprint: fp, reason: 'whole range as one clip', hook: sentencesFromCues(cues).find((s) => s.start >= st)?.text.slice(0, 140) ?? t.hook }];
     }
     type PartInfo = { no: number; total: number; key: string };
     const partOf = new Map<string, PartInfo>();
-    if (cfg.clip.series?.enabled && cues.length && !o.whole) {
+    if (cfg.clip.series?.enabled && cues.length && !whole) {
       const sents = sentencesFromCues(cues); const occupied: [number, number][] = []; const out: typeof cands = [];
       for (const c of [...cands].sort((x, y) => y.score - x.score)) {
         if (occupied.some((o) => overlapRatio([c.start, c.end], o) > 0.2)) continue;
@@ -86,7 +89,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       }
       cands = out.sort((x, y) => x.start - y.start);
     }
-    if (cfg.clip.faceMood !== false && !o.whole && cands.length) { try { const { applyFaceMood, pythonFaceRunner } = await import('./facemood.ts'); const fm = await applyFaceMood(cands, v.path, pythonFaceRunner(cfg)); cands = fm.cands; if (fm.used) info('face mood used', { videoId, clips: fm.used }); } catch (e) { warn('face mood failed', { err: (e as Error).message.slice(0, 100) }); } }
+    if (cfg.clip.faceMood !== false && !whole && cands.length) { try { const { applyFaceMood, pythonFaceRunner } = await import('./facemood.ts'); const fm = await applyFaceMood(cands, v.path, pythonFaceRunner(cfg)); cands = fm.cands; if (fm.used) info('face mood used', { videoId, clips: fm.used }); } catch (e) { warn('face mood failed', { err: (e as Error).message.slice(0, 100) }); } }
     { const rr = await rerankCandidates(cands, llmChain(cfg)); cands = rr.cands; if (rr.used) info('llm rerank', { used: rr.used }); else if (rr.note) warn(rr.note); }
     let inserted = 0;
     store.tx(() => {

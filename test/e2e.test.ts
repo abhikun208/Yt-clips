@@ -34,7 +34,7 @@ test('real pipeline: ingest -> analyze -> render -> QC -> metadata/thumbnail; or
   assert.equal(s.get<{ n: number }>('SELECT count(*) n FROM candidates')!.n, n1, 'rerun adds no duplicate candidates');
 
   const cand = s.get<{ id: number; start_sec: number; end_sec: number }>('SELECT id, start_sec, end_sec FROM candidates ORDER BY score DESC')!;
-  const out = await renderCandidate(s, cfg, cand.id, { title: 'Test', zoom: false, glow: false });
+  const out = await renderCandidate(s, cfg, cand.id, { title: 'Test', zoom: false, glow: false, jumpCuts: false, speedRamp: false }); // short source = one whole clip; silence trimming would shorten it on purpose
   assert.equal(out.qcPass, true); assert.ok(out.editedPath.includes('edited_shorts'));
   const m = await probe(out.editedPath); assert.equal(m.width, 270); assert.equal(m.height, 480);
   assert.ok(Math.abs(m.duration - (cand.end_sec - cand.start_sec)) < 0.6);

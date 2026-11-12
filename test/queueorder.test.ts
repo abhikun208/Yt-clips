@@ -188,3 +188,16 @@ test('face-follow damping: single face steady, multi-face jump is rate-limited, 
   const slow = smoothTrack(jump, 0), fast = smoothTrack(jump, 1); assert.ok(slow[3]![1] < fast[3]![1], 'sensitive camera pans faster'); assert.ok(slow[2]![1] - slow[1]![1] <= 0.12 * 0.8 + 1e-6, 'speed cap per second'); assert.ok(slow.every(([, v]) => v >= 0 && v <= 1));
   assert.deepEqual(smoothTrack([]), []); assert.deepEqual(smoothTrack([[0, 0.4]]), [[0, 0.4]]); assert.equal(smoothTrack([[0, 0.4], [1, NaN], [2, 0.6]]).length, 2);
 });
+test('gpt-oss on Groq gets reasoning_effort low (empty "no JSON in reply" answers); other hosts untouched', async () => {
+  const { adaptForHost } = await import('../src/ai/health.ts');
+  const g = JSON.parse(String(adaptForHost('https://api.groq.com/openai/v1/chat/completions', { body: JSON.stringify({ model: 'openai/gpt-oss-20b' }) }).body)); assert.equal(g.reasoning_effort, 'low');
+  const o = JSON.parse(String(adaptForHost('https://api.openai.com/v1/chat/completions', { body: JSON.stringify({ model: 'gpt-4o-mini' }) }).body)); assert.equal(o.reasoning_effort, undefined);
+});
+test('a short source video becomes exactly ONE clip covering the whole video (owner: shorts upload gave 3 clips)', { timeout: 200_000 }, async () => {
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 8, targetSec: 6, maxClipsPerVideo: 8, minScore: 0.01 } } as never); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'short.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); const a = await analyzeVideo(s, cfg, r.videoId);
+  assert.equal(a.candidates, 1); const c = s.get<{ start_sec: number; end_sec: number }>('SELECT start_sec, end_sec FROM candidates WHERE video_id=?', r.videoId)!; const d = s.get<{ duration: number }>('SELECT duration FROM videos WHERE id=?', r.videoId)!.duration;
+  assert.ok(c.start_sec < 0.5 && Math.abs(c.end_sec - d) < 0.5, `clip ${c.start_sec}-${c.end_sec} of ${d}`);
+  const many = await analyzeVideo(s, cfg, r.videoId, { force: true, whole: false }); assert.ok(many.candidates >= 1);
+});

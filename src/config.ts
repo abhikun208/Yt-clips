@@ -10,7 +10,7 @@ export interface Config {
   dbPath: string;
   timezone: string;
   clip: {
-    minSec: number; maxSec: number; targetSec: number; maxClipsPerVideo: number;
+    minSec: number; maxSec: number; targetSec: number; shortSourceSec?: number; maxClipsPerVideo: number;
     minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number; skipHeadSec?: number; skipTailSec?: number; faceMood?: boolean;
     series?: { enabled: boolean; partSec: number; maxParts: number }; dupBlock?: number; dupFlag?: number;
   };

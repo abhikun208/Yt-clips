@@ -66,7 +66,7 @@ export type Aspect = '9:16' | '1:1' | '16:9';
 export const ASPECT_SIZE: Record<Aspect, [number, number]> = { '9:16': [1080, 1920], '1:1': [1080, 1080], '16:9': [1920, 1080] };
 export const withAspect = (cfg: Config, a?: string | null): Config => { const sz = a && a !== '9:16' ? ASPECT_SIZE[a as Aspect] : undefined; return sz ? { ...cfg, edit: { ...cfg.edit, width: sz[0], height: sz[1] } } : cfg; };
 export async function renderCandidate(store: Store, cfgIn: Config, candidateId: number, ro: RenderOptions = {}): Promise<{ clipId: number; outputId: string; editedPath: string; qcPass: boolean; reused: boolean }> {
-  const c = store.get<{ id: number; video_id: number; start_sec: number; end_sec: number; category: string; status: string }>('SELECT id, video_id, start_sec, end_sec, category, status FROM candidates WHERE id=?', candidateId);
+  const c = store.get<{ id: number; video_id: number; start_sec: number; end_sec: number; category: string; status: string; reason: string | null }>('SELECT id, video_id, start_sec, end_sec, category, status, reason FROM candidates WHERE id=?', candidateId);
   if (!c) throw new Error(`Unknown candidate ${candidateId}`);
   const cfg = withAspect(cfgIn, ro.aspect ?? channelOfVideo(store, c.video_id).config.aspect);
   const prior = ro.variant ? undefined : store.get<{ id: number; output_id: string; edited_path: string; qc_pass: number }>('SELECT id, output_id, edited_path, qc_pass FROM clips WHERE candidate_id=? AND variant=0', candidateId);
@@ -186,6 +186,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   }
   const chan = channelOfVideo(store, c.video_id); const facecam = ro.facecam ?? chan.config.facecam;
   let reframe: VideoGraphOpts['reframe'] | 'auto' = ro.reframe ?? (chan.config.layout === 'gamer_stack' && facecam ? 'gamer_stack' : chan.config.layout === 'split_gameplay' ? 'split_gameplay' : cfg.edit.reframe); let reframeNote = '';
+  if (!ro.reframe && reframe === 'crop' && c.reason === 'whole range as one clip') reframe = 'auto'; // a short source kept whole: never throw away picture just to fill 9:16 (portrait stays as is, wide gets Fit unless a face is found)
   const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
   if (reframe === 'auto') { // Auto layout: wide source with a findable face -> Fill (face-tracked crop); wide without a face (screen, scenery, group) -> Fit (nothing cut off); already tall/square -> Fill
     if (m.width / m.height > 1.2) { const fc = await faceCenter(editSrc, cfg.rootDir).catch(() => undefined); reframe = fc !== undefined ? 'crop' : 'fit_blur'; reframeNote = `auto layout: ${reframe === 'crop' ? 'face found -> fill' : 'no face -> fit'}`; } else reframe = 'crop';

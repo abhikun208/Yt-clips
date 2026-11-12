@@ -26,6 +26,9 @@ export const outcomeOfStatus = (status: number): Outcome => (status >= 200 && st
 /** fetch wrapper that records the outcome; the caller still gets the Response (or the network error) exactly as before. */
 /** Anthropic's OpenAI-compatible endpoint rejects `temperature` != 1 on newer Claude models (HTTP 400), so it is simply not sent there. */
 export function adaptForHost(url: string, init: RequestInit): RequestInit {
+  try { // reasoning models (gpt-oss on Groq/OpenRouter) spend the answer budget on thinking and can return an EMPTY content ("no JSON in reply"): ask for low reasoning effort
+    if (typeof init.body === 'string' && /gpt-oss/i.test(init.body)) { const b = JSON.parse(init.body) as Record<string, unknown>; if (!('reasoning_effort' in b) && /groq\.com|openrouter\.ai/i.test(url)) { b.reasoning_effort = 'low'; init = { ...init, body: JSON.stringify(b) }; } }
+  } catch { /* leave the request as it was */ }
   try { if (new URL(url).hostname !== 'api.anthropic.com' || typeof init.body !== 'string') return init; const b = JSON.parse(init.body) as Record<string, unknown>; if (!('temperature' in b) && !('top_p' in b)) return init; delete b.temperature; delete b.top_p; return { ...init, body: JSON.stringify(b) }; } catch { return init; }
 }
 export async function llmFetch(f: typeof fetch, e: LlmEnvLike, url: string, init: RequestInit): Promise<Response> {
