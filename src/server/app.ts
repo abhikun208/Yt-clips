@@ -242,7 +242,7 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/assets' && req.method === 'GET') { const L = (d: string, re: RegExp) => { try { return readdirSync(join(cfg.dirs.assets, d)).filter((x) => re.test(x)).sort(); } catch { return []; } }; return json(res, 200, { music: L('music', /\.(mp3|m4a|wav|ogg)$/i), sfx: L('sfx', /\.(mp3|m4a|wav|ogg)$/i), gameplay: L('gameplay', /\.(mp4|mov|mkv|webm)$/i), overlays: L('vfx_overlays', /\.(mp4|mov|webm|png)$/i), fonts: L('fonts', /\.(ttf|otf)$/i), note: 'Apni files in folders mein rakho (assets/music, assets/gameplay …). Sirf apni ya licensed files.' }); }
       if (p === '/api/videos') return json(res, 200, { videos: store.all(`SELECT id, path, state FROM videos ORDER BY id DESC LIMIT 200`).map((v) => ({ ...(v as { id: number; path: string; state: string }), title: basename((v as { path: string }).path) })) });
       { const dm = p.match(/^\/api\/clips\/(\d+)$/); if (dm && req.method === 'DELETE') { const id = Number(dm[1]); const c = store.get<{ id: number; edited_path: string | null; thumbnail_path: string | null; candidate_id: number }>('SELECT id, edited_path, thumbnail_path, candidate_id FROM clips WHERE id=?', id); if (!c) return json(res, 404, { error: 'unknown clip' });
-        if (store.get('SELECT 1 FROM uploads WHERE clip_id=? AND remote_id IS NOT NULL', id)) return json(res, 409, { error: 'Ye clip upload ho chuka hai: platform se khud hatao; yahan delete nahi hota' });
+        if (store.get('SELECT 1 FROM uploads WHERE clip_id=? AND remote_id IS NOT NULL', id) && url.searchParams.get('force') !== '1') return json(res, 409, { needsForce: true, error: 'Ye clip platform par upload ho chuka hai. Yahan se sirf local copy (file + thumbnail) hategi; platform wala video wahin rahega, use platform se khud hatao.' });
         store.tx(() => { store.exec('DELETE FROM uploads WHERE clip_id=?', id); store.exec('DELETE FROM clips WHERE id=?', id); store.exec(`UPDATE candidates SET status='rejected' WHERE id=?`, c.candidate_id); });
         for (const f of [c.edited_path, c.thumbnail_path]) if (f) { try { rmSync(f, { force: true }); } catch { /* already gone */ } }
         return json(res, 200, { ok: true }); } }
@@ -297,7 +297,14 @@ export function createApp(o: AppOptions = {}): App {
       }
       { const rm = /^\/api\/sources\/(\d+)(?:\/remove)?$/.exec(p); if (rm && (m === 'DELETE' || (m === 'POST' && p.endsWith('/remove')))) { // owner removes a source: it stops being watched and disappears from the lists; videos/clips already made are kept
         const id = Number(rm[1]); if (!store.get('SELECT 1 FROM sources WHERE id=?', id)) return json(res, 400, { error: `Unknown source ${id}` });
-        store.tx(() => { store.exec(`UPDATE sources SET status='removed' WHERE id=? OR json_extract(COALESCE(meta_json,'{}'),'$.channelSource')=?`, id, id); }); chCache = null; return json(res, 200, { ok: true }); } }
+        store.tx(() => { store.exec(`UPDATE sources SET status='removed' WHERE id=? OR json_extract(COALESCE(meta_json,'{}'),'$.channelSource')=?`, id, id); }); chCache = null;
+        let freedMb = 0; if (url.searchParams.get('files') === '1') { // also free the disk: delete OUR copy of the source video(s) (never the owner's original) and stop any work that still needs them; finished clips stay
+          const vids = store.all<{ id: number; path: string }>(`SELECT v.id, v.path FROM videos v JOIN sources s ON s.id=v.source_id WHERE s.id=? OR json_extract(COALESCE(s.meta_json,'{}'),'$.channelSource')=?`, id, id);
+          for (const v of vids) { const inside = resolve(v.path).startsWith(resolve(cfg.dirs.sources) + sep); if (inside) { try { freedMb += statSync(v.path).size / 1048576; rmSync(v.path, { force: true }); } catch { /* already gone */ } }
+            store.exec(`UPDATE jobs SET state='CANCELLED', lease_until=NULL WHERE state IN ('PENDING','RETRY') AND (key=? OR key IN (SELECT 'render:'||id FROM candidates WHERE video_id=? AND status='candidate'))`, `analyze:${v.id}`, v.id);
+            store.exec(`UPDATE candidates SET status='parked' WHERE video_id=? AND status='candidate'`, v.id); store.exec(`UPDATE videos SET state='PARKED' WHERE id=? AND state IN ('NEW','ANALYZING','ANALYZED')`, v.id); }
+        }
+        return json(res, 200, { ok: true, freedMb: Math.round(freedMb) }); } }
       { const rm = /^\/api\/uploads\/(\d+)(?:\/cancel)?$/.exec(p); if (rm && (m === 'DELETE' || (m === 'POST' && p.endsWith('/cancel')))) { // take an upload out of the queue; only while nothing is on the platform yet
         const id = Number(rm[1]); const u = store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', id); if (!u) return json(res, 400, { error: `Unknown upload ${id}` });
         const force = new URL(req.url ?? '/', 'http://x').searchParams.get('force') === '1';

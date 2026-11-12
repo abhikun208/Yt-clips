@@ -70,8 +70,8 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     // A SHORT source (<= clip.shortSourceSec, default 75 s) is already a Short: it becomes exactly ONE final clip (captions, effects, metadata added), never cut into several. An explicit length bucket / whole:false still wins.
     const whole = o.whole === true || (o.whole !== false && !o.length && a.duration > 0 && a.duration <= (cfg.clip.shortSourceSec ?? 75));
     if (whole && !cands[0] && o.whole) throw new Error('whole-range clip needs at least one scored moment in the range; analyse a longer range');
-    if (whole && cands[0]) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip
-      const t = cands[0]!;
+    if (whole && (cands[0] || !o.whole)) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip. A short source needs no scored moment: even a 10 s upload (shorter than clip.minSec) is one clip
+      const t = cands[0] ?? { start: 0, end: a.duration, duration: a.duration, score: 0.5, category: 'general', reason: 'whole range as one clip', hook: '', transcript: '', language: 'hi', confidence: 0.5, signals: {} };
       const st = o.whole ? a.introEnd : 0, en = o.whole ? a.outroStart : a.duration; const txt = textInRange(cues, st, en); const fp = shortHash(`${videoId}:whole:${Math.round(st)}:${Math.round(en)}`, 16);
       cands = [{ ...t, start: st, end: en, duration: +(en - st).toFixed(2), transcript: txt, language: guessLanguage(txt), fingerprint: fp, reason: 'whole range as one clip', hook: sentencesFromCues(cues).find((s) => s.start >= st)?.text.slice(0, 140) ?? t.hook }];
     }

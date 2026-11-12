@@ -201,3 +201,16 @@ test('a short source video becomes exactly ONE clip covering the whole video (ow
   assert.ok(c.start_sec < 0.5 && Math.abs(c.end_sec - d) < 0.5, `clip ${c.start_sec}-${c.end_sec} of ${d}`);
   const many = await analyzeVideo(s, cfg, r.videoId, { force: true, whole: false }); assert.ok(many.candidates >= 1);
 });
+test('a 10 s source (shorter than clip.minSec) still becomes one clip; deleting an uploaded clip needs force; source removal can free the disk copy', { timeout: 200_000 }, async () => {
+  const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path'); const { existsSync } = await import('node:fs'); const { createApp } = await import('../src/server/app.ts');
+  const d = tmpDir(); const app = createApp({ host: '127.0.0.1', token: 'delete-test-token-1', dataDir: d, rootDir: d } as never); const port = await app.start(); const cfg = app.cfg; const s = app.store;
+  try {
+    const src = join(tmpDir(), 'ten.mp4'); await makeFixture(src, 6); const r = await ingestLocal(s, cfg, src); const a = await analyzeVideo(s, cfg, r.videoId); assert.equal(a.candidates, 1);
+    const H = { authorization: 'Bearer delete-test-token-1', 'content-type': 'application/json' }; const vp = s.get<{ path: string; source_id: number }>('SELECT path, source_id FROM videos WHERE id=?', r.videoId)!; assert.ok(existsSync(vp.path));
+    const res = await fetch(`http://127.0.0.1:${port}/api/sources/${vp.source_id}?files=1`, { method: 'DELETE', headers: H }); assert.equal(res.status, 200); assert.equal(existsSync(vp.path), false, 'our copy of the source video is deleted'); assert.ok(existsSync(src), "the owner's original is never touched");
+    const cid = s.get<{ id: number }>('SELECT id FROM candidates')!.id; s.exec(`INSERT INTO clips(candidate_id, output_id, edited_path, qc_pass, state) VALUES (?, 'c1', NULL, 1, 'READY_FOR_QC')`, cid); const clip = s.get<{ id: number }>('SELECT id FROM clips')!.id;
+    s.exec(`INSERT INTO uploads(clip_id, platform, state, idempotency_key, remote_id) VALUES (?, 'youtube_shorts', 'PUBLISHED', 'k1', 'abc')`, clip);
+    const d1 = await fetch(`http://127.0.0.1:${port}/api/clips/${clip}`, { method: 'DELETE', headers: H }); assert.equal(d1.status, 409); assert.equal(((await d1.json()) as { needsForce?: boolean }).needsForce, true);
+    const d2 = await fetch(`http://127.0.0.1:${port}/api/clips/${clip}?force=1`, { method: 'DELETE', headers: H }); assert.equal(d2.status, 200);
+  } finally { await app.stop(); }
+});
