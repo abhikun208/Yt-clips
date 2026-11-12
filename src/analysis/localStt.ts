@@ -22,7 +22,7 @@ export const voiceStudioUrl = (cfg: Config) => (process.env.YT_CLIPS_VOICESTUDIO
 const cppDirs = (): string[] => [process.env.WHISPER_CPP_DIR, join(process.env.HOME ?? '', 'whisper.cpp'), join(process.cwd(), 'vendor', 'whisper.cpp')].filter((x): x is string => !!x);
 export const cppModelPath = (cfg: Config) => {
   const set = process.env.YT_CLIPS_WHISPER_CPP_MODEL || cfg.stt.cppModel || ''; if (set && existsSync(set)) return set;
-  for (const d of cppDirs()) for (const m of ['small', 'base', 'tiny', 'medium', 'small-q5_1', 'base-q5_1', 'tiny-q5_1']) { const f = join(d, 'models', `ggml-${m}.bin`); if (existsSync(f)) return f; }
+  for (const d of cppDirs()) for (const m of ['large-v3-turbo-q5_0', 'large-v3-turbo', 'small', 'base', 'tiny', 'medium', 'small-q5_1', 'base-q5_1', 'tiny-q5_1']) { const f = join(d, 'models', `ggml-${m}.bin`); if (existsSync(f)) return f; }
   return set;
 };
 async function cppBin(): Promise<string | null> {

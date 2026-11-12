@@ -104,3 +104,16 @@ test('captions never exceed the screen width (chunks split), channel vocabulary 
   assert.throws(() => createChannel(s, { name: 'Bad', config: { vocabulary: 'x' } as never }, () => true), /vocabulary/);
   assert.match(sttPrompt(cfg, ['Jethalal', 'Sodhi'])!, /Jethalal, Sodhi/); assert.equal(sttPrompt(cfg), undefined);
 });
+
+test('custom dictionary: merged (deduped) into the STT prompt, saved/validated through the API', async () => {
+  const cfg = testConfig({ stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'auto', dictionary: ['Sheru', 'TMKOC'] } } as never);
+  assert.match(sttPrompt(cfg, ['TMKOC', 'Jethalal'])!, /Sheru, TMKOC, Jethalal/);
+  const { createApp } = await import('../src/server/app.ts'); const { tmpDir } = await import('./helpers.ts'); const d = tmpDir();
+  const app = createApp({ host: '127.0.0.1', token: 'dict-test-token-12', dataDir: d, rootDir: d } as never); const port = await app.start();
+  const post = (b: unknown) => fetch(`http://127.0.0.1:${port}/api/stt/local`, { method: 'POST', headers: { authorization: 'Bearer dict-test-token-12', 'content-type': 'application/json' }, body: JSON.stringify(b) });
+  try {
+    assert.equal((await post({ dictionary: 'Sheru, Bhai <b>' })).status, 400); assert.equal((await post({ dictionary: 'x'.repeat(41) })).status, 400);
+    assert.equal((await post({ dictionary: 'Sheru, Bhai, Sheru' })).status, 200);
+    const g = await (await fetch(`http://127.0.0.1:${port}/api/stt/local`, { headers: { authorization: 'Bearer dict-test-token-12' } })).json() as { dictionary: string[] }; assert.deepEqual(g.dictionary, ['Sheru', 'Bhai']);
+  } finally { await app.stop(); }
+});
