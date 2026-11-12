@@ -181,3 +181,10 @@ test('AUTH_REVOKED is explained as a Google login problem, not a network failure
   const { explainConnError } = await import('../src/connections.ts');
   assert.match(explainConnError('AUTH_REVOKED: invalid_grant — reconnect the YouTube account')!, /Testing.*Production|Publish app/s); assert.equal(explainConnError('fetch failed'), null);
 });
+test('face-follow damping: single face steady, multi-face jump is rate-limited, no face stays empty, sensitivity changes speed', async () => {
+  const { smoothTrack } = await import('../src/edit/facetrack.ts');
+  const steady = smoothTrack(Array.from({ length: 10 }, (_, i) => [i * 0.8, 0.5 + (i % 2 ? 0.004 : -0.004)] as [number, number])); assert.ok(steady.every(([, v]) => Math.abs(v - 0.5) < 0.01), 'jitter ignored (single face)');
+  const jump = Array.from({ length: 8 }, (_, i) => [i * 0.8, i < 2 ? 0.3 : 0.8] as [number, number]); // new speaker on the right
+  const slow = smoothTrack(jump, 0), fast = smoothTrack(jump, 1); assert.ok(slow[3]![1] < fast[3]![1], 'sensitive camera pans faster'); assert.ok(slow[2]![1] - slow[1]![1] <= 0.12 * 0.8 + 1e-6, 'speed cap per second'); assert.ok(slow.every(([, v]) => v >= 0 && v <= 1));
+  assert.deepEqual(smoothTrack([]), []); assert.deepEqual(smoothTrack([[0, 0.4]]), [[0, 0.4]]); assert.equal(smoothTrack([[0, 0.4], [1, NaN], [2, 0.6]]).length, 2);
+});

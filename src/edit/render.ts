@@ -1,3 +1,4 @@
+import { smoothTrack } from './facetrack.ts';
 import { writeFileSync, existsSync, readdirSync, mkdirSync, statSync, renameSync, rmSync } from 'node:fs';
 import { guessLanguage } from '../analysis/transcript.ts';
 import { realHook } from '../seo/hook.ts';
@@ -38,7 +39,7 @@ import { clipHash, hashSimilarity } from '../media/phash.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
 
-export interface RenderOptions { cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; captionPosition?: 'top' | 'center' | 'bottom'; /** effect at the start of the clip/captions */ transition?: 'none' | 'fade' | 'flash' | 'zoom'; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay' | 'auto'; bgColor?: string; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { /** 0..1: how quickly the face-follow crop pans (default 0.5) */ trackSensitivity?: number; cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; captionPosition?: 'top' | 'center' | 'bottom'; /** effect at the start of the clip/captions */ transition?: 'none' | 'fade' | 'flash' | 'zoom'; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay' | 'auto'; bgColor?: string; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string): Promise<number | undefined> {
   if (!(await which('python3'))) return undefined;
@@ -50,9 +51,9 @@ async function faceCenter(path: string, root: string): Promise<number | undefine
 }
 
 /** Speaker-follow keyframes (tools/face_track.py). Empty when OpenCV/faces are missing: the caller keeps the static/centre crop. */
-async function faceTrack(path: string, root: string): Promise<[number, number][]> {
+async function faceTrack(path: string, root: string, sensitivity?: number): Promise<[number, number][]> {
   if (!(await which('python3'))) return [];
-  try { const r = await run('python3', ['-I', join(root, 'tools', 'face_track.py'), path, '5'], { timeoutMs: 4 * 60_000 }); const j = JSON.parse(r.stdout.trim() || '{}') as { track?: [number, number][]; faces?: number }; return (j.faces ?? 0) >= 8 && Array.isArray(j.track) && j.track.length >= 3 ? j.track : []; } catch { return []; }
+  try { const r = await run('python3', ['-I', join(root, 'tools', 'face_track.py'), path, '5'], { timeoutMs: 4 * 60_000 }); const j = JSON.parse(r.stdout.trim() || '{}') as { track?: [number, number][]; faces?: number }; return (j.faces ?? 0) >= 8 && Array.isArray(j.track) && j.track.length >= 3 ? smoothTrack(j.track, sensitivity) : []; } catch { return []; }
 }
 
 
@@ -193,7 +194,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; burnedSrc = true; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
   const deint = await isInterlaced(editSrc, 0, m.duration);
   const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
-  const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir) : [];
+  const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir, ro.trackSensitivity ?? cfg.edit.trackSensitivity) : [];
   let punch: number[] = []; let closeups: { start: number; end: number }[] = [];
   if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); if ((ro.closeups ?? cfg.edit.closeups) !== false) closeups = planCloseups(punch, m.duration); } catch { punch = []; closeups = []; } }
   let emph: string[] = [];
