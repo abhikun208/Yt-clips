@@ -93,6 +93,8 @@ const MIGRATIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS studio_generations (id INTEGER PRIMARY KEY AUTOINCREMENT, studio TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, prompt TEXT NOT NULL DEFAULT '', params_json TEXT NOT NULL DEFAULT '{}', inputs_json TEXT NOT NULL DEFAULT '{}', state TEXT NOT NULL DEFAULT 'QUEUED', request_id TEXT, outputs_json TEXT NOT NULL DEFAULT '[]', files_json TEXT NOT NULL DEFAULT '[]', cost_json TEXT, error TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
    CREATE INDEX IF NOT EXISTS idx_studio_gen_state ON studio_generations(state, id);
    CREATE TABLE IF NOT EXISTS studio_uploads (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL, mime TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, remote_url TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v13 (additive): fair-share routing (src/publish/router.ts) remembers when a clip was last picked
+  `ALTER TABLE clips ADD COLUMN last_attempt_at TEXT;`,
 ];
 
 export type Row = Record<string, unknown>;

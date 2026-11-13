@@ -45,3 +45,14 @@
 - [x] B-roll (Pexels stock cutaways, 1.6 s x up to 3 in the upper panel, off by default: `edit.broll:true` + PEXELS_API_KEY); without a key the clip's own close-up inserts are used
 - [x] Start-up auto-install now also covers faster-whisper (PC/VPS/cloud; Termux uses whisper.cpp)
 - [ ] UNVERIFIED on phone/cloud: Groq vision model call, Pexels download, finish pass timing on Termux
+
+## Round 2026-11-14 (Fair Share + Live capture)
+- [x] Fair Share round-robin (router.ts, tests, UI toggle) - unit/integration VERIFIED in sandbox, real multi-account upload UNVERIFIED
+- [x] Live capture module (live-monitor.ts, tests with fakes) - logic VERIFIED, real live stream UNVERIFIED (needs owner's phone + a live channel)
+- [ ] Hindi STT accuracy on phone - UNVERIFIED (needs phone)
+- [ ] Hardware encoding / parallel render - not built (phone ffmpeg codecs vary; risk of broken renders)
+- [ ] Analytics-driven learning loop + A/B title CTR - partly present (titleTest), needs real analytics data
+- [ ] Token encryption mandatory - not built (owner key choice needed)
+- [ ] Bluesky live test, Pexels B-roll live download, face tracking on phone (no opencv on Termux) - UNVERIFIED
+- [ ] OWNER: YouTube OAuth Production + reconnect, real deploy error text, LICENSE, OpenRouter auto-fix key
+- [ ] Source-burned text overlapping our captions - use caption position setting

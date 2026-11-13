@@ -14,6 +14,7 @@ import { recordClaim, claimSummary, type ClaimKind } from '../publish/claims.ts'
 import { selfcareTick } from '../ops/selfcare.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
+import { liveTick } from '../watcher/live-monitor.ts';
 import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
@@ -114,6 +115,7 @@ export function createApp(o: AppOptions = {}): App {
         if (Date.now() - lastEnvTry >= 30 * 60_000) { lastEnvTry = Date.now(); void applyEnvKeys(cfg).catch(() => null); } // a key that failed its live test at start-up (network blip) is retried
         if (Date.now() - lastCare >= 30 * 60_000) { lastCare = Date.now(); await selfcareTick(store, cfg).catch(() => null); } // temp GC, disk watch, orphan processes, key sentinel
         if (Date.now() - lastDoctor >= 10 * 60_000) { lastDoctor = Date.now(); const dr = await runDoctor(store, cfg).catch(() => null); if (dr && (dr.fixed || dr.manual)) info('doctor', { fixed: dr.fixed, manual: dr.manual, deferred: dr.deferred }); }
+        { const lr = await liveTick(store, cfg).catch((e) => { error('live tick', { err: (e as Error).message }); return null; }); if (lr && (lr.started || lr.chunks)) info('live tick', lr as unknown as Record<string, unknown>); }
         { const tr = await automationTick(store, cfg); if (tr.queued || tr.advanced || tr.errors.length) info('automation tick', tr as unknown as Record<string, unknown>); }
         { const sr = await storageTick(store, cfg).catch(() => null); if (sr && (sr.archived || sr.purged)) info('storage tick', sr as unknown as Record<string, unknown>); }
         seedJobs(store, cfg); const r = await work(store, cfg, { shouldStop: () => stopping }); if (r.done || r.failed) info('worker cycle', r); }
@@ -287,9 +289,10 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/autopilot') {
         if (m === 'POST') {
           const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
-          for (const k of Object.keys(b)) if (!['autoQueue', 'requireReview', 'platforms'].includes(k)) return json(res, 400, { error: `invalid: ${k} cannot be changed here (publish gates and autoApprove are owner-only: use the CLI "autopilot" command on the server)` });
+          for (const k of Object.keys(b)) if (!['autoQueue', 'requireReview', 'platforms', 'fairShare'].includes(k)) return json(res, 400, { error: `invalid: ${k} cannot be changed here (publish gates and autoApprove are owner-only: use the CLI "autopilot" command on the server)` });
           if ('autoQueue' in b) { if (typeof b.autoQueue !== 'boolean') return json(res, 400, { error: 'invalid: autoQueue boolean' }); patch.autoQueue = b.autoQueue; }
           if ('requireReview' in b) { if (typeof b.requireReview !== 'boolean') return json(res, 400, { error: 'invalid: requireReview boolean' }); patch.requireReview = b.requireReview; }
+          if ('fairShare' in b) { if (typeof b.fairShare !== 'boolean') return json(res, 400, { error: 'invalid: fairShare boolean' }); patch.fairShare = b.fairShare; }
           if ('platforms' in b) { const ok = ALLOWED_PLATFORMS as readonly string[]; if (!Array.isArray(b.platforms) || !b.platforms.length || b.platforms.some((x) => !ok.includes(String(x)))) return json(res, 400, { error: 'invalid: platforms' }); patch.platforms = b.platforms; }
           updateOwnerConfig(cfg, { automation: patch }); Object.assign(cfg.automation, patch); store.logState('autopilot', 0, null, JSON.stringify(patch), 'changed from the web UI');
         }
@@ -461,6 +464,14 @@ export function createApp(o: AppOptions = {}): App {
         if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, { ...youtubeStatus(store, cfg, ch), identity: identityOf(store, ch.slug) });
         if (chm[2] === 'youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg, ch); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
         if (chm[2] === 'youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg, ch));
+      }
+      const srcLive = /^\/api\/sources\/(\d+)\/live$/.exec(p);
+      if (srcLive && m === 'POST') { // opt-in live-stream auto-capture for a watched channel
+        const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { watch?: boolean };
+        const row = store.get<{ kind: string; meta_json: string | null }>('SELECT kind, meta_json FROM sources WHERE id=?', Number(srcLive[1])); if (!row) return json(res, 404, { error: 'unknown source' });
+        if (row.kind !== 'youtube_channel') return json(res, 400, { error: 'Live capture sirf YouTube channel source par chalta hai (video/upload par nahi)' });
+        let mj: Record<string, unknown> = {}; try { mj = JSON.parse(row.meta_json || '{}'); } catch { /* ignore */ }
+        mj.watchLive = b.watch === true; store.exec('UPDATE sources SET meta_json=? WHERE id=?', JSON.stringify(mj), Number(srcLive[1])); return json(res, 200, { ok: true, watchLive: mj.watchLive });
       }
       const srcCh = /^\/api\/sources\/(\d+)\/channel$/.exec(p);
       if (srcCh && m === 'POST') {

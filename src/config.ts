@@ -37,7 +37,7 @@ export interface Config {
   vision?: { enabled?: boolean };
   comments: { pollMinutes: number; maxRepliesPerDay: number; /** opt-in: send the reply to PRAISE comments by itself (needs gates.commentsAutoPost too); everything else stays a draft */ autoReply?: boolean };
   /** Autonomous publish loop. OFF by default; owner-only (data/config.json). autoApprove = owner pre-approves scheduling of QC-passed, verified-unlisted clips. */
-  automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean; titleTest: boolean; titleTestHours: number; funnelComment: boolean; blockGenericMetadata?: boolean; unlistedBufferMin?: number; maxBlockedRegions?: number; quotaPausePct?: number };
+  automation: { autoQueue: boolean; platforms: string[]; autoApprove: boolean; maxAdvancePerCycle: number; requireReview: boolean; titleTest: boolean; titleTestHours: number; funnelComment: boolean; blockGenericMetadata?: boolean; /** round-robin: at most one clip per source per round (default on) */ fairShare?: boolean; liveCheckSeconds?: number; liveChunkSeconds?: number; liveMaxUploadsPerHour?: number; fairRetryHours?: number; fairMaxQueued?: number; unlistedBufferMin?: number; maxBlockedRegions?: number; quotaPausePct?: number };
 }
 
 const DEFAULTS = (rootDir: string): Config => {

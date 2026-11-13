@@ -1,3 +1,5 @@
+import { fairPick } from './router.ts';
+import { liveBudget, LIVE_VIDEO_SQL } from '../watcher/live-monitor.ts';
 import { metaForClip } from '../seo/clipmeta.ts';
 import { buildAccountKit, type AccountKit } from '../seo/account.ts';
 import { join } from 'node:path';
@@ -137,7 +139,10 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
   if (!cfg.automation.autoQueue) return r;
   for (const ch of listChannels(store)) for (const platform of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
     if (!cfg.automation.platforms.includes(platform)) continue; // the global list is the owner's master switch
-    const fresh = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND k.score*100 >= ? AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id LIMIT ?`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, ch.config.minViral ?? 0, platform, cfg.automation.maxAdvancePerCycle);
+    let liveLeft = liveBudget(store, cfg); // live-captured clips: at most N uploads per hour
+    const allRows = store.all<{ id: number; sid: number; la: string | null; lv: number }>(`SELECT c.id, COALESCE(v.source_id, 0) AS sid, c.last_attempt_at AS la, CASE WHEN ${LIVE_VIDEO_SQL} THEN 1 ELSE 0 END AS lv FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND k.score*100 >= ? AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, ch.config.minViral ?? 0, platform);
+    const rows = allRows.filter((x) => !x.lv || liveLeft-- > 0);
+    const fresh = cfg.automation.fairShare === false ? rows.slice(0, cfg.automation.maxAdvancePerCycle) : fairPick(store, ch.id, platform, rows.map((x) => ({ clipId: x.id, sourceId: x.sid, lastAttemptAt: x.la })), { limit: cfg.automation.maxAdvancePerCycle, retryHours: cfg.automation.fairRetryHours, maxQueuedPerSource: cfg.automation.fairMaxQueued }).map((id) => ({ id }));
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
   }
   { const used = store.get<{ units: number }>(`SELECT units FROM quota_usage WHERE day=? AND pool='units'`, quotaDay(now))?.units ?? 0; if (used >= 10_000 * ((cfg.automation.quotaPausePct ?? 80) / 100)) { r.blocked.QUOTA_GUARD = 1; void notify(store, cfg, `quota:${quotaDay(now)}`, `YouTube quota ${used}/10000 units: uploads paused until the Pacific-time reset.`); return r; } } // quota guardian
