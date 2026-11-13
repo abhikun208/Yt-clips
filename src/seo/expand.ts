@@ -13,7 +13,7 @@ export const isJunkPhrase = (p: string): boolean => { if (/[^\u0000-ɏ -⃿]/.
 export function toHashtag(p: string): string | null {
   const ws = p.replace(/^#/, '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
   if (!ws.length || (ws.length === 1 && isJunkWord(ws[0]!)) || ws.every(isJunkWord) || /[^\u0000-ɏ]/.test(ws.join(''))) return null;
-  const tag = ws.map((w) => w[0]!.toUpperCase() + w.slice(1)).join(''); return tag.length >= 4 && tag.length <= 30 ? '#' + tag : null;
+  const raw = p.replace(/^#/, '').trim(); const tag = !/\s/.test(raw) && /[a-z][A-Z]/.test(raw) ? raw[0]!.toUpperCase() + raw.slice(1).replace(/[^\p{L}\p{N}]/gu, '') : ws.map((w) => w[0]!.toUpperCase() + w.slice(1)).join(''); return tag.length >= 4 && tag.length <= 30 ? '#' + tag : null;
 }
 const uniq = <T>(a: T[], key: (x: T) => string = (x) => String(x)) => { const seen = new Set<string>(); return a.filter((x) => { const k = key(x).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); };
 /** Tags field of YouTube: whole list max 500 chars (multi-word tags count 2 extra for the quotes). */
@@ -26,8 +26,9 @@ export interface Pack { keywords: string[]; tags: string[]; hashtags: string[]; 
  * Limits: 50 keywords, tags that fit YouTube's 500-char field, 50 hashtags (YouTube drops ALL hashtags above 60), 10 highlights.
  */
 export async function buildPack(store: Store | null, i: { seeds: string[]; aiTags?: string[]; aiHashtags?: string[]; aiSearches?: string[]; highlights?: string[]; lang: string; hashtagsExtra?: string[]; fetchFn?: typeof fetch }): Promise<Pack> {
-  const base = uniq([...(i.aiTags ?? []), ...(i.aiSearches ?? []), ...i.seeds].map((x) => x.replace(/^#/, '').replace(/\s+/g, ' ').trim().toLowerCase()).filter((x) => x.length >= 3 && x.length <= 50 && !isJunkPhrase(x)));
-  const sugSeeds = base.filter((x) => x.split(' ').length <= 3).slice(0, 6); const heard: string[] = [];
+  const ai = [...(i.aiTags ?? []), ...(i.aiSearches ?? [])]; // transcript-word seeds only when the AI gave too little: a mis-heard transcript ('poori chamka boosa') must not become tags
+  const base = uniq([...ai, ...(ai.length >= 8 ? [] : i.seeds)].map((x) => x.replace(/^#/, '').replace(/\s+/g, ' ').trim().toLowerCase()).filter((x) => x.length >= 3 && x.length <= 50 && !isJunkPhrase(x)));
+  const sugSeeds = base.filter((x) => { const n = x.split(' ').length; return n >= 2 && n <= 3; }).slice(0, 6); /* 2-3 word topics only: a single word ('pani') pulls in unrelated searches ('pani puri') */ const heard: string[] = [];
   const res = await Promise.all(sugSeeds.map((s) => suggestKeywords(store, s, { hl: i.lang === 'en' ? 'en' : 'hi', max: 10, fetchFn: i.fetchFn }).then((r) => relevantSuggestions(r, s)).catch(() => [] as string[])));
   for (const r of res) heard.push(...r.map((x) => x.toLowerCase()).filter((x) => !isJunkPhrase(x)));
   const keywords = uniq([...base, ...heard]).slice(0, 50);

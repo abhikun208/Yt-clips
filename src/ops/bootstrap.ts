@@ -10,6 +10,7 @@ import { info, warn } from '../util/log.ts';
 export interface ToolState { name: string; ok: boolean; required: boolean; note?: string }
 
 /** What is installed right now (read-only). */
+const onTermux = !!process.env.TERMUX_VERSION || /com\.termux/.test(process.env.PREFIX ?? '') || existsSync('/data/data/com.termux');
 export async function toolReport(cfg: Config): Promise<ToolState[]> {
   const py = await which('python3');
   const pyMod = async (m: string) => py && (await run('python3', ['-I', '-c', `import ${m}`], { timeoutMs: 20_000 }).catch(() => null))?.code === 0;
@@ -20,6 +21,7 @@ export async function toolReport(cfg: Config): Promise<ToolState[]> {
     { name: 'yt-dlp', ok: await which('yt-dlp'), required: false, note: 'YouTube download' },
     { name: 'speech-to-text', ok: !!stt, required: false, note: 'real titles + word captions (whisper.cpp)' },
     { name: 'edge-tts', ok: await which('edge-tts'), required: false, note: 'voice-over' },
+    { name: 'faster-whisper', ok: onTermux || !!(await pyMod('faster_whisper')), required: false, note: 'PC/VPS/cloud: 4-6x faster local speech-to-text (not installable on Termux: whisper.cpp is used there)' },
     { name: 'opencv', ok: await pyMod('cv2'), required: false, note: 'speaker-follow crop' },
   ];
 }

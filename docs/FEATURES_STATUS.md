@@ -17,7 +17,7 @@ Verified = covered by an automated test. Phone / real-site behaviour is UNVERIFI
 | 21-24 | Cut editor, timeline trim, restore words, undo/redo | done (words kaato panel) | `ui.html`, `planManualCuts` |
 | 25 | Face tracking | done, needs python+opencv (auto-installed on PC/Docker; missing on his phone, falls back to centre crop) | `tools/face_*.py` |
 | 26-30 | Layouts Auto / Fill / Fit / 1:1 / blur or colour background | done | render dialog, `edit.reframe`, `edit.bgColor` |
-| 31 | B-roll search | NOT built: needs a stock-footage source (API key) or the owner's own clips | - |
+| 31 | B-roll search | done, opt-in: Pexels free key + `edit.broll:true` (UNVERIFIED live); no key = own close-up inserts | `edit/broll.ts`, `edit/retitle.ts` |
 | 32 | Transition effects | done (none / fade / flash / zoom) | render dialog |
 | 33 | Sound effects | done (synthesised whoosh + pops, `edit.sfx`) | `filters.ts` |
 | 34-35 | Video effects, zoom | done | `vfx.ts`, `edit/beats.ts` |

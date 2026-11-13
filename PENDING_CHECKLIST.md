@@ -4,7 +4,7 @@
 
 ## Features file (50 items) -> see docs/FEATURES_STATUS.md
 - [x] 49 of 50 built. 
-- [ ] 31 B-roll search: needs a stock-footage source (API key) or the owner's own clip folder.
+- [x] 31 B-roll: built (Pexels, opt-in; live download UNVERIFIED)
 
 ## Real-world verification (sandbox has no phone / YouTube / cloud) - UNVERIFIED
 - [ ] Asli YouTube upload after reconnect (OAuth app must be in Production, tokens die in 7 days in Testing)
@@ -39,3 +39,9 @@
 - [x] Description about/highlights forced to Roman Hinglish (English answer -> one rewrite request -> else template Hinglish)
 - [ ] UNVERIFIED on device: real autocomplete results, Hinglish quality of the AI rewrite, title strip look on the phone's real video
 - [ ] TubeBuddy/vidIQ: not integrated (paid, login-only, no public API); YouTube search autocomplete + the clip's own keywords are used instead
+- [x] Title is printed AFTER the AI has watched the finished clip (frames + speech): clip renders without title, metadata step writes the title, `finishClip` prints it as the strip in one light pass (audio copied, QC re-run); hook fallback if the AI did not answer
+- [x] Vision for Groq keys: Groq's text model (gpt-oss) cannot see images -> the same key's vision model is auto-detected (GROQ_VISION_MODEL overrides); the "no AI could describe" warning now says WHY
+- [x] SEO relevance: AI tags/hashtags replace mis-heard transcript words; autocomplete only for 2-3 word topics (no more 'pani puri' for 'pani')
+- [x] B-roll (Pexels stock cutaways, 1.6 s x up to 3 in the upper panel, off by default: `edit.broll:true` + PEXELS_API_KEY); without a key the clip's own close-up inserts are used
+- [x] Start-up auto-install now also covers faster-whisper (PC/VPS/cloud; Termux uses whisper.cpp)
+- [ ] UNVERIFIED on phone/cloud: Groq vision model call, Pexels download, finish pass timing on Termux

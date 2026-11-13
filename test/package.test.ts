@@ -62,3 +62,30 @@ test('render: speed 1.08 shortens the clip by exactly that factor, QC still pass
   const a = await probe(base.editedPath), b = await probe(fast.editedPath);
   assert.ok(Math.abs(b.duration - a.duration / 1.08) < 0.25, `${a.duration} -> ${b.duration}`); assert.ok(fast.qcPass, 'QC must pass at 1.08x');
 });
+
+test('finish pass: clip rendered without title gets the AI title strip in one light pass (audio copied, QC ok); hook fallback; not twice', async () => {
+  const { Store } = await import('../src/db.ts'); const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts');
+  const { renderCandidate } = await import('../src/edit/render.ts'); const { finishClip, screenTitle } = await import('../src/edit/retitle.ts'); const { probe } = await import('../src/media/probe.ts');
+  const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path'); const { readFileSync } = await import('node:fs');
+  assert.equal(screenTitle('Mumbai local ki bheed 😱 #Shorts'), 'Mumbai local ki bheed'); assert.equal(screenTitle('😱 #Shorts'), null); assert.ok(screenTitle('x '.repeat(60) + 'yy')!.length <= 64);
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 1, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast', titleBar: 'white' } } as never); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'fin.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  const cand = s.get<{ id: number }>('SELECT id FROM candidates ORDER BY score DESC')!;
+  const out = await renderCandidate(s, cfg, cand.id, { zoom: false, glow: false, jumpCuts: false, speedRamp: false, speed: 1 });
+  const row = s.get<{ id: number; manifest_path: string }>('SELECT id, manifest_path FROM clips WHERE output_id=?', out.outputId)!;
+  assert.ok(JSON.parse(readFileSync(row.manifest_path, 'utf8')).render.titleDeferred, 'title must be deferred on a fresh render');
+  const before = await probe(out.editedPath);
+  const f = await finishClip(s, cfg, row.id, 'Bike dhone ka mazedaar scene 😂 #Shorts'); assert.equal(f.ok, true, String(f.why)); assert.equal(f.title, 'Bike dhone ka mazedaar scene');
+  const after = await probe(out.editedPath); assert.ok(Math.abs(after.duration - before.duration) < 0.3 && after.hasAudio === before.hasAudio);
+  assert.equal(JSON.parse(readFileSync(row.manifest_path, 'utf8')).render.titleDeferred, null);
+  assert.equal((await finishClip(s, cfg, row.id, 'Doosra title')).ok, false); // never printed twice
+});
+
+test('b-roll: plan slots, Pexels download via mocked API, no key = nothing', async () => {
+  const { planBroll, fetchBroll } = await import('../src/edit/broll.ts'); const { tmpDir } = await import('./helpers.ts');
+  assert.deepEqual(planBroll(6), []); const p = planBroll(15); assert.equal(p.length, 3); assert.ok(p[0]!.start >= 1.2 && p[2]!.end <= 15 - 1.2 && p.every((x, i) => i === 0 || x.start >= p[i - 1]!.end));
+  const old = process.env.PEXELS_API_KEY; delete process.env.PEXELS_API_KEY; assert.deepEqual(await fetchBroll(tmpDir(), ['rain'], 3), []);
+  process.env.PEXELS_API_KEY = 'k'; const calls: string[] = [];
+  const f = (async (u: string, i?: { headers?: Record<string, string> }) => { calls.push(u); if (u.includes('api.pexels.com')) return { ok: true, json: async () => ({ videos: [{ id: 7, video_files: [{ link: 'https://v/x.mp4', width: 720, file_type: 'video/mp4' }, { link: 'https://v/big.mp4', width: 2160, file_type: 'video/mp4' }] }] }) }; return { ok: true, arrayBuffer: async () => new Uint8Array(20_000).buffer }; }) as unknown as typeof fetch;
+  try { const files = await fetchBroll(tmpDir(), ['rainy street', 'train'], 1, f); assert.equal(files.length, 1); assert.ok(calls.some((c) => c === 'https://v/x.mp4')); } finally { if (old === undefined) delete process.env.PEXELS_API_KEY; else process.env.PEXELS_API_KEY = old; }
+});

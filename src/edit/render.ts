@@ -165,7 +165,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   if (cues.length && !cuts && !ramp && cfg.edit.silenceGate !== false) { // words the STT put into the clip's own digital silence are hallucinations: drop them (never add)
     try { const { silentRanges } = await import('../ops/diagclip.ts'); const { gateSilence } = await import('./silencegate.ts'); const g = gateSilence(cues, await silentRanges(rawPath), c.start_sec); if (g.dropped) { info('captions in silence dropped', { clip: outputId, words: g.dropped }); cues = g.cues; } } catch { /* gate is best-effort */ }
   }
-  let assPath: string | undefined; let cap: CaptionResult | undefined;
+  let assPath: string | undefined; let cap: CaptionResult | undefined; const titleGiven = ro.title !== undefined;
   { const inClip = cues.filter((q) => q.end > c.start_sec && q.start < effEnd).map((q) => q.text).join(' ').trim();
     if (inClip) store.exec(`UPDATE candidates SET transcript=?, language=COALESCE(NULLIF(language,''),?) WHERE id=? AND (transcript IS NULL OR transcript='')`, inClip, guessLanguage(inClip), c.id); // so the metadata step works from the real speech
     if (ro.title === undefined && cfg.edit.hookTitle === true) { const h = realHook(inClip); if (h) ro = { ...ro, title: h }; } }
@@ -173,6 +173,8 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
     if (pn && pt) { const lbl = `PART ${pn}/${pt}`; ro = { ...ro, title: ro.title ? `${lbl} • ${ro.title}`.slice(0, 64) : lbl }; } }
   if (ro.title) { const { stripForeignScripts } = await import('../ai/hinglish.ts'); const sf = stripForeignScripts(ro.title); if (sf.removed) { warn('on-screen title had foreign-script letters (Cyrillic/Urdu/etc): cleaned', { clip: c.id, removed: sf.removed }); ro = { ...ro, title: sf.text.replace(/\s+/g, ' ').trim() || null }; } }
   if (ro.title && (toLang === 'auto' || toLang === 'hinglish')) { const { toHinglish, hasDevanagari } = await import('../ai/hinglish.ts'); if (hasDevanagari(ro.title)) ro = { ...ro, title: toHinglish(ro.title) }; } // the on-screen title uses the same script as the captions (Roman Hinglish), not Devanagari above Roman captions
+  let deferred: { title: string | null; label: string | null } | null = null; // the title is printed after the AI has watched the finished clip (src/edit/retitle.ts): speech-based hooks are often mis-heard
+  if (!titleGiven && cfg.edit.deferTitle !== false && (ro.titleBar ?? cfg.edit.titleBar ?? 'off') !== 'off' && !(chan0.config.narration ?? cfg.edit.narration)) { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; deferred = { title: (ro.title ?? '').replace(/^PART \d+\/\d+( • )?/, '') || null, label: pn && pt ? `PART ${pn}/${pt}` : null }; ro = { ...ro, title: null }; }
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text
   if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
@@ -238,7 +240,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
     captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,
-    render: { speed, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', narration: narrated, width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? { file: music.split('/').pop(), license: musicPick?.license ?? 'owner-supplied (licence not recorded)', source: musicPick?.source ?? null, moodMatched: musicPick?.matchedMood ?? false } : null },
+    render: { titleDeferred: deferred, speed, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', narration: narrated, width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? { file: music.split('/').pop(), license: musicPick?.license ?? 'owner-supplied (licence not recorded)', source: musicPick?.source ?? null, moodMatched: musicPick?.matchedMood ?? false } : null },
     treatments, treatmentCoverage: cov, treatmentTarget: { target: cfg.edit.treatmentTarget, met: targetMet }, visualChange, translation, qc, createdAt: new Date().toISOString(),
   };
   const manifestPath = join(cfg.dirs.manifests, `${outputId}.json`);

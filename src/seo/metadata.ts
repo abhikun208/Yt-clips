@@ -4,7 +4,7 @@ import type { Cue } from '../analysis/transcript.ts';
 import { localMetadata } from './local.ts';
 import { isJunkPhrase } from './expand.ts';
 export interface MetaInput { transcript: string; category: string; language: string; sourceTitle?: string; channelName?: string; ownerLinks?: { label: string; url: string }[]; hashtagsExtra?: string[]; hook?: string; cues?: Cue[]; clipStart?: number; duration?: number; part?: { no: number; total: number } | null; relatedExtra?: string[] }
-export interface Metadata { titles: string[]; title: string; description: string; tags: string[]; hashtags: string[]; keywords: string[]; language: string; thumbnailText: string; source: 'template' | 'llm'; warnings: string[]; seo?: SeoScore & { chapters: number }; parts?: DescParts; generic?: boolean; generatedBy?: string }
+export interface Metadata { titles: string[]; title: string; description: string; tags: string[]; hashtags: string[]; keywords: string[]; language: string; thumbnailText: string; source: 'template' | 'llm'; warnings: string[]; seo?: SeoScore & { chapters: number }; parts?: DescParts; generic?: boolean; generatedBy?: string; broll?: string[] }
 
 const STOP = new Set('the a an and or of to in on is are was were be this that it for with as at by from kya hai hain ka ki ke ko se me mein aur ye yeh woh wo nahi toh to bhi hi kar karo raha rahi tha the thi ek par pe hum tum aap mai main mera meri'.split(' '));
 
