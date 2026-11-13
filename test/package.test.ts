@@ -89,3 +89,37 @@ test('b-roll: plan slots, Pexels download via mocked API, no key = nothing', asy
   const f = (async (u: string, i?: { headers?: Record<string, string> }) => { calls.push(u); if (u.includes('api.pexels.com')) return { ok: true, json: async () => ({ videos: [{ id: 7, video_files: [{ link: 'https://v/x.mp4', width: 720, file_type: 'video/mp4' }, { link: 'https://v/big.mp4', width: 2160, file_type: 'video/mp4' }] }] }) }; return { ok: true, arrayBuffer: async () => new Uint8Array(20_000).buffer }; }) as unknown as typeof fetch;
   try { const files = await fetchBroll(tmpDir(), ['rainy street', 'train'], 1, f); assert.equal(files.length, 1); assert.ok(calls.some((c) => c === 'https://v/x.mp4')); } finally { if (old === undefined) delete process.env.PEXELS_API_KEY; else process.env.PEXELS_API_KEY = old; }
 });
+
+test('owner log 2026-11-13: AI answer with 20 hashtags is accepted (template "related" #tags no longer pushed the count over 15)', async () => {
+  const tr = 'main hu Tanya Mittal aapki fevrit spirichval influensar aur main a rahi hu big basmen spirichval influensar'; const base = buildMetadata({ transcript: tr, category: 'general', language: 'hinglish' });
+  const hs = Array.from({ length: 20 }, (_, i) => 'Tag' + String.fromCharCode(65 + i) + 'bc');
+  const f = (async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ choices: [{ message: { content: JSON.stringify({ title: 'Tanya Mittal ki spiritual baatein', titles: ['x y z'], about: 'Is clip mein Tanya Mittal apne baare mein batati hain.', highlights: ['Tanya ka parichay'], tags: ['tanya mittal', 'bigg boss 19'], hashtags: hs, searches: ['tanya mittal'], thumbnailText: 'TANYA' }) } }] }) })) as unknown as typeof fetch;
+  const r = await llmMetadata({ ...base, sourceTitle: 'Triggered insaan on Tanya' }, tr, { baseUrl: 'http://x', apiKey: '', model: 'm' }, f); assert.equal(r.source, 'llm'); assert.deepEqual(validateMetadata(r), []);
+});
+
+test('source file name tags become real hints; filler like "best moments"/"main" is junk', async () => {
+  const { sourceHints, cleanSourceTitle } = await import('../src/seo/clipmeta.ts');
+  const h = sourceHints('Triggered insaan on Tanya _tanyamittal _bigboss19 _biggboss _comedy _reaction_720P_HD_.mp4'); assert.ok(h.includes('tanyamittal') && h.includes('bigboss19') && !h.includes('comedy') && !h.includes('mp4'));
+  assert.equal(cleanSourceTitle('Triggered insaan _tanyamittal_720P_HD_.mp4'), 'Triggered insaan tanyamittal');
+  assert.ok(isJunkPhrase('best moments') && isJunkPhrase('main hun'));
+  const p = await buildPack(null, { seeds: ['best moments', 'main'], hints: ['tanyamittal', 'bigboss19'], aiTags: [], lang: 'hinglish', fetchFn: fakeSuggest });
+  assert.ok(p.hashtags.includes('#Tanyamittal') && p.keywords.includes('tanyamittal') && !p.keywords.some((k) => /best moments/.test(k)));
+});
+
+test('pipeline passes the speech hook as a FALLBACK (opts.hook), so the title is still deferred until the AI has seen the clip', async () => {
+  const { Store } = await import('../src/db.ts'); const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts');
+  const { renderCandidate } = await import('../src/edit/render.ts'); const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path'); const { readFileSync } = await import('node:fs');
+  const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 1, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } } as never); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'hk.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
+  const cand = s.get<{ id: number }>('SELECT id FROM candidates ORDER BY score DESC')!;
+  const out = await renderCandidate(s, cfg, cand.id, { zoom: false, glow: false, jumpCuts: false, speedRamp: false, hook: 'main hu Tanya Mittal' });
+  const row = s.get<{ manifest_path: string }>('SELECT manifest_path FROM clips WHERE output_id=?', out.outputId)!; const d = JSON.parse(readFileSync(row.manifest_path, 'utf8')).render;
+  assert.equal(d.titleDeferred?.title, 'main hu Tanya Mittal'); assert.equal(d.titleBar, 'black'); assert.equal(d.speed, 1.05);
+});
+
+test('caption fix restores phonetic English words (fevrit -> favourite) but still refuses wild rewrites', async () => {
+  const { llmFixCaptions } = await import('../src/ai/captionfix.ts');
+  const f = (async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => ({ choices: [{ message: { content: JSON.stringify({ lines: ['aapki favourite spiritual influencer', 'main hu sunita'] }) } }] }) })) as unknown as typeof fetch;
+  const r = await llmFixCaptions([{ start: 0, end: 2, text: 'aapki fevrit spirichval influensar' }, { start: 2, end: 4, text: 'main hu Tanya' }], { title: 'Tanya Mittal' }, [{ baseUrl: 'http://x', apiKey: '', model: 'm' }] as never, f);
+  assert.equal(r.cues[0]!.text, 'aapki favourite spiritual influencer'); assert.equal(r.cues[1]!.text, 'main hu Tanya');
+});

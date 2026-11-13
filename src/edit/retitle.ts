@@ -12,7 +12,7 @@ import { info, warn } from '../util/log.ts';
 import { planBroll, fetchBroll, brollKey } from './broll.ts';
 
 /** AI title -> what is printed on the video: no #tags, no emoji, no foreign letters, max ~64 chars cut at a word. null when nothing usable is left. */
-export function screenTitle(title: string | null | undefined, max = 64): string | null {
+export function screenTitle(title: string | null | undefined, max = 44): string | null {
   let t = String(title ?? '').replace(/#\w+/g, ' ').replace(/[\p{Extended_Pictographic}‍️]/gu, ' ').replace(/\s*•\s*\d+\s*$/, '').replace(/[^\u0000-ɏ‐-‧]/g, ' ').replace(/\s+/g, ' ').trim();
   if (t.length > max) { t = t.slice(0, max + 1); t = t.slice(0, Math.max(t.lastIndexOf(' '), 20)).trim(); }
   return t.length >= 4 ? t : null;
@@ -28,7 +28,8 @@ export async function finishClip(store: Store, cfg: Config, clipId: number, aiTi
   if (!row?.edited_path || !row.manifest_path || !existsSync(row.edited_path) || !existsSync(row.manifest_path)) return { ok: false, why: 'files missing' };
   const man = JSON.parse(readFileSync(row.manifest_path, 'utf8')) as { render?: Record<string, any> }; const d = man.render?.titleDeferred as { title: string | null; label: string | null } | null | undefined;
   if (!d) return { ok: false, why: 'title not deferred (already on the video)' };
-  const title = screenTitle(aiTitle) ?? screenTitle(d.title?.replace(/^PART \d+\/\d+ • /, '')) ; const text = [d.label, title].filter(Boolean).join(' • ');
+  const title = screenTitle(aiTitle) ?? screenTitle(d.title?.replace(/^PART \d+\/\d+ • /, ''));
+  /* <= 44 chars: a long title is shrunk to tiny letters; short = BIG */ const text = [d.label, title].filter(Boolean).join(' • ');
   const tmp = join(cfg.dirs.tmp, `${row.output_id}.finish.mp4`); const assPath = join(cfg.dirs.tmp, `${row.output_id}.finish.ass`);
   try {
     const m = await probe(row.edited_path);

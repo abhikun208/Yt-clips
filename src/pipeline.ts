@@ -38,12 +38,12 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     const hk = store.get<{ hook: string | null }>('SELECT hook FROM candidates WHERE id=?', id)?.hook ?? undefined;
     const ch = channelOfVideo(store, meta.video_id);
     const hook = cfg.edit.hookTitle !== true ? null : realHook(meta.transcript ?? '', hk); // null => render derives one from the clip's own speech, or burns nothing
-    const r = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle !== true ? { title: null } : hook ? { title: hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}) });
+    const r = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle !== true ? { title: null } : hook ? { hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}) });
     // Auto-QA: a render that fails the measured checks (wrong size, no audio, black frames, decode errors...) is redone ONCE with the risky extras off
     // (face-track crop, close-ups, speed ramp, jump cuts, beats, vfx), then a 2nd time; only the 3rd failure is reported to the owner.
     let res = r; for (let k = 1; k <= 2 && !res.qcPass; k++) {
       warn('render failed QC - retrying with safe settings', { candidate: id, attempt: k });
-      res = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle !== true ? { title: null } : hook ? { title: hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}), closeups: false, speedRamp: false, jumpCuts: false, beats: false, faceTrack: false, vfx: { lut: false, grain: false, particles: false, lightLeak: false, flash: false, progress: false } });
+      res = await renderCandidate(store, cfg, id, { ...(cfg.edit.hookTitle !== true ? { title: null } : hook ? { hook } : {}), ...(ch.config.captionPreset ? { captionPreset: ch.config.captionPreset } : {}), closeups: false, speedRamp: false, jumpCuts: false, beats: false, faceTrack: false, vfx: { lut: false, grain: false, particles: false, lightLeak: false, flash: false, progress: false } });
     }
     if (!res.qcPass) void notify(store, cfg, `qc:${id}`, `⚠️ Yt-clips: clip (candidate ${id}) 3 baar render hua par quality-check fail raha. Review tab me dekho.`);
     enqueue(store, 'meta', `meta:${res.clipId}`); return;
