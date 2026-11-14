@@ -67,3 +67,8 @@
 - [x] facecam_top layout (synthetic verified; real footage UNVERIFIED)
 - [ ] OWNER decision: enable storage.freeAfterRender (loses re-render of that video)
 - [ ] Facecam auto-detect (needs face model; not on Termux) - corner presets for now
+
+## Round 2026-11-14 d
+- [x] Auto facecam (synthetic-verified; real footage UNVERIFIED - watch log 'facecam auto-detect' scores)
+- [x] autoCleanup + auto re-fetch + Re-fetch Source button (fake yt-dlp verified; phone UNVERIFIED)
+- [x] Parallel jobs setting (env + dashboard)

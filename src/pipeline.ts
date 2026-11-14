@@ -78,7 +78,7 @@ function noteOutcome(store: Store, cfg: Config, ok: boolean): boolean {
 export async function work(store: Store, cfg: Config, o: { maxJobs?: number; shouldStop?: () => boolean } = {}): Promise<{ done: number; failed: number; dead: number }> {
   let done = 0, failed = 0, dead = 0, started = 0, halt = false;
   if (queuePaused(store)) return { done, failed, dead }; // breaker is open: let things recover first
-  const max = o.maxJobs ?? 1e9; const lanes = Math.max(1, Math.min(4, Math.floor(cfg.resources.renderConcurrency || 1)));
+  const max = o.maxJobs ?? 1e9; const lanes = Math.max(1, Math.min(6, Math.floor(cfg.resources.renderConcurrency || 1)));
   // N lanes pull from the same lease-based queue (claim() is a single synchronous SQLite write, so two lanes never get the same job)
   const lane = async () => {
     while (!halt && started < max) {

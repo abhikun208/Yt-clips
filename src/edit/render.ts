@@ -3,6 +3,7 @@ import { writeFileSync, existsSync, readdirSync, mkdirSync, statSync, renameSync
 import { guessLanguage } from '../analysis/transcript.ts';
 import { realHook } from '../seo/hook.ts';
 import { transcribeVideo, sttPrompt } from '../analysis/stt.ts';
+import { detectFacecam, type FacecamGuess } from './facecamdetect.ts';
 import { isInterlaced, hasBurnedSubs, bottomBandBusy } from './sourcecheck.ts';
 import { ensureLocal } from '../storage/cloud.ts';
 import { join } from 'node:path';
@@ -189,8 +190,17 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
     writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.srt`), cuesToSubtitles(cues, 'srt', c.start_sec, m.duration));
     writeFileSync(join(cfg.dataDir, 'captions', `${outputId}.vtt`), cuesToSubtitles(cues, 'vtt', c.start_sec, m.duration));
   }
-  const chan = channelOfVideo(store, c.video_id); const facecam = ro.facecam ?? chan.config.facecam;
+  const chan = channelOfVideo(store, c.video_id); let facecam = ro.facecam ?? chan.config.facecam;
   let reframe: VideoGraphOpts['reframe'] | 'auto' = ro.reframe ?? (chan.config.layout === 'gamer_stack' && facecam ? 'gamer_stack' : chan.config.layout === 'facecam_top' && facecam && m.width / m.height > 1.2 ? 'facecam_top' : chan.config.layout === 'split_gameplay' ? 'split_gameplay' : cfg.edit.reframe); let reframeNote = '';
+  // AUTO FACECAM: a wide gaming source whose channel has no manual layout -> look for a facecam box in a corner (no AI model); found with confidence >= 70% -> facecam_top, otherwise the normal layout above stays
+  if (!ro.reframe && !facecam && cfg.edit.autoFacecam !== false && (!chan.config.layout || chan.config.layout === 'auto') && m.width / m.height > 1.2 && (reframe === 'auto' || reframe === 'crop' || reframe === 'fit_blur')) {
+    try {
+      const key = `facecam:${c.video_id}`; const cached = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', key)?.v; let g = cached ? JSON.parse(cached) as FacecamGuess : null;
+      if (!g) { g = await detectFacecam(editSrc, m.duration, cfg.edit.facecamMinConfidence ?? 0.7); store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', key, JSON.stringify(g)); info('facecam auto-detect', { video: c.video_id, zone: g.zone, confidence: g.confidence, scores: g.scores }); }
+      if (g.zone && g.rect) { const p = 0.012; const x = Math.max(0, g.rect.x - p), y = Math.max(0, g.rect.y - p); facecam = { x, y, w: Math.min(1 - x, g.rect.w + 2 * p), h: Math.min(1 - y, g.rect.h + 2 * p) }; reframe = 'facecam_top'; reframeNote = `auto facecam: ${g.zone} corner (${Math.round(g.confidence * 100)}%)`; }
+      else reframeNote = `auto facecam: koi facecam nahi mila (${Math.round(g.confidence * 100)}% < 70%) - normal layout`;
+    } catch (e) { warn('facecam auto-detect failed, normal layout', { err: (e as Error).message }); }
+  }
   if (!ro.reframe && reframe === 'crop' && c.reason === 'whole range as one clip') reframe = 'auto'; // a short source kept whole: never throw away picture just to fill 9:16 (portrait stays as is, wide gets Fit unless a face is found)
   const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
   if (reframe === 'auto') { // Auto layout: wide source with a findable face -> Fill (face-tracked crop); wide without a face (screen, scenery, group) -> Fit (nothing cut off); already tall/square -> Fill

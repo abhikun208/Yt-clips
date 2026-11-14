@@ -165,7 +165,7 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
   const busyOf = new Map<number, boolean>();
   for (const x of rows) { const pc = pickFor(x); if (pc && !pc.backlog && !x.m.fresh) continue;
     if (x.m.channelSource && lockOn(cfg)) { // strict sequential lock: this channel still has clips of its previous video in progress -> no new download, the poller moves on to the next idle channel
-      let b = busyOf.get(x.m.channelSource); if (b === undefined) { const r = channelBusy(store, x.m.channelSource); b = r.busy; busyOf.set(x.m.channelSource, b); if (b) { info('Channel busy: nayi video download nahi hogi', { source: x.m.channelSource, why: r.reason }); res.busy = (res.busy ?? 0) + 1; } }
+      let b = busyOf.get(x.m.channelSource); if (b === undefined) { const r = channelBusy(store, x.m.channelSource, cfg.automation.maxActiveVideosPerChannel ?? 1); b = r.busy; busyOf.set(x.m.channelSource, b); if (b) { info('Channel busy: nayi video download nahi hogi', { source: x.m.channelSource, why: r.reason }); res.busy = (res.busy ?? 0) + 1; } }
       if (b) continue; }
     pending.push(x.v); }
   for (const v of pending) {

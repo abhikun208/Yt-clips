@@ -52,6 +52,7 @@ export async function archiveVideo(store: Store, cfg: Config, id: number, path: 
 /** Bring an archived original back (re-render / re-analysis). No-op if present locally; throws if it cannot be restored. */
 export async function ensureLocal(store: Store, cfg: Config, path: string): Promise<void> {
   if (existsSync(path)) return; const v = store.get<{ id: number }>('SELECT id FROM videos WHERE path=?', path); const e = v ? getEntry(store, v.id) : null;
+  if ((!e || e.purged) && v) { try { const { refetchSource } = await import('../sources/refetch.ts'); await refetchSource(store, cfg, v.id); return; } catch (err) { info('auto re-fetch of the source failed', { video: v.id, err: (err as Error).message }); } } // cleaned-up YouTube sources come back by themselves
   if (!e || e.purged) throw new Error(`original missing locally and ${e?.purged ? 'cloud copy was purged' : v && store.get('SELECT 1 FROM kv WHERE k=?', `local:pruned:${v.id}`) ? 'deleted after publishing to save disk (storage.localKeepDays)' : 'not archived in cloud'}: ${path}`);
   mkdirSync(dirname(path), { recursive: true });
   for (const name of e.files) { const r = await run('rclone', ['copyto', `${e.remote}/${name}`, join(dirname(path), name), '--retries', '3'], { timeoutMs: 6 * 60 * 60_000 }); if (r.code !== 0 && name === basename(path)) throw new Error('cloud restore failed'); }

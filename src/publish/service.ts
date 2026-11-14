@@ -1,4 +1,5 @@
 import { fairPick } from './router.ts';
+import { sweepSources } from '../sources/sequential.ts';
 import { liveBudget, LIVE_VIDEO_SQL } from '../watcher/live-monitor.ts';
 import { metaForClip } from '../seo/clipmeta.ts';
 import { buildAccountKit, type AccountKit } from '../seo/account.ts';
@@ -135,6 +136,7 @@ export interface TickResult { queued: number; advanced: number; published: numbe
  */
 export async function automationTick(store: Store, cfg: Config, now = new Date()): Promise<TickResult> {
   const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
+  try { sweepSources(store, cfg); } catch (e) { r.errors.push(`cleanup: ${(e as Error).message}`); } // free disk of finished videos (storage.autoCleanup)
   if (cfg.automation.blockGenericMetadata !== false) await healGenericMetadata(store, cfg); // runs even when auto-queue is off: a title must come from the video itself, not from a button
   if (!cfg.automation.autoQueue) return r;
   for (const ch of listChannels(store)) for (const platform of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
