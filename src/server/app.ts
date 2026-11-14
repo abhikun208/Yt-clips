@@ -14,6 +14,7 @@ import { recordClaim, claimSummary, type ClaimKind } from '../publish/claims.ts'
 import { selfcareTick } from '../ops/selfcare.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
+import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick } from '../watcher/live-monitor.ts';
 import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
@@ -322,7 +323,7 @@ export function createApp(o: AppOptions = {}): App {
         chCache = null; return json(res, 200, { ok: true, removed: rows.length }); }
       const sp = /^\/api\/sources\/(\d+)\/status$/.exec(p);
       if (sp && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { status?: string }; if (b.status !== 'active' && b.status !== 'paused' && b.status !== 'pending') return json(res, 400, { error: 'invalid: status active|paused|pending' }); const r = store.exec(`UPDATE sources SET status=?, meta_json=json_set(COALESCE(meta_json,'{}'),'$.tries',0) WHERE id=? AND kind<>'local'`, b.status, Number(sp[1])); if (!r.changes) return json(res, 400, { error: 'Unknown source' }); return json(res, 200, { ok: true }); }
-      if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, pace: cfg.edit.pace, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, bname: x.name, palette: x.palette.id, pname: x.palette.name, active: x.palette.active, tags: x.tags, mode: x.mode })) });
+      if (p === '/api/presets') return json(res, 200, { current: cfg.edit.captionPreset, pace: cfg.edit.pace, avoidBurnedSubs: cfg.edit.avoidBurnedSubs !== false, presets: PRESETS.map((x) => ({ id: x.presetId, label: x.label, base: x.id, bname: x.name, palette: x.palette.id, pname: x.palette.name, active: x.palette.active, tags: x.tags, mode: x.mode })) });
       const pv = /^\/api\/presets\/([\w-]+)\/preview\.png$/.exec(p);
       if (pv) { if (!getPreset(pv[1]!)) return json(res, 404, { error: 'unknown preset' }); const lang = url.searchParams.get('lang') === 'hi' ? 'hi' : 'en'; const png = await presetPreview(previewDir, pv[1]!, lang); res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600' }); return void createReadStream(png).pipe(res); }
       const mf = /^\/api\/manifest\/([\w.-]+)$/.exec(p);
@@ -331,11 +332,11 @@ export function createApp(o: AppOptions = {}): App {
 
       if (p === '/api/config' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
-        const known = new Set(['trackSensitivity', 'captionPreset', 'captionEmphasis', 'reframe', 'pace', 'bgColor', 'speed', 'titleBar', 'broll', 'deferTitle']); for (const k of Object.keys(b)) if (!known.has(k)) return json(res, 400, { error: `key not allowed: ${k} (gates/publishing can only be changed by editing data/config.json on the server)` });
+        const known = new Set(['trackSensitivity', 'captionPreset', 'captionEmphasis', 'reframe', 'pace', 'bgColor', 'speed', 'titleBar', 'broll', 'deferTitle', 'avoidBurnedSubs']); for (const k of Object.keys(b)) if (!known.has(k)) return json(res, 400, { error: `key not allowed: ${k} (gates/publishing can only be changed by editing data/config.json on the server)` });
         if ('captionPreset' in b) { if (b.captionPreset !== 'none' && !getPreset(String(b.captionPreset))) return json(res, 400, { error: 'unknown caption preset' }); patch.captionPreset = b.captionPreset; }
         if ('captionEmphasis' in b) { if (!Array.isArray(b.captionEmphasis) || b.captionEmphasis.some((x) => typeof x !== 'string' || x.length > 40) || b.captionEmphasis.length > 50) return json(res, 400, { error: 'captionEmphasis must be <=50 short strings' }); patch.captionEmphasis = b.captionEmphasis; }
         if ('reframe' in b) { if (b.reframe !== 'crop' && b.reframe !== 'fit_blur' && b.reframe !== 'auto') return json(res, 400, { error: 'reframe must be auto|crop|fit_blur' }); patch.reframe = b.reframe; }
-        for (const k of ['broll', 'deferTitle']) if (k in b) { if (typeof b[k] !== 'boolean') return json(res, 400, { error: `${k} must be true or false` }); patch[k] = b[k]; }
+        for (const k of ['broll', 'deferTitle', 'avoidBurnedSubs']) if (k in b) { if (typeof b[k] !== 'boolean') return json(res, 400, { error: `${k} must be true or false` }); patch[k] = b[k]; }
         if ('trackSensitivity' in b) { if (typeof b.trackSensitivity !== 'number' || !(b.trackSensitivity >= 0 && b.trackSensitivity <= 1)) return json(res, 400, { error: 'trackSensitivity must be 0..1' }); patch.trackSensitivity = b.trackSensitivity; }
         if ('bgColor' in b) { if (b.bgColor !== '' && !(typeof b.bgColor === 'string' && /^#[0-9a-f]{6}$/i.test(b.bgColor))) return json(res, 400, { error: 'bgColor must be #rrggbb or empty' }); patch.bgColor = b.bgColor === '' ? undefined : b.bgColor; }
         if ('speed' in b) { const sp = Number(b.speed); if (typeof b.speed === 'object' || ![1, 1.05, 1.06, 1.07, 1.08, 1.09, 1.1].some((x) => Math.abs(x - sp) < 0.0001)) return json(res, 400, { error: 'speed must be exactly one of 1, 1.05, 1.06, 1.07, 1.08, 1.09, 1.10' }); patch.speed = sp; }
@@ -464,6 +465,15 @@ export function createApp(o: AppOptions = {}): App {
         if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, { ...youtubeStatus(store, cfg, ch), identity: identityOf(store, ch.slug) });
         if (chm[2] === 'youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg, ch); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
         if (chm[2] === 'youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg, ch));
+      }
+      const srcSet = /^\/api\/sources\/(\d+)\/settings$/.exec(p);
+      if (srcSet && m === 'POST') { // per-channel-source settings (videos per check, interval, scan depth, backlog, order, max length)
+        const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as Record<string, unknown>;
+        const row = store.get<{ kind: string; meta_json: string | null }>('SELECT kind, meta_json FROM sources WHERE id=?', Number(srcSet[1])); if (!row) return json(res, 404, { error: 'unknown source' });
+        if (row.kind !== 'youtube_channel') return json(res, 400, { error: 'Ye settings sirf channel source ke liye hain' });
+        let mj: Record<string, unknown> = {}; try { mj = JSON.parse(row.meta_json || '{}'); } catch { /* ignore */ }
+        mj = { ...mj, ...cleanSettings(b) }; store.exec('UPDATE sources SET meta_json=? WHERE id=?', JSON.stringify(mj), Number(srcSet[1]));
+        if (b.backlog === true) store.exec(`DELETE FROM kv WHERE k=?`, `chend:${srcSet[1]}`); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, settings: sourceSettings(mj, cfg) });
       }
       const srcLive = /^\/api\/sources\/(\d+)\/live$/.exec(p);
       if (srcLive && m === 'POST') { // opt-in live-stream auto-capture for a watched channel

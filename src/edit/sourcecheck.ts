@@ -25,3 +25,22 @@ export async function hasBurnedSubs(path: string, start: number, end: number, tm
   }
   return hits >= 2;
 }
+
+/** Edge density (0..255 mean of an edge map) of a horizontal band [y0,y1] of the frame at time t, or null when ffmpeg fails. */
+async function bandEdges(path: string, t: number, y0: number, y1: number): Promise<number | null> {
+  const r = await run('ffmpeg', ['-hide_banner', '-nostats', '-ss', t.toFixed(2), '-i', path, '-frames:v', '1', '-an', '-vf', `crop=iw:ih*${(y1 - y0).toFixed(2)}:0:ih*${y0.toFixed(2)},scale=360:-2,format=gray,edgedetect=low=0.12:high=0.3,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-`, '-f', 'null', '-'], { timeoutMs: 60_000 }).catch(() => null);
+  const m = r ? /YAVG=([\d.]+)/.exec(r.stdout + r.stderr) : null; return m ? Number(m[1]) : null;
+}
+/**
+ * Tesseract-free guess: does the source carry its own subtitles / lower-third text in the bottom band (y 72-90%)? Text is dense in edges compared to a quiet reference band
+ * in the middle; checked on 4 frames, needs 2 hits. Used only to LIFT our captions (never to change the layout), so a false positive costs a slightly higher caption.
+ * Thresholds are tuned on synthetic frames only - UNVERIFIED on real footage.
+ */
+export async function bottomBandBusy(path: string, start: number, end: number): Promise<{ busy: boolean; hits: number; samples: number }> {
+  let hits = 0, samples = 0; const n = 4;
+  for (let i = 0; i < n; i++) {
+    const t = start + ((end - start) * (i + 0.5)) / n; const b = await bandEdges(path, t, 0.72, 0.9); const ref = await bandEdges(path, t, 0.3, 0.48);
+    if (b === null || ref === null) continue; samples++; if (b > 6 && b > ref * 1.6) hits++;
+  }
+  return { busy: hits >= 2, hits, samples };
+}

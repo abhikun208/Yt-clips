@@ -5,6 +5,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { run, which } from '../util/proc.ts';
 import { ingestLocal } from './local.ts';
+import { sourceSettings, permanentReason, notYet } from './sourcecfg.ts';
 import { fetchCaptions } from './ytcaptions.ts';
 import { info, warn } from '../util/log.ts';
 
@@ -49,8 +50,8 @@ export function parseEntries(stdout: string): Entry[] {
   const j = JSON.parse(stdout) as { entries?: Array<{ id?: string; title?: string; duration?: number | null } | null> };
   return (j.entries ?? []).filter((e): e is { id: string; title?: string; duration?: number | null } => !!e && typeof e.id === 'string' && /^[\w-]{6,20}$/.test(e.id)).map((e) => ({ id: e.id, title: e.title ?? e.id, duration: typeof e.duration === 'number' ? e.duration : null }));
 }
-export async function listChannelVideos(url: string, limit = 30): Promise<Entry[]> {
-  const r = await run('yt-dlp', [...extra(), '--flat-playlist', '--dump-single-json', '--playlist-end', String(limit), '--no-warnings', url], { timeoutMs: 5 * 60_000 });
+export async function listChannelVideos(url: string, limit = 30, from = 1): Promise<Entry[]> {
+  const r = await run('yt-dlp', [...extra(), '--flat-playlist', '--dump-single-json', ...(from > 1 ? ['--playlist-start', String(from)] : []), '--playlist-end', String(from + limit - 1), '--no-warnings', url], { timeoutMs: 5 * 60_000 });
   if (r.code !== 0) throw new Error(`yt-dlp list failed: ${r.stderr.trim().slice(-200)}`);
   return parseEntries(r.stdout);
 }
@@ -126,25 +127,47 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
   const res: PollResult = { discovered: 0, downloaded: 0, failed: 0, skipped: 0 };
   if (!(await ytdlpAvailable())) return { ...res, error: 'yt-dlp not installed' };
   await prepareYtdlp();
-  for (const ch of store.all<{ id: number; uri: string; channel_id: number | null }>(`SELECT id, uri, channel_id FROM sources WHERE kind='youtube_channel' AND status='active' AND authorized=1`)) {
-    { const hrs = (ch.channel_id ? getChannel(store, ch.channel_id).config.checkEveryHours : undefined); const kk = `chpoll:${ch.id}`; // per-channel check frequency (6h / 12h / 24h / weekly)
-      if (hrs) { const last = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', kk)?.v ?? 0); if (Date.now() - last < hrs * 3600_000) continue; store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', kk, String(Date.now())); } }
+  for (const ch of store.all<{ id: number; uri: string; channel_id: number | null; meta_json: string | null }>(`SELECT id, uri, channel_id, meta_json FROM sources WHERE kind='youtube_channel' AND status='active' AND authorized=1`)) {
+    let cm: Record<string, unknown> = {}; try { cm = JSON.parse(ch.meta_json || '{}'); } catch { /* ignore */ }
+    const set = sourceSettings(cm, cfg); const kk = `chpoll:${ch.id}`; const kv = (k: string): number => Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', k)?.v ?? 0);
+    { const hrs = (ch.channel_id ? getChannel(store, ch.channel_id).config.checkEveryHours : undefined); const gap = set.checkMinutes > 0 ? set.checkMinutes * 60_000 : hrs ? hrs * 3600_000 : 0; // this source's own interval wins over the account's 6h/12h/24h
+      if (gap) { if (Date.now() - kv(kk) < gap) continue; store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', kk, String(Date.now())); } }
     res.channels = (res.channels ?? 0) + 1;
     try {
-      for (const e of await listChannelVideos(ch.uri, 30)) {
+      const known = !!store.get(`SELECT 1 FROM sources WHERE json_extract(meta_json,'$.channelSource')=?`, ch.id); // first scan of a channel = backlog; later new uploads are "fresh"
+      const add = (list: Entry[], fresh: boolean): number => { let n = 0; for (const e of list) {
         const url = `https://www.youtube.com/watch?v=${e.id}`;
         if (store.get('SELECT 1 FROM sources WHERE uri=?', url)) continue;
-        const tooLong = e.duration !== null && e.duration > cfg.youtube.maxDurationMin * 60;
-        store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', 'youtube_video', url, e.title, 1, tooLong ? 'skipped' : 'pending', JSON.stringify({ videoId: e.id, channelSource: ch.id, duration: e.duration, tries: 0, ...(tooLong ? { reason: 'longer than maxDurationMin' } : {}) }), ch.channel_id);
-        if (tooLong) res.skipped++; else res.discovered++;
+        const tooLong = e.duration !== null && e.duration > set.maxDurationMin * 60;
+        store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', 'youtube_video', url, e.title, 1, tooLong ? 'skipped' : 'pending', JSON.stringify({ videoId: e.id, channelSource: ch.id, duration: e.duration, tries: 0, fresh, ...(tooLong ? { reason: 'longer than maxDurationMin' } : {}) }), ch.channel_id);
+        if (tooLong) res.skipped++; else { res.discovered++; n++; }
+      } return n; };
+      const added = add(await listChannelVideos(ch.uri, set.scanDepth), known);
+      // nothing new and nothing waiting -> reach further back into the channel's OLD videos (page by page) so the queue never runs dry
+      const waiting = store.get<{ n: number }>(`SELECT COUNT(*) n FROM sources WHERE kind='youtube_video' AND status='pending' AND json_extract(meta_json,'$.channelSource')=?`, ch.id)?.n ?? 0;
+      if (set.backlog && !added && !waiting) {
+        const fk = `chfrom:${ch.id}`; const end = kv(`chend:${ch.id}`); const from = Math.max(set.scanDepth + 1, kv(fk) || set.scanDepth + 1);
+        if (!end) { const older = await listChannelVideos(ch.uri, set.scanDepth, from); store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', fk, String(from + set.scanDepth));
+          if (!older.length) { store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', `chend:${ch.id}`, '1'); info('channel ki saari purani videos scan ho chuki', { source: ch.id }); }
+          else { const n = add(older, false); info('naya video nahi tha - purani videos queue me', { source: ch.id, found: n, from }); } }
       }
     } catch (e) { warn('channel listing failed', { channel: ch.uri, err: (e as Error).message }); res.error = explainYtdlp((e as Error).message); }
   }
-  const pending = store.all<{ id: number; uri: string; title: string; meta_json: string }>(`SELECT id, uri, title, meta_json FROM sources WHERE kind='youtube_video' AND status='pending' AND authorized=1 ORDER BY id LIMIT ?`, cfg.youtube.maxPerPoll);
+  const cfgCache = new Map<number, ReturnType<typeof sourceSettings>>(); const parentCfg = (id: number) => { let c = cfgCache.get(id); if (!c) { const r = store.get<{ meta_json: string | null }>('SELECT meta_json FROM sources WHERE id=?', id); let m: Record<string, unknown> = {}; try { m = JSON.parse(r?.meta_json || '{}'); } catch { /* ignore */ } c = sourceSettings(m, cfg); cfgCache.set(id, c); } return c; };
+  const all = store.all<{ id: number; uri: string; title: string; meta_json: string }>(`SELECT id, uri, title, meta_json FROM sources WHERE kind='youtube_video' AND status='pending' AND authorized=1 ORDER BY id LIMIT 2000`);
+  type M = { tries?: number; fresh?: boolean; channelSource?: number; retryAfter?: number };
+  const rows = all.map((v) => ({ v, m: JSON.parse(v.meta_json || '{}') as M })).filter((x) => !(x.m.retryAfter && x.m.retryAfter > Date.now()));
+  // order: videos that never failed first, then NEW uploads before old ones, then newest (or oldest) per the channel's own setting
+  const pickFor = (x: { m: M }) => (x.m.channelSource ? parentCfg(x.m.channelSource) : null);
+  rows.sort((a, b) => (a.m.tries ?? 0) - (b.m.tries ?? 0) || Number(!!b.m.fresh) - Number(!!a.m.fresh) || (pickFor(a)?.order === 'oldest' ? b.v.id - a.v.id : a.v.id - b.v.id));
+  const taken = new Map<number, number>(); const pending: typeof all = []; // the per-source quota is spent on real download attempts (skips of dead videos are free), checked inside the loop
+  for (const x of rows) { const pc = pickFor(x); if (pc && !pc.backlog && !x.m.fresh) continue; pending.push(x.v); }
   for (const v of pending) {
-    const meta = JSON.parse(v.meta_json || '{}') as { tries?: number; audioLang?: string; range?: { start: number; end: number } };
+    const meta = JSON.parse(v.meta_json || '{}') as { tries?: number; channelSource?: number; audioLang?: string; range?: { start: number; end: number } };
+    const par = meta.channelSource ?? 0; const lim = par ? parentCfg(par).perPoll : cfg.youtube.maxPerPoll; if ((taken.get(par) ?? 0) >= lim) continue;
     let file: string | undefined;
     try {
+      taken.set(par, (taken.get(par) ?? 0) + 1);
       file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight, { ...(meta.audioLang ? { audioLang: meta.audioLang } : {}), ...(meta.range ? { range: meta.range } : {}) });
       if (!meta.range) { // chat/heatmap/captions describe the WHOLE video: their timestamps would not match a cut-out time range
       try { await fetchSignals(v.uri, file.replace(/\.[^.]+$/, '')); } catch { /* optional */ }
@@ -156,6 +179,9 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
       if (isOffline(msg)) { // no internet is not this video's fault: keep it pending, do not use up an attempt, do not hammer the other videos
         warn('internet nahi hai - download baad me dobara try hoga (koi attempt kharch nahi hua)', { uri: v.uri }); res.error = 'offline'; break;
       }
+      const perm = permanentReason(msg); // members-only / private / removed: retrying can never work -> skip with a reason, the queue moves on
+      if (perm) { taken.set(par, (taken.get(par) ?? 1) - 1); store.exec(`UPDATE sources SET status='skipped', meta_json=? WHERE id=?`, JSON.stringify({ ...meta, reason: perm }), v.id); res.skipped++; warn('video skip', { uri: v.uri, why: perm }); continue; }
+      if (notYet(msg)) { taken.set(par, (taken.get(par) ?? 1) - 1); store.exec(`UPDATE sources SET meta_json=? WHERE id=?`, JSON.stringify({ ...meta, retryAfter: Date.now() + 6 * 3600_000, reason: 'premiere/live abhi shuru nahi hui - 6 ghante baad dobara' }), v.id); warn('video abhi live/premiere nahi hui', { uri: v.uri }); continue; }
       const tries = (meta.tries ?? 0) + 1; const dead = tries >= cfg.resources.jobMaxAttempts;
       store.exec(`UPDATE sources SET status=?, meta_json=? WHERE id=?`, dead ? 'failed' : 'pending', JSON.stringify({ ...meta, tries, lastError: explainYtdlp((e as Error).message) }), v.id);
       res.failed++; warn('download failed', { uri: v.uri, tries, why: explainYtdlp(msg) });

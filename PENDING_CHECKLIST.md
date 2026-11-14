@@ -56,3 +56,8 @@
 - [ ] Bluesky live test, Pexels B-roll live download, face tracking on phone (no opencv on Termux) - UNVERIFIED
 - [ ] OWNER: YouTube OAuth Production + reconnect, real deploy error text, LICENSE, OpenRouter auto-fix key
 - [ ] Source-burned text overlapping our captions - use caption position setting
+
+## Round 2026-11-14 b
+- [x] Per-source settings + backlog + permanent-error skip (VERIFIED with fake yt-dlp; real YouTube UNVERIFIED)
+- [x] Auto-Avoid Burned Subs (synthetic-verified, real footage UNVERIFIED)
+- [ ] OWNER: put cleared music in assets/music to activate BGM ducking; Task 3 termux-test script not requested this round

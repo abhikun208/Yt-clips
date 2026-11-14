@@ -3,7 +3,7 @@ import { writeFileSync, existsSync, readdirSync, mkdirSync, statSync, renameSync
 import { guessLanguage } from '../analysis/transcript.ts';
 import { realHook } from '../seo/hook.ts';
 import { transcribeVideo, sttPrompt } from '../analysis/stt.ts';
-import { isInterlaced, hasBurnedSubs } from './sourcecheck.ts';
+import { isInterlaced, hasBurnedSubs, bottomBandBusy } from './sourcecheck.ts';
 import { ensureLocal } from '../storage/cloud.ts';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
@@ -177,8 +177,10 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   if (!titleGiven && cfg.edit.deferTitle !== false && (ro.titleBar ?? cfg.edit.titleBar ?? 'off') !== 'off' && !(chan0.config.narration ?? cfg.edit.narration)) { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; deferred = { title: (ro.title ?? '').replace(/^PART \d+\/\d+( • )?/, '') || null, label: pn && pt ? `PART ${pn}/${pt}` : null }; ro = { ...ro, title: null }; }
   const presetId = ro.captionPreset ?? cfg.edit.captionPreset;
   const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text
+  let capLift = 0; // source already has text in its bottom band (portrait sources keep it in frame): raise OUR captions 15% so the two never overlap
+  if (cfg.edit.avoidBurnedSubs !== false && cues.length && m.width / m.height <= 1.2) { try { const bb = await bottomBandBusy(editSrc, 0, m.duration); if (bb.busy) { capLift = 0.15; info('captions raised: source has bottom text', { hits: bb.hits, samples: bb.samples }); } } catch (e) { warn('bottom-text check skipped', { err: (e as Error).message }); } }
   if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
-    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, punctuation: cfg.edit.captionPunctuation, position: ro.captionPosition, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
+    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, punctuation: cfg.edit.captionPunctuation, position: ro.captionPosition, lift: capLift, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
     writeFileSync(assPath, cap.ass, 'utf8');
   }

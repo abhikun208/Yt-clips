@@ -30,7 +30,7 @@ const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').tri
 interface TWord { w: string; a: number; b: number }
 export interface CaptionResult { ass: string; timing: 'measured' | 'approximate' | 'none'; font: string; script: Script; presetId: string; warnings: string[] }
 export interface CaptionOpts {
-  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** vertical position override (Ssemble-style 'adjust position'); default = the preset's own */ titleBar?: 'black' | 'white' | 'off'; position?: 'top' | 'center' | 'bottom'; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
+  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** vertical position override (Ssemble-style 'adjust position'); default = the preset's own */ titleBar?: 'black' | 'white' | 'off'; position?: 'top' | 'center' | 'bottom'; /** fraction of the height to raise bottom captions (source has its own subtitles in the bottom band) */ lift?: number; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
 }
 
 /** Word timeline for the clip window. Uses real per-word timestamps when the cue has them; else splits by word length (approximate). */
@@ -92,7 +92,7 @@ export function buildStyledAss(cues: Cue[], clipStart: number, clipEnd: number, 
   const SC = Math.min(2.4, Math.max(0.7, o.sizeScale ?? Number(process.env.YT_CLIPS_CAPTION_SCALE ?? 1.9))); // owner: text was too small on a phone -> 25% bigger by default
   const size = Math.round((H * p.sizePct * SC) / 100), outline = Math.max(2, Math.round((H * p.outlinePct) / 100)), shadow = Math.round((H * p.shadowPct) / 100);
   const align = p.position === 'bottom' ? 2 : p.position === 'center' ? 5 : 8;
-  const marginV = p.position === 'bottom' ? Math.round(H * 0.2) : p.position === 'top' ? Math.round(H * 0.16) : 0;
+  const marginV = p.position === 'bottom' ? Math.round(H * (0.2 + Math.min(0.2, Math.max(0, o.lift ?? 0)))) : p.position === 'top' ? Math.round(H * 0.16) : 0;
   const bold = p.fontStyle === 'bold' && !dispFont ? -1 : 0;
   const capStyle = p.mode === 'karaoke'
     ? { primary: pal.active, secondary: pal.base } : { primary: pal.base, secondary: pal.active };
