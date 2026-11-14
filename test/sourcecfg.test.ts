@@ -30,7 +30,7 @@ mkdir -p "$dir"; case "$id" in goodVIDEO002) cp "${fx}" "$dir/$id.mp4";; goodVID
 `); chmodSync(join(bin, 'yt-dlp'), 0o755);
   const oldPath = process.env.PATH; process.env.PATH = `${bin}:${oldPath}`;
   try {
-    const cfg = testConfig({ youtube: { maxPerPoll: 1, maxDurationMin: 180 } }); const s = new Store(cfg.dbPath);
+    const cfg = testConfig({ youtube: { maxPerPoll: 1, maxDurationMin: 180 }, automation: { sequentialLock: false } }); /* no worker here: the default-on lock (test/sequential.test.ts) would hold videos back */ const s = new Store(cfg.dbPath);
     const { id } = addYoutubeSource(s, 'https://www.youtube.com/@owner', true);
     s.exec(`UPDATE sources SET meta_json=? WHERE id=?`, JSON.stringify({ perPoll: 2 }), id);
     const r1 = await pollSources(s, cfg);

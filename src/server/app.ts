@@ -14,6 +14,7 @@ import { recordClaim, claimSummary, type ClaimKind } from '../publish/claims.ts'
 import { selfcareTick } from '../ops/selfcare.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
+import { channelBusy, lockOn } from '../sources/sequential.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick } from '../watcher/live-monitor.ts';
 import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
@@ -361,7 +362,7 @@ export function createApp(o: AppOptions = {}): App {
         updateOwnerConfig(cfg, { youtube: patch }); Object.assign(cfg.youtube, patch); return json(res, 200, cfg.youtube);
       }
       if (p === '/api/sources/poll' && m === 'POST') { if (!(await ytdlpAvailable())) return json(res, 200, { error: 'yt-dlp install nahi hai: pkg install python && pip install -U yt-dlp' }); return json(res, 200, await pollSources(store, cfg)); }
-      if (p === '/api/sources' && m === 'GET') return json(res, 200, { poll: (() => { try { return JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)?.v ?? 'null'); } catch { return null; } })(), ytdlp: await ytdlpAvailable(), sources: store.all(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id WHERE s.status<>'removed' ORDER BY s.id DESC LIMIT 200`) });
+      if (p === '/api/sources' && m === 'GET') return json(res, 200, { poll: (() => { try { return JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)?.v ?? 'null'); } catch { return null; } })(), ytdlp: await ytdlpAvailable(), sources: store.all<{ id: number; kind: string; meta_json: string | null }>(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id WHERE s.status<>'removed' ORDER BY s.id DESC LIMIT 200`).map((x) => { if (x.kind !== 'youtube_channel') return x; let mj: Record<string, unknown> = {}; try { mj = JSON.parse(x.meta_json || '{}'); } catch { /* ignore */ } return { ...x, settings: sourceSettings(mj, cfg), lock: lockOn(cfg), ...channelBusy(store, x.id) }; }) });
       if (p === '/api/sources' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean; channel?: string; audioLang?: string; range?: string };
         const audioLang = String(b.audioLang ?? '').trim().toLowerCase(); if (audioLang && !/^[a-z]{2,3}(-[a-z0-9]{2,8})?$/.test(audioLang)) return json(res, 400, { error: 'audioLang: use a language code like hi or en' });

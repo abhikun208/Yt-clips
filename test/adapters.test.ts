@@ -49,7 +49,7 @@ for a in "$@"; do [ "$prev" = "-o" ] && dir="\${a%/*}"; prev="$a"; done
 mkdir -p "$dir"; if [ "$id" = "newVIDEO001" ]; then cp "${fx1}" "$dir/$id.mp4"; else cp "${fx2}" "$dir/$id.mp4"; fi; echo "$dir/$id.mp4"
 `); chmodSync(join(bin, 'yt-dlp'), 0o755);
   await withEnv({ PATH: `${bin}:${process.env.PATH}` }, async () => {
-    const cfg = testConfig({ ...small, youtube: { maxPerPoll: 1, maxDurationMin: 180 } }); const s = new Store(cfg.dbPath);
+    const cfg = testConfig({ ...small, youtube: { maxPerPoll: 1, maxDurationMin: 180 }, automation: { sequentialLock: false } }); const s = new Store(cfg.dbPath); // no worker runs in this test, so the (default-on) sequential lock would rightly hold the next video back; its own test is test/sequential.test.ts
     addYoutubeSource(s, 'https://www.youtube.com/@owner', true);
     const r1 = await pollSources(s, cfg);
     assert.equal(r1.discovered, 2); assert.equal(r1.skipped, 1); assert.equal(r1.downloaded, 1, 'bounded by maxPerPoll');

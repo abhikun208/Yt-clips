@@ -61,3 +61,9 @@
 - [x] Per-source settings + backlog + permanent-error skip (VERIFIED with fake yt-dlp; real YouTube UNVERIFIED)
 - [x] Auto-Avoid Burned Subs (synthetic-verified, real footage UNVERIFIED)
 - [ ] OWNER: put cleared music in assets/music to activate BGM ducking; Task 3 termux-test script not requested this round
+
+## Round 2026-11-14 c
+- [x] Sequential lock + BUSY/IDLE UI (fake-yt-dlp verified; phone UNVERIFIED)
+- [x] facecam_top layout (synthetic verified; real footage UNVERIFIED)
+- [ ] OWNER decision: enable storage.freeAfterRender (loses re-render of that video)
+- [ ] Facecam auto-detect (needs face model; not on Termux) - corner presets for now

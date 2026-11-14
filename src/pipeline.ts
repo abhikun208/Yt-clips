@@ -1,3 +1,4 @@
+import { maybeFreeSource } from './sources/sequential.ts';
 import { join } from 'node:path';
 import { repairVideo, DECODE_ERR } from './ops/repair.ts';
 import { realHook } from './seo/hook.ts';
@@ -48,7 +49,7 @@ async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
     if (!res.qcPass) void notify(store, cfg, `qc:${id}`, `⚠️ Yt-clips: clip (candidate ${id}) 3 baar render hua par quality-check fail raha. Review tab me dekho.`);
     enqueue(store, 'meta', `meta:${res.clipId}`); return;
   }
-  if (job.kind === 'meta') { if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return; await metaForClip(store, cfg, id); return; } // clip deleted by the owner meanwhile: nothing to do
+  if (job.kind === 'meta') { if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return; await metaForClip(store, cfg, id); const vr = store.get<{ vid: number }>('SELECT c.video_id AS vid FROM clips k JOIN candidates c ON c.id=k.candidate_id WHERE k.id=?', id); if (vr) { try { maybeFreeSource(store, cfg, vr.vid); } catch (e) { warn('source cleanup skipped', { err: (e as Error).message }); } } return; } // clip deleted by the owner meanwhile: nothing to do
   if (job.kind === 'rerender') { if (!store.get('SELECT 1 FROM clips WHERE id=?', id)) return; await rerenderClip(store, cfg, id, job.payload_json ? JSON.parse(job.payload_json) : {}); return; }
   throw new Error(`unknown job kind ${job.kind}`);
 }

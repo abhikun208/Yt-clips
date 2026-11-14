@@ -29,7 +29,7 @@ export function screenBlendLuma(parts: string[], a: string, b: string, out: stri
 export interface VideoGraphOpts {
   /** fit layout: solid colour (#rrggbb) behind the picture instead of the blurred copy */ bgColor?: string;
   inW: number; inH: number; outW: number; outH: number; fps: number; duration: number; mood: Mood;
-  reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay'; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; fitZoom?: number; cropXFrac?: number; cropTrack?: [number, number][]; // 0..1 center of subject horizontally (from face tracking), default .5
+  reframe: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay' | 'facecam_top'; /** facecam_top: room reserved at the very top for the title strip (px) */ topReserve?: number; fillIdx?: number; facecam?: { x: number; y: number; w: number; h: number }; fitZoom?: number; cropXFrac?: number; cropTrack?: [number, number][]; // 0..1 center of subject horizontally (from face tracking), default .5
   /** one of SPEEDS (1 = unchanged); applied after the captions are burned in, so words stay in sync */ speed?: number; deinterlace?: boolean; assPath?: string; fontsDir?: string; zoom: boolean; glow: boolean; fade: boolean; punch?: number[]; closeups?: { start: number; end: number }[];
   vfx?: Omit<VfxOpts, 'w' | 'h' | 'fps' | 'duration' | 'mood'>;
 }
@@ -40,7 +40,7 @@ export const escFilterPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, 
 /** Reframe to 9:16 producing label [base]. Exported so the change-measurement baseline uses the identical crop. */
 /** Look-ahead: the whole face track is known offline, so the virtual camera starts moving this many seconds BEFORE the speaker does (anticipation, like a human operator) instead of lagging behind. */
 export const CROP_LEAD_SEC = 0.15;
-export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'cropTrack' | 'facecam' | 'fillIdx' | 'fitZoom'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
+export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'cropTrack' | 'facecam' | 'fillIdx' | 'fitZoom' | 'topReserve'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
   const parts: string[] = []; const t: Treatment[] = [];
   const aspectIn = o.inW / o.inH; const aspectOut = o.outW / o.outH;
   const alreadyVertical = Math.abs(aspectIn - aspectOut) < 0.02;
@@ -60,6 +60,16 @@ export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'o
       + `[fc]crop=w='trunc(iw*${f.w.toFixed(4)}/2)*2':h='trunc(ih*${f.h.toFixed(4)}/2)*2':x='trunc(iw*${f.x.toFixed(4)}/2)*2':y='trunc(ih*${f.y.toFixed(4)}/2)*2',scale=${o.outW}:${botH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${o.outW}:${botH}[fbot];`
       + `[gtop][fbot]vstack=inputs=2,setsar=1[base]`);
     t.push({ dimension: 'reframe_9x16', applied: true, detail: `gamer stack: gameplay top ${topH}px + facecam bottom ${botH}px` });
+  } else if (o.reframe === 'facecam_top' && o.facecam) {
+    // streamer layout: facecam enlarged in the top zone, the whole gameplay (nothing cut) in the middle, blurred space below for the captions
+    const W = o.outW, H = o.outH, f = o.facecam; const reserve = Math.max(0, o.topReserve ?? 0);
+    const gameH = Math.round((W * o.inH) / o.inW / 2) * 2; const gy = Math.round(Math.min(H * 0.45, Math.max(H * 0.3, reserve + H * 0.2)) / 2) * 2;
+    const boxW = Math.round(W * 0.8 / 2) * 2, boxH = Math.max(120, Math.round((gy - reserve - 24) / 2) * 2);
+    parts.push(`[${inLabel}]split=3[bg][gm][fc];[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3,eq=brightness=-0.08[bgb];`
+      + `[gm]scale=${W}:${gameH}:flags=lanczos,setsar=1[gmv];`
+      + `[fc]crop=w='trunc(iw*${f.w.toFixed(4)}/2)*2':h='trunc(ih*${f.h.toFixed(4)}/2)*2':x='trunc(iw*${f.x.toFixed(4)}/2)*2':y='trunc(ih*${f.y.toFixed(4)}/2)*2',scale=${boxW}:${boxH}:force_original_aspect_ratio=decrease:flags=lanczos,setsar=1[fcv];`
+      + `[bgb][gmv]overlay=0:${gy}[t1];[t1][fcv]overlay=x=(W-w)/2:y=${reserve}+(${gy - reserve}-h)/2,setsar=1[base]`);
+    t.push({ dimension: 'reframe_9x16', applied: true, detail: `facecam top: facecam enlarged above, full gameplay at y=${gy}, captions on the blurred area below` });
   } else if (o.reframe === 'fit_blur') {
     const fz = o.inW / o.inH > 1.2 ? Math.min(1, Math.max(0.6, o.fitZoom ?? 1)) : 1; // wide source: trim the empty sides so the picture is bigger (less blur above/below)
     parts.push(`[${inLabel}]split=2[bg][fg];[bg]scale=${o.outW}:${o.outH}:force_original_aspect_ratio=increase,crop=${o.outW}:${o.outH},${/^#[0-9a-f]{6}$/i.test(o.bgColor ?? '') ? `drawbox=x=0:y=0:w=iw:h=ih:color=0x${o.bgColor!.slice(1)}@1:t=fill` : 'boxblur=24:3,eq=brightness=-0.08'}[bgb];[fg]${fz < 0.99 ? `crop=w='trunc(iw*${fz.toFixed(3)}/2)*2':h=ih:x='max(0,min(iw-ow,iw*${(o.cropXFrac ?? 0.5).toFixed(3)}-ow/2))':y=0,` : ''}scale=${o.outW}:-2:flags=lanczos[fgs];[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[base]`);

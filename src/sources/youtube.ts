@@ -5,6 +5,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { run, which } from '../util/proc.ts';
 import { ingestLocal } from './local.ts';
+import { channelBusy, lockOn } from './sequential.ts';
 import { sourceSettings, permanentReason, notYet } from './sourcecfg.ts';
 import { fetchCaptions } from './ytcaptions.ts';
 import { info, warn } from '../util/log.ts';
@@ -104,7 +105,7 @@ export function addYoutubeSource(store: Store, rawUrl: string, authorized: boole
   return { id: r.lastId, kind: p.kind, duplicate: false };
 }
 
-export interface PollResult { discovered: number; downloaded: number; failed: number; skipped: number; error?: string; channels?: number }
+export interface PollResult { discovered: number; downloaded: number; failed: number; skipped: number; error?: string; channels?: number; busy?: number }
 /** Friendly cause for the usual yt-dlp failures (shown in the UI instead of a silent log line). */
 /** DNS / no-route errors: the device is offline right now (phone WiFi/LTE switch, router restart). */
 export const isOffline = (m: string): boolean => /Errno 7\b|Errno -[23]\b|No address associated|Temporary failure in name resolution|Name or service not known|Network is unreachable|EAI_AGAIN|ENETUNREACH|ENOTFOUND|getaddrinfo/i.test(m);
@@ -161,7 +162,12 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
   const pickFor = (x: { m: M }) => (x.m.channelSource ? parentCfg(x.m.channelSource) : null);
   rows.sort((a, b) => (a.m.tries ?? 0) - (b.m.tries ?? 0) || Number(!!b.m.fresh) - Number(!!a.m.fresh) || (pickFor(a)?.order === 'oldest' ? b.v.id - a.v.id : a.v.id - b.v.id));
   const taken = new Map<number, number>(); const pending: typeof all = []; // the per-source quota is spent on real download attempts (skips of dead videos are free), checked inside the loop
-  for (const x of rows) { const pc = pickFor(x); if (pc && !pc.backlog && !x.m.fresh) continue; pending.push(x.v); }
+  const busyOf = new Map<number, boolean>();
+  for (const x of rows) { const pc = pickFor(x); if (pc && !pc.backlog && !x.m.fresh) continue;
+    if (x.m.channelSource && lockOn(cfg)) { // strict sequential lock: this channel still has clips of its previous video in progress -> no new download, the poller moves on to the next idle channel
+      let b = busyOf.get(x.m.channelSource); if (b === undefined) { const r = channelBusy(store, x.m.channelSource); b = r.busy; busyOf.set(x.m.channelSource, b); if (b) { info('Channel busy: nayi video download nahi hogi', { source: x.m.channelSource, why: r.reason }); res.busy = (res.busy ?? 0) + 1; } }
+      if (b) continue; }
+    pending.push(x.v); }
   for (const v of pending) {
     const meta = JSON.parse(v.meta_json || '{}') as { tries?: number; channelSource?: number; audioLang?: string; range?: { start: number; end: number } };
     const par = meta.channelSource ?? 0; const lim = par ? parentCfg(par).perPoll : cfg.youtube.maxPerPoll; if ((taken.get(par) ?? 0) >= lim) continue;
