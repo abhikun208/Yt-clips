@@ -41,3 +41,10 @@ import { parseTunnelUrl } from '../src/ops/tunnel.ts';
 test('tunnel url is picked out of cloudflared output', () => { assert.equal(parseTunnelUrl('INF |  https://odd-fox-12.trycloudflare.com  |'), 'https://odd-fox-12.trycloudflare.com'); assert.equal(parseTunnelUrl('nothing here'), null); });
 
 test('tunnel parser ignores cloudflared API host', () => { assert.equal(parseTunnelUrl('Requesting new quick Tunnel on https://api.trycloudflare.com ...'), null); assert.equal(parseTunnelUrl('https://api.trycloudflare.com\n|  https://odd-fox-12.trycloudflare.com |'), 'https://odd-fox-12.trycloudflare.com'); assert.equal(parseTunnelUrl('tunneled with tls termination, https://ab12cd.lhr.life'), 'https://ab12cd.lhr.life'); });
+import { lastOAuth } from '../src/publish/oauthguard.ts';
+test('last login result is remembered so the dashboard can show why Connect failed', async () => {
+  const store = new Store(join(tmpDir(), 'l.db')); const cfg = loadConfig(tmpDir());
+  await handleOAuthCallback('facebook')(store, cfg, { error: 'access_denied' }, { host: 'a.com', proto: 'https' });
+  const l = lastOAuth(store, 'facebook'); assert.equal(l?.ok, false); assert.match(l!.raw!, /access_denied/);
+  assert.match(friendlyOAuthError('oauth: no Facebook Page found for this login'), /Page SELECT/);
+});
