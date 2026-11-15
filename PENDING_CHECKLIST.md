@@ -78,3 +78,6 @@
 
 - [ ] (2026-11-15) Run `npm run cli -- automation on --approve` + set gates on server for true hands-free; then check Clips tab shows only "Status:".
 - [ ] (2026-11-15) Check Part 1/2/3 cut points on a real story video (splitter heuristics are Hinglish-word based, UNVERIFIED on real transcripts).
+
+- [ ] (2026-11-15) Phone: `pkg install cloudflared`; `YT_CLIPS_TUNNEL=1 npm start`; copy the https redirect URI shown in Settings into Meta/TikTok.
+- [ ] (2026-11-15) Re-render clip_064-type (PC game + small facecam) and check cam crop/zone; if a HUD corner (minimap) is mistaken for a cam set edit.autoFacecam=false for that channel.

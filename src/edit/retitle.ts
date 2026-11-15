@@ -29,17 +29,17 @@ export async function finishClip(store: Store, cfg: Config, clipId: number, aiTi
   const man = JSON.parse(readFileSync(row.manifest_path, 'utf8')) as { render?: Record<string, any> }; const d = man.render?.titleDeferred as { title: string | null; label: string | null } | null | undefined;
   if (!d) return { ok: false, why: 'title not deferred (already on the video)' };
   const title = screenTitle(aiTitle) ?? screenTitle(d.title?.replace(/^PART \d+\/\d+ • /, ''));
-  /* <= 44 chars: a long title is shrunk to tiny letters; short = BIG */ const text = [d.label, title].filter(Boolean).join(' • ');
+  /* <= 44 chars: a long title is shrunk to tiny letters; short = BIG */ const text = title ?? null;
   const tmp = join(cfg.dirs.tmp, `${row.output_id}.finish.mp4`); const assPath = join(cfg.dirs.tmp, `${row.output_id}.finish.ass`);
   try {
     const m = await probe(row.edited_path);
     const bar = (man.render?.titleBar ?? cfg.edit.titleBar ?? 'off') as 'black' | 'white' | 'off';
-    if (text) writeFileSync(assPath, buildStyledAss([], 0, m.duration, text, { width: m.width, height: m.height, preset: cfg.edit.captionPreset, titleBar: bar, resolveFont: (c) => { const have = installedFonts(); return c.find((x) => have.has(x.toLowerCase())); } }).ass, 'utf8');
+    if (text || d.label) writeFileSync(assPath, buildStyledAss([], 0, m.duration, text, { partBadge: d.label, width: m.width, height: m.height, preset: cfg.edit.captionPreset, titleBar: bar, resolveFont: (c) => { const have = installedFonts(); return c.find((x) => have.has(x.toLowerCase())); } }).ass, 'utf8');
     const slots = planBroll(m.duration).slice(0, broll.length); const esc = (p: string) => p.replace(/\\/g, '/').replace(/[:']/g, '\\$&');
     const inputs = ['-i', row.edited_path]; for (let i = 0; i < slots.length; i++) inputs.push('-ss', '0', '-t', String(slots[i]!.end - slots[i]!.start + 0.2), '-i', broll[i]!);
     const y0 = Math.round(m.height * 0.14), h = Math.round(m.height * 0.44) & ~1, w = m.width & ~1; const f: string[] = []; let last = '0:v';
     slots.forEach((s, i) => { f.push(`[${i + 1}:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${Math.round(m.fps) || 30},setpts=PTS-STARTPTS+${s.start}/TB[b${i}]`); f.push(`[${last}][b${i}]overlay=0:${y0}:enable='between(t,${s.start},${s.end})':eof_action=pass[o${i}]`); last = `o${i}`; });
-    if (text) f.push(`[${last}]ass='${esc(assPath)}':fontsdir='${esc(join(cfg.dirs.assets, 'fonts'))}'[vout]`); else f.push(`[${last}]null[vout]`);
+    if (text || d.label) f.push(`[${last}]ass='${esc(assPath)}':fontsdir='${esc(join(cfg.dirs.assets, 'fonts'))}'[vout]`); else f.push(`[${last}]null[vout]`);
     const r = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', f.join(';'), '-map', '[vout]', '-map', '0:a?', ...encodeArgs(enc, { crf: cfg.edit.crf, preset: 'veryfast' }), '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', tmp], { timeoutMs: 15 * 60_000 }));
     if (r.code !== 0) throw new Error(`ffmpeg: ${r.stderr.trim().slice(-200)}`);
     const o = await probe(tmp);

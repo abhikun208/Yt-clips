@@ -15,6 +15,7 @@ import { selfcareTick } from '../ops/selfcare.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
 import { channelBusy, lockOn } from '../sources/sequential.ts';
+import { startTunnel } from '../ops/tunnel.ts';
 import { setPaused, autopilotState, clipStatus } from '../autopilot/engine.ts';
 import { handleOAuthCallback, checkRedirect, resolveBase, toApp, type OAuthPlatform } from '../publish/oauthguard.ts';
 import { refetchSource } from '../sources/refetch.ts';
@@ -416,7 +417,7 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/settings' && m === 'GET') return json(res, 200, { ai: aiStatus(cfg), apps: { facebook: !!appCreds(cfg, 'facebook'), tiktok: !!appCreds(cfg, 'tiktok') }, platforms: platformStatus(store, cfg), oauthBadge: checkRedirect('facebook', publicBase(req)).badge + ' / TikTok: ' + checkRedirect('tiktok', publicBase(req)).badge, callbackBase: publicBase(req) });
       if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); const test = await testConnection(store, cfg, b.kind === 'stt' ? 'stt' : `llm:${b.slot ?? 1}`); return json(res, 200, { ok: true, ai: aiStatus(cfg), test }); }
       if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); const test = b.app === 'google' ? await testConnection(store, cfg, 'google-client') : null; return json(res, 200, { ok: true, test }); }
-      const os = /^\/api\/oauth\/(facebook|instagram|tiktok)\/start$/.exec(p); if (os && m === 'GET') { const chk = checkRedirect(os[1] as OAuthPlatform, publicBase(req)); if (!chk.ok) return json(res, 400, { error: `${chk.problems.join(' ')} ${chk.hint}` }); } if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, toApp(os[1]!), publicBase(req), { publish: url.searchParams.get('publish') === '1' }), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback` });
+      const os = /^\/api\/oauth\/(facebook|instagram|tiktok)\/start$/.exec(p); if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, toApp(os[1]!), publicBase(req), { publish: url.searchParams.get('publish') === '1' }), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback`, warning: (() => { const c = checkRedirect(os[1] as OAuthPlatform, publicBase(req)); return c.ok ? null : `${c.problems.join(' ')} ${c.hint}`; })() });
       if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg), registry: PLATFORMS.map((x) => ({ id: x.id, label: x.label, kind: x.kind, note: x.note, fields: x.fields?.map((f) => ({ name: f.name, label: f.label, secret: !!f.secret })), configured: x.kind === 'direct' ? credentialsConfigured(secretsFor(cfg), x.id) : x.kind === 'oauth' ? metaCanPublish(secretsFor(cfg), x.id) : x.kind === 'manual', app: x.app ?? null, openUrl: x.openUrl ?? null, loggedIn: x.kind === 'oauth' ? (metaPerms(secretsFor(cfg), x.id === 'facebook_reels' ? 'facebook' : 'instagram').length > 0 || !!secretsFor(cfg).read(x.id === 'facebook_reels' ? 'facebook' : 'instagram')) : false, appSaved: x.app ? !!appCreds(cfg, x.app) : null })) });
       const cred = /^\/api\/credentials\/(\w+)$/.exec(p);
       if (cred && m === 'POST') { // write-only vault: values are validated, stored (encrypted when a key exists) and never returned or logged
@@ -598,6 +599,7 @@ export function createApp(o: AppOptions = {}): App {
         const port = (server.address() as { port: number }).port;
         if (o.autoRun ?? process.env.AUTO_RUN !== '0') { const every = (o.loopSeconds ?? Number(process.env.LOOP_SECONDS ?? 30)) * 1000; timer = setInterval(() => { if (!stopping) void runOnce(); }, every); void runOnce(); }
         info('server listening', { host, port, auth: token ? 'token' : 'none(loopback)', autoRun: !!timer }); ok(port);
+      if (process.env.YT_CLIPS_TUNNEL === '1') void startTunnel(port).then((u) => { if (u) info('social login redirect base', { base: u }); });
       });
     }),
     stop: async () => { stopping = true; if (timer) clearInterval(timer); await new Promise<void>((r) => { server.close(() => r()); server.closeIdleConnections?.(); }); await Promise.race([current ?? Promise.resolve(), new Promise((r) => setTimeout(r, 25_000))]); store.close(); },

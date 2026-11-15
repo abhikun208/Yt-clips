@@ -126,3 +126,10 @@ test('silence gate drops words the STT put into digital silence, keeps real spee
   const only = gateSilence([{ start: 100.2, end: 100.9, text: 'ghost' }] as never, [[0, 1.07]], 100); assert.equal(only.cues.length, 0);
   assert.equal(gateSilence(cues, [], 100).cues, cues);        // no silence known -> untouched
 });
+
+import { buildStyledAss as _bsa } from '../src/edit/captions.ts';
+test('part badge: "PART 2/3" is a short 3-second tag, the title strip stays free of it for the whole clip', () => {
+  const r = _bsa([], 0, 20, 'Lamar Fass Gaya', { width: 1080, height: 1920, preset: 'classic-sun', titleBar: 'black', partBadge: 'PART 2/3' });
+  const badge = r.ass.split('\n').filter((l) => l.includes('PART 2/3')); assert.equal(badge.length, 1);
+  assert.match(badge[0]!, /Dialogue: 2,0:00:00\.15,0:00:03\.20/); assert.ok(!r.ass.split('\n').some((l) => l.includes('PART 2/3 •')));
+});

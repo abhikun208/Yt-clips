@@ -172,8 +172,9 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   { const inClip = cues.filter((q) => q.end > c.start_sec && q.start < effEnd).map((q) => q.text).join(' ').trim();
     if (inClip) store.exec(`UPDATE candidates SET transcript=?, language=COALESCE(NULLIF(language,''),?) WHERE id=? AND (transcript IS NULL OR transcript='')`, inClip, guessLanguage(inClip), c.id); // so the metadata step works from the real speech
     if (ro.title === undefined && cfg.edit.hookTitle === true) { const h = realHook(inClip); if (h) ro = { ...ro, title: h }; } }
+  let partBadge: string | null = null;
   { const pn = (c as { part_no?: number | null }).part_no, pt = (c as { part_total?: number | null }).part_total; // visible series label
-    if (pn && pt) { const lbl = `PART ${pn}/${pt}`; ro = { ...ro, title: ro.title ? `${lbl} • ${ro.title}`.slice(0, 64) : lbl }; } }
+    if (pn && pt) partBadge = `PART ${pn}/${pt}`; } // a 3-second tag, not part of the strip that stays for the whole clip
   if (ro.title) { const { stripForeignScripts } = await import('../ai/hinglish.ts'); const sf = stripForeignScripts(ro.title); if (sf.removed) { warn('on-screen title had foreign-script letters (Cyrillic/Urdu/etc): cleaned', { clip: c.id, removed: sf.removed }); ro = { ...ro, title: sf.text.replace(/\s+/g, ' ').trim() || null }; } }
   if (ro.title && (toLang === 'auto' || toLang === 'hinglish')) { const { toHinglish, hasDevanagari } = await import('../ai/hinglish.ts'); if (hasDevanagari(ro.title)) ro = { ...ro, title: toHinglish(ro.title) }; } // the on-screen title uses the same script as the captions (Roman Hinglish), not Devanagari above Roman captions
   let deferred: { title: string | null; label: string | null } | null = null; // the title is printed after the AI has watched the finished clip (src/edit/retitle.ts): speech-based hooks are often mis-heard
@@ -182,8 +183,8 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   const ctaText = ro.cta === undefined ? (chan0.config.cta ?? cfg.edit.cta ?? null) : ro.cta; // only what the owner set: no automatic extra text
   let capLift = 0; // source already has text in its bottom band (portrait sources keep it in frame): raise OUR captions 15% so the two never overlap
   if (cfg.edit.avoidBurnedSubs !== false && cues.length && m.width / m.height <= 1.2) { try { const bb = await bottomBandBusy(editSrc, 0, m.duration); if (bb.busy) { capLift = 0.15; info('captions raised: source has bottom text', { hits: bb.hits, samples: bb.samples }); } } catch (e) { warn('bottom-text check skipped', { err: (e as Error).message }); } }
-  if (presetId !== 'none' && (cues.length || ro.title || ctaText)) {
-    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, punctuation: cfg.edit.captionPunctuation, position: ro.captionPosition, lift: capLift, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
+  if (presetId !== 'none' && (cues.length || ro.title || ctaText || partBadge)) {
+    cap = buildStyledAss(cues, c.start_sec, effEnd, ro.title ?? null, { partBadge, width: cfg.edit.width, height: cfg.edit.height, preset: presetId, emphasis: cfg.edit.captionEmphasis, punctuation: cfg.edit.captionPunctuation, position: ro.captionPosition, lift: capLift, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', cta: ctaText, resolveFont: (cands) => { const have = installedFonts(); return cands.find((x) => have.has(x.toLowerCase())); } });
     assPath = join(cfg.dirs.tmp, `${outputId}.ass`);
     writeFileSync(assPath, cap.ass, 'utf8');
   }

@@ -6,11 +6,11 @@ import { loadConfig } from '../src/config.ts';
 import { tmpDir } from './helpers.ts';
 import { join } from 'node:path';
 
-test('redirect rules: TikTok needs public https, Meta allows localhost http', () => {
+test('redirect rules: TikTok needs public https, Meta dashboard rejects http localhost too', () => {
   assert.equal(checkRedirect('tiktok', 'http://127.0.0.1:8787').ok, false);
   assert.equal(checkRedirect('tiktok', 'https://1.2.3.4').ok, false);
   assert.equal(checkRedirect('tiktok', 'https://clips.example.com').ok, true);
-  assert.equal(checkRedirect('facebook', 'http://localhost:8787').ok, true);
+  assert.equal(checkRedirect('facebook', 'http://localhost:8787').ok, false); assert.match(checkRedirect('facebook', 'http://127.0.0.1:8080').problems.join(' '), /valid HTTPS/);
   assert.equal(checkRedirect('instagram', 'http://clips.example.com').ok, false);
   assert.match(checkRedirect('facebook', 'https://a.b').badge, /Secure/);
   assert.equal(toApp('instagram'), 'facebook');
@@ -25,8 +25,7 @@ test('callback: provider error, https problem, host mismatch, unknown state are 
   const store = new Store(join(tmpDir(), 'o.db')); const cfg = loadConfig(tmpDir());
   const h = handleOAuthCallback('tiktok');
   let r = await h(store, cfg, { error: 'access_denied' }, { host: 'a.com', proto: 'https' }); assert.equal(r.ok, false); assert.match(r.message, /cancel|deny/);
-  r = await h(store, cfg, { code: 'c', state: 's' }, { host: '127.0.0.1:8787' }); assert.match(r.message, /HTTPS/);
-  store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, 'oauth_state_zz', JSON.stringify({ app: 'tiktok', at: Date.now(), ru: 'https://old.com/api/oauth/tiktok/callback' }));
+    store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, 'oauth_state_zz', JSON.stringify({ app: 'tiktok', at: Date.now(), ru: 'https://old.com/api/oauth/tiktok/callback' }));
   r = await h(store, cfg, { code: 'c', state: 'zz' }, { host: 'new.com', proto: 'https' }); assert.match(r.message, /doosre par/);
   r = await h(store, cfg, { code: 'c', state: 'nope' }, { host: 'new.com', proto: 'https' }); assert.equal(r.ok, false); assert.match(r.message, /time|purana|Login/);
   assert.match(friendlyOAuthError('redirect_uri mismatch'), /Redirect URI/);
@@ -37,3 +36,6 @@ test('zero-config base: tunnel headers win over Host, localhost stays http (dev)
   assert.equal(resolveBase({ proto: 'http', host: 'localhost:8787' }), 'http://localhost:8787');
   assert.equal(checkRedirect('facebook', resolveBase({ proto: 'https', host: 'x', fwdHost: 'abc.trycloudflare.com' })).ok, true);
 });
+
+import { parseTunnelUrl } from '../src/ops/tunnel.ts';
+test('tunnel url is picked out of cloudflared output', () => { assert.equal(parseTunnelUrl('INF |  https://odd-fox-12.trycloudflare.com  |'), 'https://odd-fox-12.trycloudflare.com'); assert.equal(parseTunnelUrl('nothing here'), null); });

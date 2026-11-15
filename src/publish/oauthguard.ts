@@ -2,6 +2,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { handleCallback, redirectUri, type SocialApp } from './socialOauth.ts';
 import { info, warn } from '../util/log.ts';
+import { getTunnelUrl } from '../ops/tunnel.ts';
 
 /**
  * Safe wrapper around the Facebook/Instagram (one Meta app) and TikTok logins.
@@ -20,6 +21,7 @@ export interface RedirectCheck { ok: boolean; uri: string; secure: boolean; loca
 export function resolveBase(req: { proto?: string; host?: string; fwdHost?: string }): string {
   // zero-config: tunnel/proxy headers first (X-Forwarded-Proto/Host), the Host header next; .env is only an optional override
   const env = process.env.OAUTH_PUBLIC_BASE_URL || process.env.PUBLIC_URL; if (env) return env.replace(/\/+$/, '');
+  const tun = getTunnelUrl(); if (tun) return tun; // cloudflared quick tunnel started by the server
   const host = (req.fwdHost || req.host || '127.0.0.1').split(',')[0]!.trim(); const proto = (req.proto || '').split(',')[0]!.trim() === 'https' ? 'https' : 'http';
   return `${proto}://${host}`.replace(/\/+$/, '');
 }
@@ -29,10 +31,10 @@ export function checkRedirect(platform: OAuthPlatform, base: string): RedirectCh
   const host = u?.hostname ?? ''; const https = u?.protocol === 'https:'; const local = isLocal(host);
   if (u) {
     if (app === 'tiktok') { if (!https || local || isIp(host)) problems.push('TikTok sirf HTTPS + asli domain wala redirect maanta hai (localhost / IP nahi chalega).'); }
-    else if (!https && !local) problems.push('Meta (Facebook/Instagram) HTTP sirf localhost par maanta hai; baaki jagah HTTPS chahiye.');
+    else if (!https) problems.push(local ? 'Meta ka dashboard ab http://localhost / 127.0.0.1 redirect register nahi karta ("Enter a valid HTTPS URL").' : 'Meta (Facebook/Instagram) ko HTTPS redirect chahiye.');
   }
-  const hint = problems.length ? 'Phone par: cloudflared/ngrok tunnel chalao ya apna domain lagao, phir .env me OAUTH_PUBLIC_BASE_URL=https://tumhara-link daalo, server restart karo, aur wahi URL app ke "Valid OAuth Redirect URIs" me daalo: ' + uri : `Provider app me ye redirect URI daalo: ${uri}`;
-  return { ok: !problems.length, uri, secure: https, local, problems, hint, badge: !problems.length ? (https ? '🔒 Secure (HTTPS)' : '✅ Localhost (developer mode)') : '⚠ HTTPS chahiye' };
+  const hint = problems.length ? 'Free HTTPS: Termux me `pkg install cloudflared`, phir `YT_CLIPS_TUNNEL=1 npm start` (link apne aap ban jaata hai, .env nahi chahiye). Ya apna domain/ngrok proxy lagao. Phir ye URI app ke "Valid OAuth Redirect URIs" me daalo: ' + uri : `Provider app me ye redirect URI daalo: ${uri}`;
+  return { ok: !problems.length, uri, secure: https, local, problems, hint, badge: !problems.length ? (https ? '🔒 Secure (HTTPS)' : '✅ HTTPS') : '⚠ HTTPS chahiye' };
 }
 
 const PROVIDER_ERR: Record<string, string> = { access_denied: 'Tumne permission cancel/deny kar di. Dobara try karo aur saari permissions allow karo.', user_cancelled_login: 'Login beech me cancel ho gaya.', user_cancelled_authorize: 'Authorize cancel ho gaya.' };
@@ -53,7 +55,6 @@ export function handleOAuthCallback(platform: OAuthPlatform) {
     try {
       const base = resolveBase(req); const chk = checkRedirect(platform, base);
       if (q.error) return { ok: false, status: 400, message: friendlyOAuthError(`${q.error} ${q.error_description ?? ''}`) };
-      if (!chk.ok) return { ok: false, status: 400, message: `${chk.problems.join(' ')} ${chk.hint}` };
       const st = q.state ? store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `oauth_state_${q.state}`)?.v : undefined; let used = ''; try { used = st ? (JSON.parse(st) as { ru?: string }).ru ?? '' : ''; } catch { /* old state */ }
       if (used && used !== chk.uri) return { ok: false, status: 400, message: `Login ek address par shuru hua (${used}) aur doosre par wapas aaya (${chk.uri}). Same address (same http/https + host) se shuru aur khatam karo, ya .env me OAUTH_PUBLIC_BASE_URL fix karo.` };
       const r = await handleCallback(store, cfg, app, { code: q.code, state: q.state, error: q.error }, base);

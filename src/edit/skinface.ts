@@ -20,9 +20,9 @@ export function skinBlobs(frame: Buffer): { cx: number; mass: number; compact: n
   const compact = Math.sqrt(vx + vy) / W; if (Math.sqrt(vx) / W > 0.17 || compact > 0.25) return null;
   return { cx: mx / W, mass: n / tot, compact };
 }
-export function skinFaceCenter(path: string, startSec = 0, durSec = 60, samples = 12): number | undefined {
+export function skinFaceCenter(path: string, startSec = 0, durSec = 60, samples = 12, crop?: { x: number; y: number; w: number; h: number }): number | undefined {
   const fps = Math.max(0.05, samples / Math.max(4, durSec));
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-ss', String(startSec), '-t', String(durSec), '-i', path, '-vf', `fps=${fps.toFixed(4)},scale=${W}:${H}:flags=area`, '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-frames:v', String(samples), '-'], { maxBuffer: 64 * 1024 * 1024, timeout: 60_000 });
+  const r = spawnSync('ffmpeg', ['-v', 'error', '-ss', String(startSec), '-t', String(durSec), '-i', path, '-vf', `${crop ? `crop=iw*${crop.w.toFixed(4)}:ih*${crop.h.toFixed(4)}:iw*${crop.x.toFixed(4)}:ih*${crop.y.toFixed(4)},` : ''}fps=${fps.toFixed(4)},scale=${W}:${H}:flags=area`, '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-frames:v', String(samples), '-'], { maxBuffer: 64 * 1024 * 1024, timeout: 60_000 });
   if (r.status !== 0 || !r.stdout?.length) return undefined;
   const sz = W * H * 3; const hits: number[] = []; let frames = 0;
   for (let o = 0; o + sz <= r.stdout.length; o += sz) { frames++; const b = skinBlobs(r.stdout.subarray(o, o + sz)); if (b) hits.push(b.cx); }

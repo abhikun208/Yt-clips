@@ -30,7 +30,7 @@ const clean = (s: string) => s.replace(/[\\{}]/g, '').replace(/\r?\n/g, ' ').tri
 interface TWord { w: string; a: number; b: number }
 export interface CaptionResult { ass: string; timing: 'measured' | 'approximate' | 'none'; font: string; script: Script; presetId: string; warnings: string[] }
 export interface CaptionOpts {
-  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** vertical position override (Ssemble-style 'adjust position'); default = the preset's own */ titleBar?: 'black' | 'white' | 'off'; position?: 'top' | 'center' | 'bottom'; /** fraction of the height to raise bottom captions (source has its own subtitles in the bottom band) */ lift?: number; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
+  width: number; height: number; preset?: string; emphasis?: string[]; resolveFont?: (candidates: string[]) => string | undefined; titleColor?: string; cta?: string | null; sizeScale?: number; /** vertical position override (Ssemble-style 'adjust position'); default = the preset's own */ titleBar?: 'black' | 'white' | 'off'; position?: 'top' | 'center' | 'bottom'; /** fraction of the height to raise bottom captions (source has its own subtitles in the bottom band) */ lift?: number; /** short "PART 2/3" tag shown for the first ~3 s only (not on the title strip for the whole clip) */ partBadge?: string | null; /** false = remove . , ! ? ; : " from caption words (Ssemble-style 'remove punctuation') */ punctuation?: boolean;
 }
 
 /** Word timeline for the clip window. Uses real per-word timestamps when the cue has them; else splits by word length (approximate). */
@@ -123,6 +123,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     lines.push(`Dialogue: 0,${hms(0)},${hms(dur)},Title,,0,0,0,,{\\an7\\pos(0,0)\\p1\\bord0\\shad0\\1c&H${bg}&\\1a&H00&}m 0 0 l ${o.width} 0 l ${o.width} ${barH} l 0 ${barH}{\\p0}`);
     lines.push(`Dialogue: 1,${hms(0)},${hms(dur)},Title,,0,0,0,,{\\an5\\pos(${Math.round(o.width / 2)},${Math.round(barH / 2 + H * 0.004)})\\bord0\\shad0\\1c${fg}}${ft}`);
   }
+  if (o.partBadge) lines.push(`Dialogue: 2,${hms(0.15)},${hms(Math.min(3.2, dur))},Title,,0,0,0,,{\\fad(200,350)\\an8\\pos(${Math.round(o.width / 2)},${barH + Math.round(H * 0.018)})\\bord6\\1c&H0000E6FF&}${o.partBadge}`);
   if (o.cta && dur >= 6) lines.push(`Dialogue: 1,${hms(Math.max(0.5, dur - 3))},${hms(dur)},Title,,0,0,0,,{\\fad(250,200)${bar ? `\\an8\\pos(${Math.round(o.width / 2)},${barH + Math.round(H * 0.015)})` : ''}}${fitTitle(o.cta, o.width, tSize, Math.round(H * 0.026))}`);
   if (title && !bar) lines.push(`Dialogue: 1,${hms(0.2)},${hms(Math.min(3.5, dur))},Title,,0,0,0,,{\\fad(200,300)\\fscx80\\fscy80\\t(0,200,\\fscx100\\fscy100)}${fitTitle(title, o.width, tSize, Math.round(H * 0.026))}`);
 

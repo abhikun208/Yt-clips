@@ -63,12 +63,14 @@ export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'o
   } else if (o.reframe === 'facecam_top' && o.facecam) {
     // streamer layout: facecam enlarged in the top zone, the whole gameplay (nothing cut) in the middle, blurred space below for the captions
     const W = o.outW, H = o.outH, f = o.facecam; const reserve = Math.max(0, o.topReserve ?? 0);
-    const gameH = Math.round((W * o.inH) / o.inW / 2) * 2; const gy = Math.round(Math.min(H * 0.45, Math.max(H * 0.3, reserve + H * 0.2)) / 2) * 2;
-    const boxW = Math.round(W * 0.8 / 2) * 2, boxH = Math.max(120, Math.round((gy - reserve - 24) / 2) * 2);
-    parts.push(`[${inLabel}]split=3[bg][gm][fc];[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:3,eq=brightness=-0.08[bgb];`
+    const gameH = Math.round((W * o.inH) / o.inW / 2) * 2; const gy = Math.round(Math.min(reserve + H * 0.3, H * 0.8 - gameH, H * 0.45) / 2) * 2; // top zone ~30% of the height, then the whole game, then room for captions
+    const boxW = Math.round(W * 0.92 / 2) * 2, boxH = Math.max(120, Math.round((gy - reserve - 28) / 2) * 2);
+    parts.push(`[${inLabel}]split=3[bg][gm][fc];[bg]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=20:2,eq=brightness=-0.12[bgb];`
       + `[gm]scale=${W}:${gameH}:flags=lanczos,setsar=1[gmv];`
-      + `[fc]crop=w='trunc(iw*${f.w.toFixed(4)}/2)*2':h='trunc(ih*${f.h.toFixed(4)}/2)*2':x='trunc(iw*${f.x.toFixed(4)}/2)*2':y='trunc(ih*${f.y.toFixed(4)}/2)*2',scale=${boxW}:${boxH}:force_original_aspect_ratio=decrease:flags=lanczos,setsar=1[fcv];`
-      + `[bgb][gmv]overlay=0:${gy}[t1];[t1][fcv]overlay=x=(W-w)/2:y=${reserve}+(${gy - reserve}-h)/2,setsar=1[base]`);
+      + `[fc]crop=w='trunc(iw*${f.w.toFixed(4)}/2)*2':h='trunc(ih*${f.h.toFixed(4)}/2)*2':x='trunc(iw*${f.x.toFixed(4)}/2)*2':y='trunc(ih*${f.y.toFixed(4)}/2)*2',split=2[c1][c2];`
+      + `[c1]scale=${W}:${gy}:force_original_aspect_ratio=increase,crop=${W}:${gy},boxblur=28:3,eq=brightness=-0.15[cbg];` // the empty sides of the top zone are the cam itself blurred (one coherent picture), not a smear of the game
+      + `[c2]scale=${boxW}:${boxH}:force_original_aspect_ratio=decrease:flags=lanczos,pad=iw+8:ih+8:4:4:color=white@0.92,setsar=1[fcv];`
+      + `[bgb][cbg]overlay=0:0[t0];[t0][gmv]overlay=0:${gy}[t1];[t1][fcv]overlay=x=(W-w)/2:y=${reserve}+(${gy - reserve}-h)/2,setsar=1[base]`);
     t.push({ dimension: 'reframe_9x16', applied: true, detail: `facecam top: facecam enlarged above, full gameplay at y=${gy}, captions on the blurred area below` });
   } else if (o.reframe === 'fit_blur') {
     const fz = o.inW / o.inH > 1.2 ? Math.min(1, Math.max(0.6, o.fitZoom ?? 1)) : 1; // wide source: trim the empty sides so the picture is bigger (less blur above/below)

@@ -2,6 +2,7 @@ import { readFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run } from '../util/proc.ts';
+import { skinFaceCenter } from './skinface.ts';
 
 /**
  * Facecam finder WITHOUT any AI model (works on Termux). A streamer's facecam is a rectangle stuck in one corner of the game picture: its two INNER edges
@@ -10,7 +11,7 @@ import { run } from '../util/proc.ts';
  * confidence = weakest-frame score / 0.10 (clamped 0..1). Below `minConfidence` (default 0.7) the answer is "none" and the caller keeps its normal layout.
  * Tuned on synthetic frames only - real footage UNVERIFIED (tune via cfg.edit.facecamMinConfidence).
  */
-export interface FacecamGuess { zone: 'tl' | 'tr' | 'bl' | 'br' | null; confidence: number; rect: { x: number; y: number; w: number; h: number } | null; scores: Record<string, number>; frames: number }
+export interface FacecamGuess { zone: 'tl' | 'tr' | 'bl' | 'br' | null; confidence: number; rect: { x: number; y: number; w: number; h: number } | null; scores: Record<string, number>; frames: number; /** best weak candidate when below the confidence bar (verified by skin tone in detectFacecam) */ hint?: { zone: 'tl' | 'tr' | 'bl' | 'br'; conf: number; second: number; rect: { x: number; y: number; w: number; h: number } } }
 const W = 192, H = 108;
 
 /** pure core: gray frames (W*H bytes each) -> best box per corner */
@@ -36,10 +37,18 @@ export function findFacecam(frames: Uint8Array[], minConfidence = 0.7): FacecamG
       if (weakest > zb.s) zb = { s: weakest, x0, y0, x1, y1 }; if (weakest > 0.02) cands.push({ s: weakest, x0, y0, x1, y1 });
     }
     { const big = cands.filter((c) => c.s >= zb.s * 0.85).sort((a, b) => (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0))[0]; if (big) zb = big; } // equally strong lines inside the cam picture are not its border: take the OUTER box
+    if (zb.s > 0) { // tighten the outer box onto the strongest straight inner edge (the picked box can overshoot the real cam border by a few rows)
+      const rowS = (yy: number): number => frames.reduce((a, f) => a + hEdge(f, Math.min(H - 4, Math.max(3, yy)), zb.x0 + 1, zb.x1 - 1, top ? 1 : -1), 0) / frames.length;
+      const colS = (xx: number): number => frames.reduce((a, f) => a + vEdge(f, Math.min(W - 4, Math.max(3, xx)), zb.y0 + 1, zb.y1 - 1, left ? 1 : -1), 0) / frames.length;
+      let bs = top ? rowS(zb.y1) : rowS(zb.y0), by = top ? zb.y1 : zb.y0; for (let d = -14; d <= 2; d++) { const yy = top ? zb.y1 + d : zb.y0 - d; if (top ? yy - zb.y0 < 18 : zb.y1 - yy < 18) continue; const v = rowS(yy); if (v > bs * 1.15) { bs = v; by = yy; } }
+      let bx = left ? zb.x1 : zb.x0; let bcs = colS(bx); for (let d = -14; d <= 2; d++) { const xx = left ? zb.x1 + d : zb.x0 - d; if (left ? xx - zb.x0 < 22 : zb.x1 - xx < 22) continue; const v = colS(xx); if (v > bcs * 1.15) { bcs = v; bx = xx; } }
+      zb = { ...zb, ...(top ? { y1: by } : { y0: by }), ...(left ? { x1: bx } : { x0: bx }) };
+    }
     scores[z] = Math.round(Math.min(1, zb.s / 0.10) * 100) / 100; if (!best || zb.s > best.s) best = { z, s: zb.s, ...zb };
   }
   const conf = best ? Math.min(1, best.s / 0.10) : 0; const second = Object.entries(scores).filter(([k]) => k !== best?.z).reduce((a, [, v]) => Math.max(a, v), 0);
-  if (!best || conf < minConfidence || conf - second < 0.15) return { zone: null, confidence: Math.round(conf * 100) / 100, rect: null, scores, frames: frames.length }; // not clear: caller keeps its normal layout
+  const rectOf = (b: NonNullable<typeof best>) => ({ x: b.x0 / W, y: b.y0 / H, w: (b.x1 - b.x0) / W, h: (b.y1 - b.y0) / H });
+  if (!best || conf < minConfidence || conf - second < 0.15) return { zone: null, confidence: Math.round(conf * 100) / 100, rect: null, scores, frames: frames.length, ...(best && conf >= 0.25 && conf - second >= 0.1 ? { hint: { zone: best.z, conf, second, rect: rectOf(best) } } : {}) }; // not clear: caller keeps its normal layout
   const inset = 1; return { zone: best.z, confidence: Math.round(conf * 100) / 100, scores, frames: frames.length, rect: { x: (best.x0 + (best.z[1] === 'l' ? 0 : inset)) / W, y: (best.y0 + (best.z[0] === 't' ? 0 : inset)) / H, w: (best.x1 - best.x0 - inset) / W, h: (best.y1 - best.y0 - inset) / H } };
 }
 
@@ -53,7 +62,13 @@ export async function detectFacecam(path: string, duration: number, minConfidenc
       if (!r || r.code !== 0) continue; try { const b = readFileSync(out); if (b.length === W * H) frames.push(new Uint8Array(b)); } catch { /* skip frame */ }
     }
     if (frames.length < 4) return { zone: null, confidence: 0, rect: null, scores: {}, frames: frames.length, note: 'frames padhe nahi ja sake' };
-    return findFacecam(frames, minConfidence);
+    const g = findFacecam(frames, minConfidence);
+    if (!g.zone && g.hint) { // weak straight edges (small cam, similar colours): accept only when a person's skin blob sits steadily INSIDE that very box
+      const h = g.hint; const pad = 0.01; const rc = { x: Math.max(0, h.rect.x - pad), y: Math.max(0, h.rect.y - pad), w: Math.min(1, h.rect.w + 2 * pad), h: Math.min(1, h.rect.h + 2 * pad) };
+      const cx = skinFaceCenter(path, 0, duration, 10, rc); // desaturated/compressed footage defeats skin colour, so a clear lead over every other corner is accepted too
+      if (cx !== undefined || (h.conf >= 0.3 && h.conf - h.second >= 0.2 && h.rect.w <= 0.3 && h.rect.h <= 0.5)) return { ...g, zone: h.zone, confidence: 0.7, rect: h.rect, note: cx !== undefined ? 'weak edges + face inside the box' : 'weak edges, but clearly one corner' };
+    }
+    return g;
   } catch (e) { return { zone: null, confidence: 0, rect: null, scores: {}, frames: frames.length, note: (e as Error).message }; }
   finally { rmSync(dir, { recursive: true, force: true }); }
 }

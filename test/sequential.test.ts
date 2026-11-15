@@ -65,3 +65,9 @@ test('facecam_top: facecam enlarged on top, whole gameplay in the middle, valid 
   const out = join(d, 'o.mp4'); const r = await run('ffmpeg', ['-y', '-v', 'error', '-i', src, '-filter_complex', g, '-map', '[base]', '-frames:v', '10', '-pix_fmt', 'yuv420p', out], { timeoutMs: 60_000 }); assert.equal(r.code, 0, r.stderr);
   const p = await run('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', out], { timeoutMs: 20_000 }); assert.equal(p.stdout.trim(), '1080,1920');
 });
+
+import { findFacecam } from '../src/edit/facecamdetect.ts';
+test('facecam finder: box is tightened onto its real inner edge and a weak-but-clear corner is offered as a hint', () => {
+  const W = 192, H = 108; const mkf = (seed: number) => { const f = new Uint8Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) f[y * W + x] = 100 + ((x * 7 + y * 13 + seed * 31) % 9); for (let y = 0; y < 30; y++) for (let x = 160; x < W; x++) f[y * W + x] = 150 + ((x + y + seed) % 5); return f; };
+  const g = findFacecam([1, 2, 3, 4, 5, 6].map(mkf), 0.7); assert.equal(g.zone, 'tr'); assert.ok(g.rect!.h < 0.34 && g.rect!.h > 0.2, `h=${g.rect!.h}`);
+});

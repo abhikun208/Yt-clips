@@ -356,3 +356,9 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - UI: Settings "Pause Autopilot" + badge; Clips tab hides Approve/Queue/Publish and shows "Status: ..." ONLY when handsFree (autoQueue+autoApprove, no requireReview); otherwise buttons stay so clips never get stuck.
 - src/analysis/splitter.ts: sentence-end cut scoring (pause, scene change, open-ending/cliffhanger, dangling-word penalty), used by planSeries; parts capped 60s; analyzer passes scenes.
 - Tests: autopilot (1), oauthguard (+1), series (+1). Round-robin was already rewritten earlier today (pointer persisted in kv).
+
+## 2026-11-15 (3) — Facecam layout fix, PART badge, Meta HTTPS
+- Meta dashboard rejects http://127.0.0.1 redirect ("Enter a valid HTTPS URL"): checkRedirect now flags localhost for Meta too; /start returns a `warning` (UI asks to confirm) instead of failing; callback no longer blocks (provider only redirects to registered URIs), host-drift check stays. New src/ops/tunnel.ts: `YT_CLIPS_TUNNEL=1 npm start` starts a cloudflared quick tunnel (Termux: pkg install cloudflared) and the https URL becomes the redirect base automatically (no .env). URL changes each start -> re-register, or use a domain.
+- Facecam: detector now (a) tightens the box onto the real inner edge (was overshooting into gameplay), (b) accepts a weak but clearly single-corner cam (conf>=0.3, lead>=0.2 over other corners, or skin blob) — real clip_064 (GTA, small cam top-right) scored 0.34 and fell back to blur before.
+- facecam_top layout redone: top zone ~30% of height, empty sides = the cam itself blurred (not a zoomed game smear), white thin border, game full-width below, captions in the lower blur. Verified visually on the owner's clip geometry.
+- "PART n/N" is now a 3-second badge instead of living in the title strip for the whole clip (render.ts, retitle.ts, captions.ts partBadge).
