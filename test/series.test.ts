@@ -35,3 +35,11 @@ test('migration v8 columns exist', () => {
   const cols = st.all<{ name: string }>(`PRAGMA table_info(candidates)`).map((c: { name: string }) => c.name);
   for (const c of ['part_no', 'part_total', 'series_key']) assert.ok(cols.includes(c));
 });
+
+import { chooseCuts, scoreCut } from '../src/analysis/splitter.ts';
+test('narrative split: cuts at the cliffhanger/pause, not at a dangling word, even when equal time says otherwise', () => {
+  const T = (s: number, e: number, text: string) => ({ start: s, end: e, text });
+  const sents = [T(0, 9, 'Ek aadmi raat ko ghar aaya.'), T(9.1, 19, 'Usne darwaza khola aur'), T(19.1, 29, 'andar kuch tha. Lekin tabhi...'), T(31, 40, 'Light chali gayi.'), T(40.1, 50, 'Phir awaaz aayi.'), T(50.1, 60, 'Aur sab khatam.')];
+  assert.ok(scoreCut(2, sents).score > scoreCut(1, sents).score, 'cliffhanger + pause beats dangling word');
+  const r = chooseCuts(0, 60, 2, sents, { minSec: 15, maxSec: 45 })!; assert.equal(r.cuts[0], 29); assert.match(r.reasons[0]!, /open ending/);
+});

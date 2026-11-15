@@ -17,9 +17,11 @@ const isLocal = (h: string): boolean => /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|
 const isIp = (h: string): boolean => /^\d+\.\d+\.\d+\.\d+$/.test(h);
 
 export interface RedirectCheck { ok: boolean; uri: string; secure: boolean; local: boolean; problems: string[]; hint: string; badge: string }
-export function resolveBase(req: { proto?: string; host?: string }): string {
+export function resolveBase(req: { proto?: string; host?: string; fwdHost?: string }): string {
+  // zero-config: tunnel/proxy headers first (X-Forwarded-Proto/Host), the Host header next; .env is only an optional override
   const env = process.env.OAUTH_PUBLIC_BASE_URL || process.env.PUBLIC_URL; if (env) return env.replace(/\/+$/, '');
-  return `${req.proto === 'https' ? 'https' : 'http'}://${req.host ?? '127.0.0.1'}`.replace(/\/+$/, '');
+  const host = (req.fwdHost || req.host || '127.0.0.1').split(',')[0]!.trim(); const proto = (req.proto || '').split(',')[0]!.trim() === 'https' ? 'https' : 'http';
+  return `${proto}://${host}`.replace(/\/+$/, '');
 }
 export function checkRedirect(platform: OAuthPlatform, base: string): RedirectCheck {
   const app = toApp(platform); const uri = redirectUri(base, app); const problems: string[] = []; let u: URL | null = null;
@@ -46,7 +48,7 @@ export function friendlyOAuthError(msg: string): string {
 
 /** The universal callback: validates https/host, then runs the existing exchange. Never throws: returns what to show the user. */
 export function handleOAuthCallback(platform: OAuthPlatform) {
-  return async (store: Store, cfg: Config, q: { code?: string | null; state?: string | null; error?: string | null; error_description?: string | null }, req: { proto?: string; host?: string }): Promise<{ ok: boolean; status: number; message: string }> => {
+  return async (store: Store, cfg: Config, q: { code?: string | null; state?: string | null; error?: string | null; error_description?: string | null }, req: { proto?: string; host?: string; fwdHost?: string }): Promise<{ ok: boolean; status: number; message: string }> => {
     const app = toApp(platform);
     try {
       const base = resolveBase(req); const chk = checkRedirect(platform, base);

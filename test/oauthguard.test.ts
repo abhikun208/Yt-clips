@@ -31,3 +31,9 @@ test('callback: provider error, https problem, host mismatch, unknown state are 
   r = await h(store, cfg, { code: 'c', state: 'nope' }, { host: 'new.com', proto: 'https' }); assert.equal(r.ok, false); assert.match(r.message, /time|purana|Login/);
   assert.match(friendlyOAuthError('redirect_uri mismatch'), /Redirect URI/);
 });
+test('zero-config base: tunnel headers win over Host, localhost stays http (dev), no .env needed', () => {
+  delete process.env.OAUTH_PUBLIC_BASE_URL; delete process.env.PUBLIC_URL;
+  assert.equal(resolveBase({ proto: 'https', host: '127.0.0.1:8787', fwdHost: 'abc.trycloudflare.com' }), 'https://abc.trycloudflare.com');
+  assert.equal(resolveBase({ proto: 'http', host: 'localhost:8787' }), 'http://localhost:8787');
+  assert.equal(checkRedirect('facebook', resolveBase({ proto: 'https', host: 'x', fwdHost: 'abc.trycloudflare.com' })).ok, true);
+});

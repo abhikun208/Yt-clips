@@ -15,6 +15,7 @@ import { selfcareTick } from '../ops/selfcare.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
 import { channelBusy, lockOn } from '../sources/sequential.ts';
+import { setPaused, autopilotState, clipStatus } from '../autopilot/engine.ts';
 import { handleOAuthCallback, checkRedirect, resolveBase, toApp, type OAuthPlatform } from '../publish/oauthguard.ts';
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
@@ -144,7 +145,7 @@ export function createApp(o: AppOptions = {}): App {
   const clientIp = (req: IncomingMessage) => { if (trustProxy) { const xf = String(req.headers['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean); if (xf.length) return xf[xf.length - 1]!; } return req.socket.remoteAddress ?? '?'; };
   const usedCookie = (req: IncomingMessage) => !String(req.headers.authorization ?? '').startsWith('Bearer ') && !req.headers['x-api-key'];
 
-  const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.headers['x-forwarded-proto'] ?? 'http'), host: req.headers.host });
+  const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.headers['x-forwarded-proto'] ?? 'http'), host: req.headers.host, fwdHost: String(req.headers['x-forwarded-host'] ?? '') });
   function clipRows() {
     return store.all<{ id: number; output_id: string; edited_path: string; thumbnail_path: string | null; metadata_json: string | null; qc_pass: number | null; state: string; candidate_id: number; review: string; review_note: string | null; variant: number; qc_json: string | null }>(
       'SELECT id, output_id, edited_path, thumbnail_path, metadata_json, qc_pass, state, candidate_id, review, review_note, variant, qc_json FROM clips ORDER BY id DESC LIMIT 200').map((c) => {
@@ -152,7 +153,7 @@ export function createApp(o: AppOptions = {}): App {
       try { const f = join(cfg.dirs.manifests, `${c.output_id}.json`); if (existsSync(f)) mf = JSON.parse(readFileSync(f, 'utf8')); } catch { /* manifest unreadable: show nothing rather than guess */ }
       let finalSec: number | null = null; try { const v = Number((JSON.parse(c.qc_json ?? '{}') as { checks?: { duration?: { value?: string | number } } }).checks?.duration?.value); if (Number.isFinite(v) && v > 0) finalSec = v; } catch { /* old clip */ }
       const md = c.metadata_json ? JSON.parse(c.metadata_json) : {}; const cand = store.get<{ start_sec: number; end_sec: number; category: string; video_id: number }>('SELECT start_sec, end_sec, category, video_id FROM candidates WHERE id=?', c.candidate_id);
-      return { videoId: cand?.video_id ?? null, srcStart: cand?.start_sec ?? null, srcEnd: cand?.end_sec ?? null, review: c.review, reviewNote: c.review_note, variant: c.variant, visualChange: (mf as { visualChange?: unknown }).visualChange ?? null, thumbText: md.thumbnailText ?? null, generatedBy: md.generatedBy ?? null, seo: md.seo ?? null, viral: cand ? Math.round(((store.get<{ score: number }>('SELECT score FROM candidates WHERE id=?', c.candidate_id)?.score) ?? 0) * 100) : null, part: cand ? (store.get<{ part_no: number | null; part_total: number | null }>('SELECT part_no, part_total FROM candidates WHERE id=?', c.candidate_id) ?? null) : null, treatments: mf.treatments ?? [], coverage: mf.treatmentCoverage ?? null, captionInfo: mf.captions ?? null, id: c.id, outputId: c.output_id, title: md.title ?? null, description: md.description ?? null, tags: md.tags ?? [], qcPass: !!c.qc_pass, state: c.state, category: cand?.category ?? null, duration: finalSec ?? (cand ? cand.end_sec - cand.start_sec : 0), sourceSpan: cand ? +(cand.end_sec - cand.start_sec).toFixed(1) : 0, /* real file length (jump cuts / speed ramp make it shorter than the source span) */
+      return { status: clipStatus(store, c.id, c.review, c.qc_pass), videoId: cand?.video_id ?? null, srcStart: cand?.start_sec ?? null, srcEnd: cand?.end_sec ?? null, review: c.review, reviewNote: c.review_note, variant: c.variant, visualChange: (mf as { visualChange?: unknown }).visualChange ?? null, thumbText: md.thumbnailText ?? null, generatedBy: md.generatedBy ?? null, seo: md.seo ?? null, viral: cand ? Math.round(((store.get<{ score: number }>('SELECT score FROM candidates WHERE id=?', c.candidate_id)?.score) ?? 0) * 100) : null, part: cand ? (store.get<{ part_no: number | null; part_total: number | null }>('SELECT part_no, part_total FROM candidates WHERE id=?', c.candidate_id) ?? null) : null, treatments: mf.treatments ?? [], coverage: mf.treatmentCoverage ?? null, captionInfo: mf.captions ?? null, id: c.id, outputId: c.output_id, title: md.title ?? null, description: md.description ?? null, tags: md.tags ?? [], qcPass: !!c.qc_pass, state: c.state, category: cand?.category ?? null, duration: finalSec ?? (cand ? cand.end_sec - cand.start_sec : 0), sourceSpan: cand ? +(cand.end_sec - cand.start_sec).toFixed(1) : 0, /* real file length (jump cuts / speed ramp make it shorter than the source span) */
         video: `/files/edited/${c.output_id}.mp4`, thumb: c.thumbnail_path ? `/files/thumb/${c.output_id}.jpg` : null, srt: existsSync(join(cfg.dataDir, 'captions', `${c.output_id}.srt`)) ? `/files/captions/${c.output_id}.srt` : null };
     });
   }
@@ -208,7 +209,7 @@ export function createApp(o: AppOptions = {}): App {
       }
       const cbm = /^\/api\/oauth\/(facebook|instagram|tiktok)\/callback$/.exec(p);
       if (cbm && m === 'GET') { // browser redirect from the provider: protected by the one-time server-side `state`, not by cookie (SameSite=Strict cookies are not sent on cross-site redirects)
-        const r = await handleOAuthCallback(cbm[1] as OAuthPlatform)(store, cfg, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error'), error_description: url.searchParams.get('error_description') }, { proto: String(req.headers['x-forwarded-proto'] ?? 'http'), host: req.headers.host });
+        const r = await handleOAuthCallback(cbm[1] as OAuthPlatform)(store, cfg, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error'), error_description: url.searchParams.get('error_description') }, { proto: String(req.headers['x-forwarded-proto'] ?? 'http'), host: req.headers.host, fwdHost: String(req.headers['x-forwarded-host'] ?? '') });
         res.writeHead(r.status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return void res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:16px system-ui;padding:24px;background:#10131a;color:#e8ecf4"><p>${r.ok ? '✅' : '❌ Failed:'} ${r.message.replace(/[<>&]/g, '')}</p><p><a style="color:#7fb0ff" href="/">yt-clips kholo</a></p>`);
       }
       if (p === '/api/oauth/youtube/callback' && m === 'GET') { // Google redirect: protected by the single-use server-side `state` (works for a shared link opened on another device)
@@ -292,7 +293,8 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/autopilot') {
         if (m === 'POST') {
           const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as Record<string, unknown>; const patch: Record<string, unknown> = {};
-          for (const k of Object.keys(b)) if (!['autoQueue', 'requireReview', 'platforms', 'fairShare', 'parallelJobs', 'maxActiveVideosPerChannel'].includes(k)) return json(res, 400, { error: `invalid: ${k} cannot be changed here (publish gates and autoApprove are owner-only: use the CLI "autopilot" command on the server)` });
+          for (const k of Object.keys(b)) if (!['autoQueue', 'paused', 'requireReview', 'platforms', 'fairShare', 'parallelJobs', 'maxActiveVideosPerChannel'].includes(k)) return json(res, 400, { error: `invalid: ${k} cannot be changed here (publish gates and autoApprove are owner-only: use the CLI "autopilot" command on the server)` });
+          if ('paused' in b) { if (typeof b.paused !== 'boolean') return json(res, 400, { error: 'invalid: paused boolean' }); setPaused(store, b.paused); store.logState('autopilot', 0, null, b.paused ? 'paused' : 'resumed', 'web UI'); }
           if ('autoQueue' in b) { if (typeof b.autoQueue !== 'boolean') return json(res, 400, { error: 'invalid: autoQueue boolean' }); patch.autoQueue = b.autoQueue; }
           if ('requireReview' in b) { if (typeof b.requireReview !== 'boolean') return json(res, 400, { error: 'invalid: requireReview boolean' }); patch.requireReview = b.requireReview; }
           if ('fairShare' in b) { if (typeof b.fairShare !== 'boolean') return json(res, 400, { error: 'invalid: fairShare boolean' }); patch.fairShare = b.fairShare; }
@@ -301,7 +303,7 @@ export function createApp(o: AppOptions = {}): App {
           if ('platforms' in b) { const ok = ALLOWED_PLATFORMS as readonly string[]; if (!Array.isArray(b.platforms) || !b.platforms.length || b.platforms.some((x) => !ok.includes(String(x)))) return json(res, 400, { error: 'invalid: platforms' }); patch.platforms = b.platforms; }
           updateOwnerConfig(cfg, { automation: patch }); Object.assign(cfg.automation, patch); store.logState('autopilot', 0, null, JSON.stringify(patch), 'changed from the web UI');
         }
-        return json(res, 200, { automation: cfg.automation, parallelJobs: cfg.resources.renderConcurrency, gates: cfg.gates, note: 'Gates + autoApprove can only be changed on the server (CLI: npm run cli -- autopilot ...).' });
+        return json(res, 200, { state: autopilotState(store, cfg), automation: cfg.automation, parallelJobs: cfg.resources.renderConcurrency, gates: cfg.gates, note: 'Gates + autoApprove can only be changed on the server (CLI: npm run cli -- autopilot ...).' });
       }
       { const rm = /^\/api\/sources\/(\d+)(?:\/remove)?$/.exec(p); if (rm && (m === 'DELETE' || (m === 'POST' && p.endsWith('/remove')))) { // owner removes a source: it stops being watched and disappears from the lists; videos/clips already made are kept
         const id = Number(rm[1]); if (!store.get('SELECT 1 FROM sources WHERE id=?', id)) return json(res, 400, { error: `Unknown source ${id}` });

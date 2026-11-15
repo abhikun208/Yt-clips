@@ -75,3 +75,6 @@
 
 - [ ] (2026-11-15) Real OAuth: set OAUTH_PUBLIC_BASE_URL to https tunnel, register redirect URI in Meta/TikTok, connect once.
 - [ ] (2026-11-15) Phone: test a face-only talking video (no OpenCV) -> expect Fill crop centred on face; set edit.faceFallback=false if it misfires.
+
+- [ ] (2026-11-15) Run `npm run cli -- automation on --approve` + set gates on server for true hands-free; then check Clips tab shows only "Status:".
+- [ ] (2026-11-15) Check Part 1/2/3 cut points on a real story video (splitter heuristics are Hinglish-word based, UNVERIFIED on real transcripts).
