@@ -70,7 +70,11 @@ export function handleOAuthCallback(platform: OAuthPlatform) {
       if (q.error) { const m = friendlyOAuthError(`${q.error} ${q.error_description ?? ''}`); remember(store, app, { ok: false, message: m, raw: `${q.error} ${q.error_description ?? ''}`.slice(0, 200) }); return { ok: false, status: 400, message: m }; }
       const st = q.state ? store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `oauth_state_${q.state}`)?.v : undefined; let used = ''; try { used = st ? (JSON.parse(st) as { ru?: string }).ru ?? '' : ''; } catch { /* old state */ }
       if (used && used !== chk.uri) return { ok: false, status: 400, message: `Login ek address par shuru hua (${used}) aur doosre par wapas aaya (${chk.uri}). Same address (same http/https + host) se shuru aur khatam karo, ya .env me OAUTH_PUBLIC_BASE_URL fix karo.` };
-      const r = await handleCallback(store, cfg, app, { code: q.code, state: q.state, error: q.error }, base);
+      const keep = q.state ? `oauth_state_${q.state}` : ''; const kept = keep ? store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', keep)?.v : undefined;
+      let r: Awaited<ReturnType<typeof handleCallback>>;
+      try { r = await handleCallback(store, cfg, app, { code: q.code, state: q.state, error: q.error }, base); }
+      catch (e) { if (kept && /^network:/i.test((e as Error).message)) store.exec('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO NOTHING', keep, kept); throw e; } // a network drop must not burn the one-time login: refreshing the page can retry
+      
       info('oauth connected', { app, accounts: r.connected.length }); remember(store, app, { ok: true, message: `Connected: ${r.connected.join(', ')}${r.note ? ' — ' + r.note : ''}` }); return { ok: true, status: 200, message: `Connected: ${r.connected.join(', ')}${r.note ? ' (' + r.note + ')' : ''}` };
     } catch (e) { const m = friendlyOAuthError((e as Error).message); warn('oauth callback failed', { app, why: (e as Error).message.slice(0, 160) }); remember(store, app, { ok: false, message: m, raw: (e as Error).message.slice(0, 300) }); return { ok: false, status: 400, message: m }; }
   };
