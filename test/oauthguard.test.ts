@@ -48,3 +48,9 @@ test('last login result is remembered so the dashboard can show why Connect fail
   const l = lastOAuth(store, 'facebook'); assert.equal(l?.ok, false); assert.match(l!.raw!, /access_denied/);
   assert.match(friendlyOAuthError('oauth: no Facebook Page found for this login'), /Page SELECT/);
 });
+
+import { tunnelName } from '../src/ops/tunnel.ts';
+test('tunnel name is stable across calls (same https link after restart) and serveo links parse', () => {
+  const store = new Store(join(tmpDir(), 't.db')); const a = tunnelName(store); assert.match(a, /^ytc-[0-9a-f]+$/); assert.equal(tunnelName(store), a);
+  assert.equal(parseTunnelUrl('Forwarding HTTP traffic from https://ytc-1a2b3c4d.serveo.net'), 'https://ytc-1a2b3c4d.serveo.net');
+});
