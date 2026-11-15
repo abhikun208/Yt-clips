@@ -34,11 +34,16 @@ export function saveAppCreds(cfg: Config, app: string, id: string, secret: strin
   if (!/^[\w-]{4,80}$/.test(id) || secret.length < 8 || secret.length > 200) throw new Error('invalid: id/secret format');
   secretsOf(cfg).write(`oauth-app-${app}`, { id, secret });
 }
-export const redirectUri = (base: string, app: SocialApp) => `${base.replace(/\/+$/, '')}/api/oauth/${app}/callback`;
+/** Permanent https redirect: a static page (docs/oauth-relay.html on GitHub Pages) that bounces the login result to the server on 127.0.0.1. No tunnel, nothing to re-register. */
+export const DEFAULT_RELAY = 'https://abhikun208.github.io/Yt-clips/oauth-relay.html';
+let relay: string | null = null;
+export const setRelay = (v: string | null): void => { try { const u = v ? new URL(v) : null; relay = u && u.protocol === 'https:' ? u.origin + u.pathname : null; } catch { relay = null; } };
+export const getRelay = (): string | null => relay;
+export const redirectUri = (base: string, app: SocialApp) => relay ?? `${base.replace(/\/+$/, '')}/api/oauth/${app}/callback`;
 
-export function startAuth(store: Store, cfg: Config, app: SocialApp, base: string, o: { publish?: boolean } = {}): string {
+export function startAuth(store: Store, cfg: Config, app: SocialApp, base: string, o: { publish?: boolean; port?: number } = {}): string {
   const c = appCreds(cfg, app); if (!c) throw new Error(`invalid: save the ${app === 'facebook' ? 'Meta (Facebook) app id/secret' : 'TikTok client key/secret'} first`);
-  const state = randomBytes(18).toString('hex'); store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, `oauth_state_${state}`, JSON.stringify({ app, at: Date.now(), ru: redirectUri(base, app) }));
+  const state = (relay ? `${app}.${o.port ?? 8080}.` : '') + randomBytes(18).toString('hex'); store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, `oauth_state_${state}`, JSON.stringify({ app, at: Date.now(), ru: redirectUri(base, app) }));
   const ru = redirectUri(base, app);
   if (app === 'facebook') return `${fbDialog()}?${new URLSearchParams({ client_id: c.id, redirect_uri: ru, state, scope: FB_SCOPES + (o.publish ? FB_PUBLISH_SCOPES : ''), response_type: 'code' })}`;
   return `${ttAuth()}?${new URLSearchParams({ client_key: c.id, scope: TT_SCOPES, response_type: 'code', redirect_uri: ru, state })}`;

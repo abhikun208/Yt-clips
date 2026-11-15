@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>yt-clips login relay</title>
+<style>body{font:16px system-ui;background:#10131a;color:#e8ecf4;padding:24px}a{color:#7fb0ff}code{background:#1b2030;padding:2px 6px;border-radius:4px}</style></head>
+<body><h3>yt-clips — login wapas bheja ja raha hai…</h3><p id="m">Ek second…</p>
+<script>
+/* PERMANENT https redirect URI for Meta/TikTok. This page only hands the one-time ?code&state back to the yt-clips server
+   running on THIS phone/computer (127.0.0.1). The code is useless without the app secret, which never leaves the server.
+   state looks like  <facebook|tiktok>.<port>.<random>  -> only those two apps, only loopback, only numeric ports (no open redirect). */
+(function () {
+  var q = new URLSearchParams(location.search), st = q.get('state') || '', m = /^(facebook|tiktok)\.(\d{2,5})\.[0-9a-f]{8,}$/.exec(st), out = document.getElementById('m');
+  if (!m) { out.textContent = '❌ Ye login yt-clips se shuru nahi hua (state galat/purana). yt-clips me Connect dobara dabao.'; return; }
+  var port = +m[2]; if (port < 1024 || port > 65535) { out.textContent = '❌ Port galat.'; return; }
+  var to = 'http://127.0.0.1:' + port + '/api/oauth/' + m[1] + '/callback' + location.search;
+  out.innerHTML = 'Agar apne aap na khule to <a href="' + to.replace(/"/g, '') + '">yahan dabao</a> (yt-clips isi device par chalna chahiye).';
+  setTimeout(function () { location.replace(to); }, 150);
+})();
+</script></body></html>

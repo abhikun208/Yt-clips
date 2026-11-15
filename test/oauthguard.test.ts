@@ -65,3 +65,17 @@ test('tunnel-provider hosts (api.trycloudflare.com) are refused as the redirect 
   assert.equal(cleanBase('https://api.trycloudflare.com'), null); assert.equal(cleanBase('https://odd-fox.trycloudflare.com'), 'https://odd-fox.trycloudflare.com');
   assert.equal(checkRedirect('facebook', 'https://api.trycloudflare.com').ok, false); assert.match(checkRedirect('facebook', 'https://api.trycloudflare.com').problems.join(' '), /Method Not Allowed/);
 });
+import { setRelay, getRelay, redirectUri, startAuth, DEFAULT_RELAY } from '../src/publish/socialOauth.ts';
+import { readFileSync } from 'node:fs';
+test('relay: one permanent https redirect URI for every app; state carries app+port; relay page only forwards to loopback', () => {
+  const store = new Store(join(tmpDir(), 'r.db')); const cfg = loadConfig(tmpDir()); (cfg as any).secrets = undefined;
+  setRelay(DEFAULT_RELAY); assert.equal(redirectUri('http://127.0.0.1:8080', 'facebook'), DEFAULT_RELAY); assert.equal(checkRedirect('facebook', 'http://127.0.0.1:8080').ok, true); assert.equal(checkRedirect('tiktok', 'http://127.0.0.1:8080').ok, true);
+  const html = readFileSync(new URL('../docs/oauth-relay.html', import.meta.url), 'utf8'); assert.match(html, /127\.0\.0\.1:/); assert.ok(!/location\.(href|replace)\s*=?\s*\(?\s*(q|st)\b/.test(html), 'never redirects to a URL taken from the query');
+  assert.match(html, /\(facebook\|tiktok\)\\\.\(\\d\{2,5\}\)/);
+  setRelay(null); assert.equal(getRelay(), null); assert.match(redirectUri('http://x.com', 'facebook'), /x\.com\/api\/oauth\/facebook\/callback/);
+});
+import { saveAppCreds } from '../src/publish/socialOauth.ts';
+test('relay start: redirect_uri is the relay and state is <app>.<port>.<hex> (accepted by the relay page regex)', () => {
+  const d = tmpDir(); const store = new Store(join(d, 's.db')); const cfg = loadConfig(d); saveAppCreds(cfg, 'facebook', 'APPID1234', 'secretsecret1'); setRelay(DEFAULT_RELAY);
+  try { const u = new URL(startAuth(store, cfg, 'facebook', 'http://127.0.0.1:8080', { port: 8080, publish: true })); assert.equal(u.searchParams.get('redirect_uri'), DEFAULT_RELAY); assert.match(u.searchParams.get('state')!, /^facebook\.8080\.[0-9a-f]{8,}$/); } finally { setRelay(null); }
+});

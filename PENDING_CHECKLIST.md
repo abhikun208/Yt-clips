@@ -81,3 +81,5 @@
 
 - [ ] (2026-11-15) Phone: `pkg install cloudflared`; `YT_CLIPS_TUNNEL=1 npm start`; copy the https redirect URI shown in Settings into Meta/TikTok.
 - [ ] (2026-11-15) Re-render clip_064-type (PC game + small facecam) and check cam crop/zone; if a HUD corner (minimap) is mistaken for a cam set edit.autoFacecam=false for that channel.
+
+- [ ] (2026-11-15) Enable GitHub Pages (repo Settings → Pages → Branch main, folder /docs); open https://abhikun208.github.io/Yt-clips/oauth-relay.html (should say "state galat"); then Relay ON in Settings and register that single URI in Meta.
