@@ -79,3 +79,10 @@ test('relay start: redirect_uri is the relay and state is <app>.<port>.<hex> (ac
   const d = tmpDir(); const store = new Store(join(d, 's.db')); const cfg = loadConfig(d); saveAppCreds(cfg, 'facebook', 'APPID1234', 'secretsecret1'); setRelay(DEFAULT_RELAY);
   try { const u = new URL(startAuth(store, cfg, 'facebook', 'http://127.0.0.1:8080', { port: 8080, publish: true })); assert.equal(u.searchParams.get('redirect_uri'), DEFAULT_RELAY); assert.match(u.searchParams.get('state')!, /^facebook\.8080\.[0-9a-f]{8,}$/); } finally { setRelay(null); }
 });
+import { netFetch } from '../src/publish/socialOauth.ts';
+import { createServer } from 'node:net';
+test('network failure gives a readable reason, not just "fetch failed"', async () => {
+  const port = await new Promise<number>((res) => { const sv = createServer(); sv.listen(0, '127.0.0.1', () => { const p = (sv.address() as { port: number }).port; sv.close(() => res(p)); }); });
+  await assert.rejects(netFetch(`http://127.0.0.1:${port}/x`), /network: 127\.0\.0\.1:\d+ tak nahi pahunch paya \(.*ECONNREFUSED/);
+  assert.match(friendlyOAuthError('network: graph.facebook.com tak nahi pahunch paya (ENOTFOUND)'), /Private DNS/);
+});

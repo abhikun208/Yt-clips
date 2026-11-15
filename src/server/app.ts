@@ -27,6 +27,8 @@ import { presetPreview } from '../edit/preview.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { recentLogs, logsSince, info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
+import { setDefaultResultOrder } from 'node:dns';
+try { setDefaultResultOrder('ipv4first'); } catch { /* old node */ } // Termux/mobile networks: broken IPv6 makes every fetch to graph.facebook.com fail
 import { setRelay, getRelay, DEFAULT_RELAY, startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
 import { aiStatus, saveAi, sttCreds, llmChain, llmSlot, SLOT_LIST } from '../ai/settings.ts';
 import { which } from '../util/proc.ts';

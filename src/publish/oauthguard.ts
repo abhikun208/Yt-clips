@@ -53,6 +53,7 @@ export function friendlyOAuthError(msg: string): string {
   if (/expired|unknown or expired/i.test(m)) return 'Login ka time khatam ya link purana hai (10 min). Connect button dobara dabao.';
   if (/no Facebook Page found/i.test(m)) return 'Login ho gaya par koi Facebook Page nahi mila. Meta dialog me "Edit access"/Pages me apna Page SELECT karo, aur tum us Page ke admin hone chahiye. App Development mode me ho to tumhara account app me Admin/Tester hona chahiye. Phir Connect dobara dabao.';
   if (/Invalid Scopes|scope/i.test(m)) return 'Meta ne permission (scope) mana ki: App ke Use case/Products me Pages + Instagram permissions add karo (Development mode me tum khud admin ho to review nahi chahiye). Detail: ' + m.slice(0, 100);
+  if (/^network:/i.test(m)) return `${m.replace(/^network:\s*/, '')}. Phone/server ko internet nahi mil raha: WiFi/data chalu hai? Settings me Private DNS "Off"/Automatic karo, VPN band karo, phir Connect dobara dabao.`;
   if (/missing code/i.test(m)) return 'Provider ne code nahi bheja. Connect button se dobara shuru karo.';
   if (/secret|client_secret|Invalid client|app id/i.test(m)) return 'App ID/Secret galat lagte hain. Settings me dobara paste karo.';
   return `Login fail: ${m.slice(0, 160)}`;

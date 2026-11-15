@@ -53,8 +53,18 @@ function takeState(store: Store, state: string, app: SocialApp): void {
   const j = row ? JSON.parse(row.v) as { app: string; at: number } : null;
   if (!j || j.app !== app || Date.now() - j.at > 10 * 60_000) throw new Error('invalid: unknown or expired login state, start again');
 }
+/** fetch with 3 tries and a readable network reason ("fetch failed" alone hides ENOTFOUND/ETIMEDOUT/EAI_AGAIN). */
+export async function netFetch(url: string, init?: RequestInit): Promise<Response> {
+  let last: unknown;
+  for (let i = 0; i < 3; i++) {
+    try { return await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) }); }
+    catch (e) { last = e; await new Promise((r) => setTimeout(r, 700 * (i + 1))); }
+  }
+  const c = (last as { cause?: { code?: string; message?: string } })?.cause; const host = (() => { try { return new URL(url).host; } catch { return url.slice(0, 40); } })();
+  throw new Error(`network: ${host} tak nahi pahunch paya (${c?.code ?? c?.message ?? (last as Error)?.message ?? 'unknown'})`);
+}
 async function getJ(url: string, init?: RequestInit): Promise<any> {
-  const r = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) }); const j = await r.json().catch(() => ({})); if (!r.ok || j?.error) throw new Error(`oauth: ${(j?.error?.message ?? j?.error_description ?? j?.error ?? r.status)}`.toString().slice(0, 200)); return j;
+  const r = await netFetch(url, init); const j = await r.json().catch(() => ({})); if (!r.ok || j?.error) throw new Error(`oauth: ${(j?.error?.message ?? j?.error_description ?? j?.error ?? r.status)}`.toString().slice(0, 200)); return j;
 }
 
 export async function handleCallback(store: Store, cfg: Config, app: SocialApp, q: { code?: string | null; state?: string | null; error?: string | null }, base: string): Promise<{ connected: string[]; note?: string }> {
