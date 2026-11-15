@@ -362,3 +362,6 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Facecam: detector now (a) tightens the box onto the real inner edge (was overshooting into gameplay), (b) accepts a weak but clearly single-corner cam (conf>=0.3, lead>=0.2 over other corners, or skin blob) — real clip_064 (GTA, small cam top-right) scored 0.34 and fell back to blur before.
 - facecam_top layout redone: top zone ~30% of height, empty sides = the cam itself blurred (not a zoomed game smear), white thin border, game full-width below, captions in the lower blur. Verified visually on the owner's clip geometry.
 - "PART n/N" is now a 3-second badge instead of living in the title strip for the whole clip (render.ts, retitle.ts, captions.ts partBadge).
+
+## 2026-11-15 (4) — On-demand HTTPS tunnel (server stays http)
+- Meta needs an https redirect; the server is plain http. Now: Connect (/api/oauth/*/start) opens a free https tunnel automatically if the base is not https (cloudflared, else `ssh -R` to localhost.run); Settings has "🔒 HTTPS link banao" (POST /api/oauth/tunnel) that returns the https redirect URI to paste into Meta/TikTok. Disabled in tests; YT_CLIPS_AUTOTUNNEL=0 turns auto-start off. Needs `pkg install cloudflared` or `pkg install openssh` on Termux. Link changes per restart (UNVERIFIED on a real phone/Meta).

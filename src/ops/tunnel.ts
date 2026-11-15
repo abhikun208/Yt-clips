@@ -8,18 +8,25 @@ import { info, warn } from '../util/log.ts';
  */
 let url: string | null = null; let child: ChildProcess | null = null;
 export const getTunnelUrl = (): string | null => url;
-export function parseTunnelUrl(line: string): string | null { return /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i.exec(line)?.[0] ?? null; }
-export function startTunnel(port: number, bin = 'cloudflared'): Promise<string | null> {
-  if (child) return Promise.resolve(url);
+export function parseTunnelUrl(line: string): string | null { return /https:\/\/[a-z0-9-]+\.(?:trycloudflare\.com|lhr\.life|localhost\.run)\b/i.exec(line)?.[0] ?? null; }
+/** Tries cloudflared first, then plain `ssh` to localhost.run (Termux: `pkg install openssh`) - both give a free https link with no account. */
+export async function startTunnel(port: number, bins: string[] = ['cloudflared', 'ssh']): Promise<string | null> {
+  if (url) return url;
+  for (const b of bins) { const u = await tryOne(port, b); if (u) return u; }
+  warn('tunnel: na cloudflared mila na ssh. Termux me chalao: pkg install cloudflared   (ya: pkg install openssh)');
+  return null;
+}
+function tryOne(port: number, bin: string): Promise<string | null> {
   return new Promise((resolve) => {
-    let done = false; const fin = (v: string | null): void => { if (!done) { done = true; resolve(v); } };
+    let done = false; const fin = (v: string | null): void => { if (!done) { done = true; if (!v) { try { child?.kill(); } catch { /* gone */ } child = null; } resolve(v); } };
     try {
-      child = spawn(bin, ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`], { stdio: ['ignore', 'ignore', 'pipe'] });
-      child.on('error', () => { warn('tunnel: cloudflared nahi mila (Termux: pkg install cloudflared)'); child = null; fin(null); });
-      child.on('exit', () => { child = null; url = null; fin(null); });
-      child.stderr?.on('data', (b: Buffer) => { const u = parseTunnelUrl(String(b)); if (u && !url) { url = u; info('https tunnel ready', { url }); fin(u); } });
-      setTimeout(() => fin(null), 30_000).unref();
-    } catch { child = null; fin(null); }
+      const args = bin === 'ssh' ? ['-o', 'StrictHostKeyChecking=no', '-o', 'ServerAliveInterval=30', '-R', `80:127.0.0.1:${port}`, 'nokey@localhost.run'] : ['tunnel', '--no-autoupdate', '--url', `http://127.0.0.1:${port}`];
+      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      child.on('error', () => fin(null)); child.on('exit', () => { child = null; url = null; fin(null); });
+      const on = (b: Buffer): void => { const u = parseTunnelUrl(String(b)); if (u && !url) { url = u; info('https tunnel ready', { url, via: bin }); fin(u); } };
+      child.stderr?.on('data', on); child.stdout?.on('data', on);
+      setTimeout(() => fin(null), 25_000).unref();
+    } catch { fin(null); }
   });
 }
 export function stopTunnel(): void { try { child?.kill(); } catch { /* gone */ } child = null; url = null; }
