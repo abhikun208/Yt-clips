@@ -61,3 +61,7 @@ test('owner-saved https base beats tunnel/headers; http or junk is refused', () 
   setSavedBase('https://my-old.trycloudflare.com'); assert.equal(resolveBase({ proto: 'http', host: '127.0.0.1:8080' }), 'https://my-old.trycloudflare.com'); assert.equal(checkRedirect('facebook', resolveBase({ host: '127.0.0.1:8080' })).ok, true);
   setSavedBase(null); assert.match(resolveBase({ host: '127.0.0.1:8080' }), /^http:/);
 });
+test('tunnel-provider hosts (api.trycloudflare.com) are refused as the redirect base', () => {
+  assert.equal(cleanBase('https://api.trycloudflare.com'), null); assert.equal(cleanBase('https://odd-fox.trycloudflare.com'), 'https://odd-fox.trycloudflare.com');
+  assert.equal(checkRedirect('facebook', 'https://api.trycloudflare.com').ok, false); assert.match(checkRedirect('facebook', 'https://api.trycloudflare.com').problems.join(' '), /Method Not Allowed/);
+});

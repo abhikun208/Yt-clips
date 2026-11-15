@@ -20,7 +20,9 @@ const isIp = (h: string): boolean => /^\d+\.\d+\.\d+\.\d+$/.test(h);
 export interface RedirectCheck { ok: boolean; uri: string; secure: boolean; local: boolean; problems: string[]; hint: string; badge: string }
 /** https address the owner pasted in Settings (a domain, or a tunnel link already registered in Meta/TikTok). Beats the auto tunnel. */
 let savedBase: string | null = null;
-export const cleanBase = (v: string): string | null => { try { const u = new URL(v.trim()); return u.protocol === 'https:' && u.hostname.includes('.') ? u.origin : null; } catch { return null; } };
+/** hosts that belong to the tunnel providers themselves (api.trycloudflare.com answers "Method Not Allowed" to every login redirect) */
+export const providerHost = (h: string): boolean => /^(api|www|admin|docs|dash)\.(trycloudflare\.com|serveo\.net|localhost\.run|lhr\.life)$/i.test(h) || /^(trycloudflare\.com|serveo\.net|localhost\.run)$/i.test(h);
+export const cleanBase = (v: string): string | null => { try { const u = new URL(v.trim()); return u.protocol === 'https:' && u.hostname.includes('.') && !providerHost(u.hostname) ? u.origin : null; } catch { return null; } };
 export function setSavedBase(v: string | null): void { savedBase = v ? cleanBase(v) : null; }
 export const getSavedBase = (): string | null => savedBase;
 export function resolveBase(req: { proto?: string; host?: string; fwdHost?: string }): string {
@@ -34,7 +36,7 @@ export function resolveBase(req: { proto?: string; host?: string; fwdHost?: stri
 export function checkRedirect(platform: OAuthPlatform, base: string): RedirectCheck {
   const app = toApp(platform); const uri = redirectUri(base, app); const problems: string[] = []; let u: URL | null = null;
   try { u = new URL(uri); } catch { problems.push(`Redirect URL galat hai: "${base}"`); }
-  const host = u?.hostname ?? ''; const https = u?.protocol === 'https:'; const local = isLocal(host);
+  const host = u?.hostname ?? ''; if (u && providerHost(host)) problems.push(`${host} tunnel company ka apna server hai, tumhara nahi (isi se "Method Not Allowed" aata hai). Meta me ye URI hata do; apna link jaise https://<random-words>.trycloudflare.com ya https://ytc-xxxx.serveo.net hona chahiye.`); const https = u?.protocol === 'https:'; const local = isLocal(host);
   if (u) {
     if (app === 'tiktok') { if (!https || local || isIp(host)) problems.push('TikTok sirf HTTPS + asli domain wala redirect maanta hai (localhost / IP nahi chalega).'); }
     else if (!https) problems.push(local ? 'Meta ka dashboard ab http://localhost / 127.0.0.1 redirect register nahi karta ("Enter a valid HTTPS URL").' : 'Meta (Facebook/Instagram) ko HTTPS redirect chahiye.');
