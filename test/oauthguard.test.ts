@@ -54,3 +54,10 @@ test('tunnel name is stable across calls (same https link after restart) and ser
   const store = new Store(join(tmpDir(), 't.db')); const a = tunnelName(store); assert.match(a, /^ytc-[0-9a-f]+$/); assert.equal(tunnelName(store), a);
   assert.equal(parseTunnelUrl('Forwarding HTTP traffic from https://ytc-1a2b3c4d.serveo.net'), 'https://ytc-1a2b3c4d.serveo.net');
 });
+import { setSavedBase, cleanBase } from '../src/publish/oauthguard.ts';
+test('owner-saved https base beats tunnel/headers; http or junk is refused', () => {
+  delete process.env.OAUTH_PUBLIC_BASE_URL; delete process.env.PUBLIC_URL;
+  assert.equal(cleanBase('http://x.com'), null); assert.equal(cleanBase('https://abc.trycloudflare.com/path?x=1'), 'https://abc.trycloudflare.com'); assert.equal(cleanBase('junk'), null); assert.equal(cleanBase('https://localhost'), null);
+  setSavedBase('https://my-old.trycloudflare.com'); assert.equal(resolveBase({ proto: 'http', host: '127.0.0.1:8080' }), 'https://my-old.trycloudflare.com'); assert.equal(checkRedirect('facebook', resolveBase({ host: '127.0.0.1:8080' })).ok, true);
+  setSavedBase(null); assert.match(resolveBase({ host: '127.0.0.1:8080' }), /^http:/);
+});

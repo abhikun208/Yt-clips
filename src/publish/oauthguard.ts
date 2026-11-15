@@ -18,9 +18,15 @@ const isLocal = (h: string): boolean => /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|
 const isIp = (h: string): boolean => /^\d+\.\d+\.\d+\.\d+$/.test(h);
 
 export interface RedirectCheck { ok: boolean; uri: string; secure: boolean; local: boolean; problems: string[]; hint: string; badge: string }
+/** https address the owner pasted in Settings (a domain, or a tunnel link already registered in Meta/TikTok). Beats the auto tunnel. */
+let savedBase: string | null = null;
+export const cleanBase = (v: string): string | null => { try { const u = new URL(v.trim()); return u.protocol === 'https:' && u.hostname.includes('.') ? u.origin : null; } catch { return null; } };
+export function setSavedBase(v: string | null): void { savedBase = v ? cleanBase(v) : null; }
+export const getSavedBase = (): string | null => savedBase;
 export function resolveBase(req: { proto?: string; host?: string; fwdHost?: string }): string {
   // zero-config: tunnel/proxy headers first (X-Forwarded-Proto/Host), the Host header next; .env is only an optional override
   const env = process.env.OAUTH_PUBLIC_BASE_URL || process.env.PUBLIC_URL; if (env) return env.replace(/\/+$/, '');
+  if (savedBase) return savedBase;
   const tun = getTunnelUrl(); if (tun) return tun; // cloudflared quick tunnel started by the server
   const host = (req.fwdHost || req.host || '127.0.0.1').split(',')[0]!.trim(); const proto = (req.proto || '').split(',')[0]!.trim() === 'https' ? 'https' : 'http';
   return `${proto}://${host}`.replace(/\/+$/, '');

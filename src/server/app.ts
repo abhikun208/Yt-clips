@@ -17,7 +17,7 @@ import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/ana
 import { channelBusy, lockOn } from '../sources/sequential.ts';
 import { startTunnel, getTunnelUrl, tunnelName } from '../ops/tunnel.ts';
 import { setPaused, autopilotState, clipStatus } from '../autopilot/engine.ts';
-import { lastOAuth, handleOAuthCallback, checkRedirect, resolveBase, toApp, type OAuthPlatform } from '../publish/oauthguard.ts';
+import { setSavedBase, getSavedBase, cleanBase, lastOAuth, handleOAuthCallback, checkRedirect, resolveBase, toApp, type OAuthPlatform } from '../publish/oauthguard.ts';
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick } from '../watcher/live-monitor.ts';
@@ -414,9 +414,12 @@ export function createApp(o: AppOptions = {}): App {
         if (cm[2] === 'post') { try { await postComment(store, cfg, id); } catch (e) { const msg = (e as Error).message; if (/^(COMMENTS_DISABLED|AUTH_|QUOTA_EXCEEDED)/.test(msg) || /not approved|No draft/.test(msg)) return json(res, 409, { error: msg.slice(0, 300) }); throw e; } return json(res, 200, { ok: true }); }
         setCommentStatus(store, id, cm[2] as 'approve' | 'reject' | 'edit', b.text); return json(res, 200, { ok: true });
       }
-      if (p === '/api/settings' && m === 'GET') return json(res, 200, { ai: aiStatus(cfg), apps: { facebook: !!appCreds(cfg, 'facebook'), tiktok: !!appCreds(cfg, 'tiktok') }, platforms: platformStatus(store, cfg), oauthBadge: checkRedirect('facebook', publicBase(req)).badge + ' / TikTok: ' + checkRedirect('tiktok', publicBase(req)).badge, callbackBase: publicBase(req) });
+      if (p === '/api/settings' && m === 'GET') return json(res, 200, { savedBase: getSavedBase(), ai: aiStatus(cfg), apps: { facebook: !!appCreds(cfg, 'facebook'), tiktok: !!appCreds(cfg, 'tiktok') }, platforms: platformStatus(store, cfg), oauthBadge: checkRedirect('facebook', publicBase(req)).badge + ' / TikTok: ' + checkRedirect('tiktok', publicBase(req)).badge, callbackBase: publicBase(req) });
       if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); const test = await testConnection(store, cfg, b.kind === 'stt' ? 'stt' : `llm:${b.slot ?? 1}`); return json(res, 200, { ok: true, ai: aiStatus(cfg), test }); }
       if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); const test = b.app === 'google' ? await testConnection(store, cfg, 'google-client') : null; return json(res, 200, { ok: true, test }); }
+      if (p === '/api/oauth/base' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { url?: string }; const v = (b.url ?? '').trim();
+        if (v && !cleanBase(v)) return json(res, 400, { error: 'Sirf https link do, jaise https://mera-link.trycloudflare.com (path nahi, http nahi).' });
+        store.exec('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', 'oauth:base', v ? cleanBase(v)! : ''); setSavedBase(v || null); return json(res, 200, { base: getSavedBase(), facebook: `${resolveBase({})}/api/oauth/facebook/callback` }); }
       if (p === '/api/oauth/tunnel' && m === 'POST') { const u = await startTunnel(req.socket.localPort ?? 8080, tunnelName(store)); return json(res, u ? 200 : 400, u ? { base: u, facebook: `${u}/api/oauth/facebook/callback`, tiktok: `${u}/api/oauth/tiktok/callback` } : { error: 'HTTPS tunnel nahi bana. Termux me chalao: pkg install cloudflared  (ya pkg install openssh) phir dobara dabao.' }); }
       const os = /^\/api\/oauth\/(facebook|instagram|tiktok)\/start$/.exec(p); if (os && m === 'GET' && !checkRedirect(os[1] as OAuthPlatform, publicBase(req)).ok && !getTunnelUrl() && !process.env.NODE_TEST_CONTEXT && process.env.YT_CLIPS_AUTOTUNNEL !== '0') await startTunnel(req.socket.localPort ?? 8080, tunnelName(store)); // not https yet: open a free https tunnel on demand (the server itself stays plain http)
       if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, toApp(os[1]!), publicBase(req), { publish: url.searchParams.get('publish') === '1' }), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback`, warning: (() => { const c = checkRedirect(os[1] as OAuthPlatform, publicBase(req)); return c.ok ? null : `${c.problems.join(' ')} ${c.hint}`; })() });
@@ -601,7 +604,8 @@ export function createApp(o: AppOptions = {}): App {
         const port = (server.address() as { port: number }).port;
         if (o.autoRun ?? process.env.AUTO_RUN !== '0') { const every = (o.loopSeconds ?? Number(process.env.LOOP_SECONDS ?? 30)) * 1000; timer = setInterval(() => { if (!stopping) void runOnce(); }, every); void runOnce(); }
         info('server listening', { host, port, auth: token ? 'token' : 'none(loopback)', autoRun: !!timer }); ok(port);
-      const wantTunnel = process.env.YT_CLIPS_TUNNEL === '1' || (!process.env.NODE_TEST_CONTEXT && process.env.YT_CLIPS_AUTOTUNNEL !== '0' && (!!appCreds(cfg, 'facebook') || !!appCreds(cfg, 'tiktok'))); // login app saved -> keep an https link up from boot so Settings never shows http
+      try { setSavedBase(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'oauth:base')?.v || null); } catch { /* none saved */ }
+      const wantTunnel = !getSavedBase() && (process.env.YT_CLIPS_TUNNEL === '1' || (!process.env.NODE_TEST_CONTEXT && process.env.YT_CLIPS_AUTOTUNNEL !== '0' && (!!appCreds(cfg, 'facebook') || !!appCreds(cfg, 'tiktok')))); // login app saved -> keep an https link up from boot so Settings never shows http
       if (wantTunnel) void startTunnel(port, tunnelName(store)).then((u) => { if (u) info('social login redirect base', { base: u }); });
       });
     }),
