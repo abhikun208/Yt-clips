@@ -39,3 +39,5 @@ test('zero-config base: tunnel headers win over Host, localhost stays http (dev)
 
 import { parseTunnelUrl } from '../src/ops/tunnel.ts';
 test('tunnel url is picked out of cloudflared output', () => { assert.equal(parseTunnelUrl('INF |  https://odd-fox-12.trycloudflare.com  |'), 'https://odd-fox-12.trycloudflare.com'); assert.equal(parseTunnelUrl('nothing here'), null); });
+
+test('tunnel parser ignores cloudflared API host', () => { assert.equal(parseTunnelUrl('Requesting new quick Tunnel on https://api.trycloudflare.com ...'), null); assert.equal(parseTunnelUrl('https://api.trycloudflare.com\n|  https://odd-fox-12.trycloudflare.com |'), 'https://odd-fox-12.trycloudflare.com'); assert.equal(parseTunnelUrl('tunneled with tls termination, https://ab12cd.lhr.life'), 'https://ab12cd.lhr.life'); });

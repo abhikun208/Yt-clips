@@ -8,7 +8,8 @@ import { info, warn } from '../util/log.ts';
  */
 let url: string | null = null; let child: ChildProcess | null = null;
 export const getTunnelUrl = (): string | null => url;
-export function parseTunnelUrl(line: string): string | null { return /https:\/\/[a-z0-9-]+\.(?:trycloudflare\.com|lhr\.life|localhost\.run)\b/i.exec(line)?.[0] ?? null; }
+/** cloudflared also prints https://api.trycloudflare.com (its own API host): that is never the tunnel */
+export function parseTunnelUrl(line: string): string | null { return [...line.matchAll(/https:\/\/([a-z0-9-]+)\.(?:trycloudflare\.com|lhr\.life|localhost\.run)\b/gi)].find((m) => !/^(api|www|admin|docs|dash)$/i.test(m[1]!))?.[0] ?? null; }
 /** Tries cloudflared first, then plain `ssh` to localhost.run (Termux: `pkg install openssh`) - both give a free https link with no account. */
 export async function startTunnel(port: number, bins: string[] = ['cloudflared', 'ssh']): Promise<string | null> {
   if (url) return url;
