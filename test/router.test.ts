@@ -57,3 +57,15 @@ test('integration: automationTick with 2 sources mapped to 2 accounts - fair sha
   const f = await run(true); assert.equal(f.t.queued, 2); assert.deepEqual(f.ups.map((u) => [u.clip_id, u.channel_id]), [[1, f.main], [4, f.other]]);
   const old = await run(false); assert.equal(old.t.queued, 5);
 });
+
+test('round-robin with a per-cycle limit: sources 1,2,3 are served 1,2,3,1 (no starvation), the pointer survives restarts, empty sources are skipped', () => {
+  const cands = (ids: number[]) => ids.map((s, i) => ({ clipId: s * 100 + i, sourceId: s, lastAttemptAt: null }));
+  let served: number[] = []; let last: number | undefined; const order: number[] = [];
+  for (let i = 0; i < 4; i++) { const r = pickRound(cands([1, 2, 3]), served, { limit: 1, last }); order.push(r.picks[0]!.sourceId); served = r.served; last = r.picks[0]!.sourceId; }
+  assert.deepEqual(order, [1, 2, 3, 1]);
+  // source 2 has no clips at all: skipped, 3 follows 1 and 1 follows 3
+  served = []; last = undefined; const o2: number[] = []; for (let i = 0; i < 4; i++) { const r = pickRound(cands([1, 3]), served, { limit: 1, last }); o2.push(r.picks[0]!.sourceId); served = r.served; last = r.picks[0]!.sourceId; }
+  assert.deepEqual(o2, [1, 3, 1, 3]);
+  // pointer in the middle (e.g. after a restart): continues after source 2
+  assert.equal(pickRound(cands([1, 2, 3]), [1, 2], { limit: 1, last: 2 }).picks[0]!.sourceId, 3);
+});

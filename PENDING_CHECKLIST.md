@@ -72,3 +72,6 @@
 - [x] Auto facecam (synthetic-verified; real footage UNVERIFIED - watch log 'facecam auto-detect' scores)
 - [x] autoCleanup + auto re-fetch + Re-fetch Source button (fake yt-dlp verified; phone UNVERIFIED)
 - [x] Parallel jobs setting (env + dashboard)
+
+- [ ] (2026-11-15) Real OAuth: set OAUTH_PUBLIC_BASE_URL to https tunnel, register redirect URI in Meta/TikTok, connect once.
+- [ ] (2026-11-15) Phone: test a face-only talking video (no OpenCV) -> expect Fill crop centred on face; set edit.faceFallback=false if it misfires.

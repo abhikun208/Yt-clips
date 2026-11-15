@@ -40,16 +40,18 @@ import { pickMusicTrack } from './music.ts';
 import { clipHash, hashSimilarity } from '../media/phash.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
+import { skinFaceCenter } from './skinface.ts';
 
 export interface RenderOptions { /** the clip's speech hook: used as the title only when no AI title replaces it later (see titleDeferred); an explicit `title` always wins */ hook?: string | null; /** 1 / 1.05..1.10 */ speed?: number; /** top title strip */ titleBar?: 'black' | 'white' | 'off'; /** 0..1: how quickly the face-follow crop pans (default 0.5) */ trackSensitivity?: number; cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; captionPosition?: 'top' | 'center' | 'bottom'; /** effect at the start of the clip/captions */ transition?: 'none' | 'fade' | 'flash' | 'zoom'; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay' | 'auto'; bgColor?: string; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
-async function faceCenter(path: string, root: string): Promise<number | undefined> {
-  if (!(await which('python3'))) return undefined;
+async function faceCenter(path: string, root: string, fallback = false, dur = 60): Promise<number | undefined> {
+  const soft = (): number | undefined => { try { return fallback ? skinFaceCenter(path, 0, dur) : undefined; } catch { return undefined; } }; // no OpenCV (phone): ffmpeg skin-tone heuristic
+  if (!(await which('python3'))) return soft();
   try {
     const r = await run('python3', ['-I', join(root, 'tools', 'face_center.py'), path, '12'], { timeoutMs: 60_000 });
     const j = JSON.parse(r.stdout.trim() || '{}') as { cx: number | null; faces: number };
-    return j.cx !== null && j.cx !== undefined && j.faces >= 3 ? j.cx : undefined;
-  } catch { return undefined; }
+    return j.cx !== null && j.cx !== undefined && j.faces >= 3 ? j.cx : soft();
+  } catch { return soft(); }
 }
 
 /** Speaker-follow keyframes (tools/face_track.py). Empty when OpenCV/faces are missing: the caller keeps the static/centre crop. */
@@ -204,12 +206,12 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   if (!ro.reframe && reframe === 'crop' && c.reason === 'whole range as one clip') reframe = 'auto'; // a short source kept whole: never throw away picture just to fill 9:16 (portrait stays as is, wide gets Fit unless a face is found)
   const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
   if (reframe === 'auto') { // Auto layout: wide source with a findable face -> Fill (face-tracked crop); wide without a face (screen, scenery, group) -> Fit (nothing cut off); already tall/square -> Fill
-    if (m.width / m.height > 1.2) { const fc = await faceCenter(editSrc, cfg.rootDir).catch(() => undefined); reframe = fc !== undefined ? 'crop' : 'fit_blur'; reframeNote = `auto layout: ${reframe === 'crop' ? 'face found -> fill' : 'no face -> fit'}`; } else reframe = 'crop';
+    if (m.width / m.height > 1.2) { const fc = await faceCenter(editSrc, cfg.rootDir, chan.profile !== 'gaming' && cfg.edit.faceFallback !== false, m.duration).catch(() => undefined); reframe = fc !== undefined ? 'crop' : 'fit_blur'; reframeNote = `auto layout: ${reframe === 'crop' ? 'face found -> fill' : 'no face -> fit'}`; } else reframe = 'crop';
   }
   let burnedSrc = false;
   if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; burnedSrc = true; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
   const deint = await isInterlaced(editSrc, 0, m.duration);
-  const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir) : undefined;
+  const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir, chan.profile !== 'gaming' && cfg.edit.faceFallback !== false, m.duration) : undefined;
   const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir, ro.trackSensitivity ?? cfg.edit.trackSensitivity) : [];
   let punch: number[] = []; let closeups: { start: number; end: number }[] = [];
   if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); if ((ro.closeups ?? cfg.edit.closeups) !== false) closeups = planCloseups(punch, m.duration); } catch { punch = []; closeups = []; } }

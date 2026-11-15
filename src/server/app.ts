@@ -15,6 +15,7 @@ import { selfcareTick } from '../ops/selfcare.ts';
 import { runDoctor, lastDoctor as lastDoctor_ } from '../ops/doctor.ts';
 import { analyzeVideo, isLengthBucket, type LengthBucket } from '../analysis/analyzer.ts';
 import { channelBusy, lockOn } from '../sources/sequential.ts';
+import { handleOAuthCallback, checkRedirect, resolveBase, toApp, type OAuthPlatform } from '../publish/oauthguard.ts';
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick } from '../watcher/live-monitor.ts';
@@ -143,7 +144,7 @@ export function createApp(o: AppOptions = {}): App {
   const clientIp = (req: IncomingMessage) => { if (trustProxy) { const xf = String(req.headers['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean); if (xf.length) return xf[xf.length - 1]!; } return req.socket.remoteAddress ?? '?'; };
   const usedCookie = (req: IncomingMessage) => !String(req.headers.authorization ?? '').startsWith('Bearer ') && !req.headers['x-api-key'];
 
-  const publicBase = (req: IncomingMessage) => (process.env.PUBLIC_URL ?? `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host ?? '127.0.0.1'}`).replace(/\/+$/, '');
+  const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.headers['x-forwarded-proto'] ?? 'http'), host: req.headers.host });
   function clipRows() {
     return store.all<{ id: number; output_id: string; edited_path: string; thumbnail_path: string | null; metadata_json: string | null; qc_pass: number | null; state: string; candidate_id: number; review: string; review_note: string | null; variant: number; qc_json: string | null }>(
       'SELECT id, output_id, edited_path, thumbnail_path, metadata_json, qc_pass, state, candidate_id, review, review_note, variant, qc_json FROM clips ORDER BY id DESC LIMIT 200').map((c) => {
@@ -205,11 +206,10 @@ export function createApp(o: AppOptions = {}): App {
         if (p === '/sw.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'service-worker-allowed': '/', ...hs }); return void res.end(SW); }
         res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400', ...hs }); return void res.end(iconPng(p === '/icon-192.png' ? 192 : 512));
       }
-      const cbm = /^\/api\/oauth\/(facebook|tiktok)\/callback$/.exec(p);
+      const cbm = /^\/api\/oauth\/(facebook|instagram|tiktok)\/callback$/.exec(p);
       if (cbm && m === 'GET') { // browser redirect from the provider: protected by the one-time server-side `state`, not by cookie (SameSite=Strict cookies are not sent on cross-site redirects)
-        let msg = ''; try { const r = await handleCallback(store, cfg, cbm[1] as SocialApp, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') }, publicBase(req)); msg = `Connected: ${r.connected.join(', ')}${r.note ? ' (' + r.note + ')' : ''}`; }
-        catch (e) { msg = 'Failed: ' + (e as Error).message.slice(0, 200); }
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return void res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:16px system-ui;padding:24px"><p>${msg.replace(/[<>&]/g, '')}</p><p><a href="/">yt-clips kholo</a></p>`);
+        const r = await handleOAuthCallback(cbm[1] as OAuthPlatform)(store, cfg, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error'), error_description: url.searchParams.get('error_description') }, { proto: String(req.headers['x-forwarded-proto'] ?? 'http'), host: req.headers.host });
+        res.writeHead(r.status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return void res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:16px system-ui;padding:24px;background:#10131a;color:#e8ecf4"><p>${r.ok ? '✅' : '❌ Failed:'} ${r.message.replace(/[<>&]/g, '')}</p><p><a style="color:#7fb0ff" href="/">yt-clips kholo</a></p>`);
       }
       if (p === '/api/oauth/youtube/callback' && m === 'GET') { // Google redirect: protected by the single-use server-side `state` (works for a shared link opened on another device)
         let title = 'Failed', body = ''; try { const r = await finishWebAuth(store, cfg, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') }); title = 'Connected ✓'; body = r.identity ? `YouTube channel: <b>${r.identity.title.replace(/[<>&"]/g, '')}</b><br><small>ID: ${r.identity.channelId.replace(/[^\w-]/g, '')}</small>` : 'Login ho gaya (channel ka naam baad mein Test se aayega).'; }
@@ -411,10 +411,10 @@ export function createApp(o: AppOptions = {}): App {
         if (cm[2] === 'post') { try { await postComment(store, cfg, id); } catch (e) { const msg = (e as Error).message; if (/^(COMMENTS_DISABLED|AUTH_|QUOTA_EXCEEDED)/.test(msg) || /not approved|No draft/.test(msg)) return json(res, 409, { error: msg.slice(0, 300) }); throw e; } return json(res, 200, { ok: true }); }
         setCommentStatus(store, id, cm[2] as 'approve' | 'reject' | 'edit', b.text); return json(res, 200, { ok: true });
       }
-      if (p === '/api/settings' && m === 'GET') return json(res, 200, { ai: aiStatus(cfg), apps: { facebook: !!appCreds(cfg, 'facebook'), tiktok: !!appCreds(cfg, 'tiktok') }, platforms: platformStatus(store, cfg), callbackBase: publicBase(req) });
+      if (p === '/api/settings' && m === 'GET') return json(res, 200, { ai: aiStatus(cfg), apps: { facebook: !!appCreds(cfg, 'facebook'), tiktok: !!appCreds(cfg, 'tiktok') }, platforms: platformStatus(store, cfg), oauthBadge: checkRedirect('facebook', publicBase(req)).badge + ' / TikTok: ' + checkRedirect('tiktok', publicBase(req)).badge, callbackBase: publicBase(req) });
       if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); const test = await testConnection(store, cfg, b.kind === 'stt' ? 'stt' : `llm:${b.slot ?? 1}`); return json(res, 200, { ok: true, ai: aiStatus(cfg), test }); }
       if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); const test = b.app === 'google' ? await testConnection(store, cfg, 'google-client') : null; return json(res, 200, { ok: true, test }); }
-      const os = /^\/api\/oauth\/(facebook|tiktok)\/start$/.exec(p); if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, os[1] as SocialApp, publicBase(req), { publish: url.searchParams.get('publish') === '1' }), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback` });
+      const os = /^\/api\/oauth\/(facebook|instagram|tiktok)\/start$/.exec(p); if (os && m === 'GET') { const chk = checkRedirect(os[1] as OAuthPlatform, publicBase(req)); if (!chk.ok) return json(res, 400, { error: `${chk.problems.join(' ')} ${chk.hint}` }); } if (os && m === 'GET') return json(res, 200, { authUrl: startAuth(store, cfg, toApp(os[1]!), publicBase(req), { publish: url.searchParams.get('publish') === '1' }), redirectUri: `${publicBase(req)}/api/oauth/${os[1]}/callback` });
       if (p === '/api/platforms' && m === 'GET') return json(res, 200, { platforms: platformStatus(store, cfg), registry: PLATFORMS.map((x) => ({ id: x.id, label: x.label, kind: x.kind, note: x.note, fields: x.fields?.map((f) => ({ name: f.name, label: f.label, secret: !!f.secret })), configured: x.kind === 'direct' ? credentialsConfigured(secretsFor(cfg), x.id) : x.kind === 'oauth' ? metaCanPublish(secretsFor(cfg), x.id) : x.kind === 'manual', app: x.app ?? null, openUrl: x.openUrl ?? null, loggedIn: x.kind === 'oauth' ? (metaPerms(secretsFor(cfg), x.id === 'facebook_reels' ? 'facebook' : 'instagram').length > 0 || !!secretsFor(cfg).read(x.id === 'facebook_reels' ? 'facebook' : 'instagram')) : false, appSaved: x.app ? !!appCreds(cfg, x.app) : null })) });
       const cred = /^\/api\/credentials\/(\w+)$/.exec(p);
       if (cred && m === 'POST') { // write-only vault: values are validated, stored (encrypted when a key exists) and never returned or logged

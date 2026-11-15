@@ -38,7 +38,7 @@ export const redirectUri = (base: string, app: SocialApp) => `${base.replace(/\/
 
 export function startAuth(store: Store, cfg: Config, app: SocialApp, base: string, o: { publish?: boolean } = {}): string {
   const c = appCreds(cfg, app); if (!c) throw new Error(`invalid: save the ${app === 'facebook' ? 'Meta (Facebook) app id/secret' : 'TikTok client key/secret'} first`);
-  const state = randomBytes(18).toString('hex'); store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, `oauth_state_${state}`, JSON.stringify({ app, at: Date.now() }));
+  const state = randomBytes(18).toString('hex'); store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, `oauth_state_${state}`, JSON.stringify({ app, at: Date.now(), ru: redirectUri(base, app) }));
   const ru = redirectUri(base, app);
   if (app === 'facebook') return `${fbDialog()}?${new URLSearchParams({ client_id: c.id, redirect_uri: ru, state, scope: FB_SCOPES + (o.publish ? FB_PUBLISH_SCOPES : ''), response_type: 'code' })}`;
   return `${ttAuth()}?${new URLSearchParams({ client_key: c.id, scope: TT_SCOPES, response_type: 'code', redirect_uri: ru, state })}`;

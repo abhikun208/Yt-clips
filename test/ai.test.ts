@@ -63,7 +63,7 @@ test('settings API: save key (not echoed), oauth app creds, status; callback is 
     assert.equal((await fetch(`${base}/api/oauth/facebook/start`, { headers: h })).status, 400, 'no app creds yet');
     assert.equal((await fetch(`${base}/api/settings/oauth-app`, { method: 'POST', headers: h, body: JSON.stringify({ app: 'facebook', clientId: 'APPID1234', clientSecret: 'secretsecret1' }) })).status, 200);
     const st = await (await fetch(`${base}/api/oauth/facebook/start`, { headers: h })).json() as any; const u = new URL(st.authUrl); assert.equal(u.searchParams.get('client_id'), 'APPID1234'); assert.equal(u.searchParams.get('redirect_uri'), `${base}/api/oauth/facebook/callback`); assert.match(u.searchParams.get('scope')!, /instagram_manage_insights/);
-    const bad = await fetch(`${base}/api/oauth/facebook/callback?code=x&state=nope`); assert.equal(bad.status, 200); assert.match(await bad.text(), /Failed: .*state/);
+    const bad = await fetch(`${base}/api/oauth/facebook/callback?code=x&state=nope`); assert.equal(bad.status, 400); assert.match(await bad.text(), /Failed: .*(purana|time)/);
   } finally { await app.stop(); }
 });
 
