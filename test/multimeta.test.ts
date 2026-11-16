@@ -38,3 +38,10 @@ test('several YouTube accounts: placeholder channel takes the real YouTube name;
   assert.equal(getChannel(store, a.id).name, 'Team Unknown'); assert.equal(getChannel(store, b.id).name, 'Decider Gaming');
   assert.equal(getChannel(store, a.id).slug, 'youtube-account-2', 'slug (and so the token secret) never changes on rename');
 });
+
+import { finishWebAuth } from '../src/publish/webauth.ts';
+test('Google access_denied explains the Testing-mode Test users fix', async () => {
+  const cfg = loadConfig(tmpDir()); const store = new Store(join(tmpDir(), 'g.db'));
+  store.exec('INSERT INTO kv(k,v) VALUES(?,?)', 'ytweb:zz', JSON.stringify({ slug: 'main', verifier: 'v', redirectUri: 'http://127.0.0.1:8080/x', exp: Date.now() + 60000 }));
+  await assert.rejects(finishWebAuth(store, cfg, { code: null, state: 'zz', error: 'access_denied' }), /Test users/);
+});

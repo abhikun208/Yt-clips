@@ -86,3 +86,4 @@
 
 - [ ] (2026-11-16) Meta: after the next successful login pick a Page per channel in Settings; TikTok multi-account NOT built.
 - [ ] (2026-11-16) YouTube: reconnect each channel after the Client ID/Secret is final (unauthorized_client = client changed). Google Cloud → consent screen → Publish app so tokens do not die in 7 days.
+- [ ] (2026-11-17) Google Cloud → OAuth consent screen → Test users: add EVERY Google account you connect (or Publish app).

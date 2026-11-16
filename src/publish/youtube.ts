@@ -62,9 +62,9 @@ export class YouTubeAdapter implements Adapter {
     return new Error(`${what} failed: HTTP ${r.status} ${reason}`.trim());
   }
 
-  async whoami(): Promise<{ id: string; title: string } | null> {
+  async whoami(): Promise<{ id: string; title: string; thumb?: string } | null> {
     this.charge('list'); const r = await this.req(`${API()}/youtube/v3/channels?part=snippet&mine=true`); if (!r.ok) throw await this.apiError(r, 'channels.list');
-    const j = await r.json() as { items?: { id: string; snippet: { title: string } }[] }; const c = j.items?.[0]; return c ? { id: c.id, title: c.snippet.title } : null;
+    const j = await r.json() as { items?: { id: string; snippet: { title: string; thumbnails?: { default?: { url?: string }; medium?: { url?: string } } } }[] }; const c = j.items?.[0]; const th = c?.snippet.thumbnails?.default?.url ?? c?.snippet.thumbnails?.medium?.url; return c ? { id: c.id, title: c.snippet.title, ...(th && /^https:\/\//.test(th) ? { thumb: th } : {}) } : null;
   }
 
   // ---- account optimizer (channel profile) ----

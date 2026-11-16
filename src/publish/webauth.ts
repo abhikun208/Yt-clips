@@ -34,7 +34,7 @@ export function startWebAuth(store: Store, cfg: Config, ch: Channel, o: { base: 
   return { authUrl: `${authBase()}?${q}`, redirectUri, share: !!o.share, expiresInSec: TTL_MS / 1000 };
 }
 
-export interface Identity { channelId: string; title: string; at: string }
+export interface Identity { channelId: string; title: string; at: string; thumb?: string }
 export const identityOf = (store: Store, slug: string): Identity | null => { try { const v = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytinfo:${slug}`)?.v; return v ? JSON.parse(v) as Identity : null; } catch { return null; } };
 
 /** Finishes the redirect. The state is single-use and expires after 30 min; errors never echo the code/token. */
@@ -43,7 +43,7 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   if (!row) throw new Error('link expire ya pehle hi use ho chuka — Connect dobara dabao');
   const st = JSON.parse(row.v) as { slug: string; verifier: string; redirectUri: string; exp: number };
   if (st.exp < Date.now()) throw new Error('link expire ho gaya (30 min) — dobara banao');
-  if (q.error) throw new Error(q.error === 'access_denied' ? 'aapne Allow nahi dabaya' : `Google error: ${q.error.slice(0, 40)}`);
+  if (q.error) throw new Error(q.error === 'access_denied' ? 'Google ne access nahi diya. Ya to Allow nahi dabaya, ya (zyada common) Google app abhi "Testing" me hai aur ye Google account "Test users" me nahi hai. Fix: Google Cloud Console → APIs & Services → OAuth consent screen (Audience) → Test users → "+ Add users" → us account ka email daalo → Save, phir Connect dobara. (Ya app ko "Publish" karo.)' : `Google error: ${q.error.slice(0, 40)}`);
   if (!q.code) throw new Error('Google se code nahi aaya');
   const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('Google client ID/secret nahi mila');
   const r = await form(`${base()}/token`, { client_id: cc.clientId, client_secret: cc.clientSecret, code: q.code, code_verifier: st.verifier, redirect_uri: st.redirectUri, grant_type: 'authorization_code' });
@@ -51,7 +51,7 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   const ch = getChannel(store, st.slug);
   secretsFor(cfg).write(ytSecretName(ch), { refresh_token: r.json.refresh_token, scope: r.json.scope ?? YT_WEB_SCOPE, connected_at: new Date().toISOString() });
   let identity: Identity | null = null;
-  try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString() }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }
+  try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString(), ...(w.thumb ? { thumb: w.thumb } : {}) }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }
   if (identity) autoNameChannel(store, ch, identity.title);
   store.logState('youtube-connect', ch.id, null, 'connected', identity ? identity.channelId : 'no identity yet');
   return { slug: st.slug, identity };
