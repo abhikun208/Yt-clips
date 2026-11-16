@@ -23,6 +23,8 @@ test('web login: Connect -> Google redirect -> callback stores encrypted token, 
     await fetch(`${base}/api/settings/oauth-app`, { method: 'POST', headers: auth, body: JSON.stringify({ app: 'google', clientId: 'client-id-1234567890.apps', clientSecret: 'secret-12345678' }) });
     const w = await (await fetch(`${base}/api/channels/main/youtube/web`, { method: 'POST', headers: auth, body: '{}' })).json() as { authUrl: string; redirectUri: string };
     const au = new URL(w.authUrl); assert.equal(au.searchParams.get('code_challenge_method'), 'S256'); assert.match(au.searchParams.get('scope')!, /youtube\.upload/); assert.equal(au.searchParams.get('redirect_uri'), `${base}/api/oauth/youtube/callback`);
+    { const { setRelay, DEFAULT_RELAY } = await import('../src/publish/socialOauth.ts'); const { setSavedBase } = await import('../src/publish/oauthguard.ts'); setRelay(DEFAULT_RELAY); setSavedBase('https://x.example.com');
+      try { const w2 = await (await fetch(`${base}/api/channels/main/youtube/web`, { method: 'POST', headers: auth, body: '{}' })).json() as { authUrl: string }; assert.equal(new URL(w2.authUrl).searchParams.get('redirect_uri'), `${base}/api/oauth/youtube/callback`, 'Meta relay/tunnel must never leak into the Google redirect'); } finally { setRelay(null); setSavedBase(null); } }
     const state = au.searchParams.get('state')!;
     assert.match(await (await fetch(`${base}/api/oauth/youtube/callback?code=C1&state=WRONG`)).text(), /expire|use ho chuka/, 'bad state rejected');
     const ok = await fetch(`${base}/api/oauth/youtube/callback?code=C1&state=${state}`); const html = await ok.text(); assert.match(html, /Connected/); assert.match(html, /Team Unknown/); assert.doesNotMatch(html, /RT-SECRET/);

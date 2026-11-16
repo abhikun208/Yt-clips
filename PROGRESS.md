@@ -382,3 +382,4 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Sources show the channel name: real name from yt-dlp on each poll (title column), "@handle"/UC id immediately when added, old link-titles prettified in /api/sources.
 - YouTube `unauthorized_client` was explained as "Testing mode 7 days" — wrong. unauthorized_client/invalid_client = this OAuth client does not match the one that made the token (client changed/deleted/wrong type) -> reconnect with the current client; invalid_grant keeps the Testing/Publish-app advice (connections.ts explainConnError).
 - Tests: multimeta (3).
+- (6) Multiple YouTube logins failed after the Meta work: the Google redirect_uri used publicBase (saved https base / tunnel) instead of the local loopback registered in Google -> redirect_uri_mismatch. YouTube now always uses localBase(req) (only explicit PUBLIC_URL overrides); regression test in webauth.test.ts; Settings shows the YouTube callback from ytBase.
