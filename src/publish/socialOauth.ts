@@ -29,6 +29,7 @@ export function appCreds(cfg: Config, app: SocialApp): { id: string; secret: str
   return r?.id && r.secret ? { id: r.id, secret: r.secret } : null;
 }
 export function saveAppCreds(cfg: Config, app: string, id: string, secret: string): void {
+  id = id.replace(/\s+/g, ''); secret = secret.replace(/\s+/g, ''); // copy-paste from a phone often drags a space/newline along
   if (app !== 'facebook' && app !== 'tiktok' && app !== 'google') throw new Error('invalid: app must be google, facebook or tiktok');
   if (app === 'google') { if (id.length < 10 || id.length > 200 || secret.length < 8 || secret.length > 200) throw new Error('invalid: id/secret format'); secretsOf(cfg).write('youtube-client', { client_id: id, client_secret: secret }); return; }
   if (!/^[\w-]{4,80}$/.test(id) || secret.length < 8 || secret.length > 200) throw new Error('invalid: id/secret format');

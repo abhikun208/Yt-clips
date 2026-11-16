@@ -49,13 +49,15 @@ const PROVIDER_ERR: Record<string, string> = { access_denied: 'Tumne permission 
 export function friendlyOAuthError(msg: string): string {
   const m = msg.replace(/^oauth:\s*/i, '').replace(/^invalid:\s*/i, '');
   const e = Object.keys(PROVIDER_ERR).find((k) => m.includes(k)); if (e) return PROVIDER_ERR[e]!;
-  if (/redirect_uri|redirect uri|URL Blocked|domain of this URL/i.test(m)) return 'Redirect URI app me register nahi hai ya match nahi kar raha. App settings me bilkul wahi URI daalo jo yahan "Callback" me dikhta hai (http/https aur slash tak same).';
+  if (/redirect_uri|redirect uri|URL Blocked|domain of this URL|identical/i.test(m)) return 'Redirect URI app me register nahi hai ya match nahi kar raha. App settings me bilkul wahi URI daalo jo yahan "Callback" me dikhta hai (http/https aur slash tak same).';
   if (/expired|unknown or expired/i.test(m)) return 'Login ka time khatam ya link purana hai (10 min). Connect button dobara dabao.';
   if (/no Facebook Page found/i.test(m)) return 'Login ho gaya par koi Facebook Page nahi mila. Meta dialog me "Edit access"/Pages me apna Page SELECT karo, aur tum us Page ke admin hone chahiye. App Development mode me ho to tumhara account app me Admin/Tester hona chahiye. Phir Connect dobara dabao.';
   if (/Invalid Scopes|scope/i.test(m)) return 'Meta ne permission (scope) mana ki: App ke Use case/Products me Pages + Instagram permissions add karo (Development mode me tum khud admin ho to review nahi chahiye). Detail: ' + m.slice(0, 100);
   if (/^network:/i.test(m)) return `${m.replace(/^network:\s*/, '')}. Phone/server ko internet nahi mil raha: WiFi/data chalu hai? Settings me Private DNS "Off"/Automatic karo, VPN band karo, phir Connect dobara dabao.`;
   if (/missing code/i.test(m)) return 'Provider ne code nahi bheja. Connect button se dobara shuru karo.';
-  if (/secret|client_secret|Invalid client|app id/i.test(m)) return 'App ID/Secret galat lagte hain. Settings me dobara paste karo.';
+  const det = ` [Meta ne kaha: ${m.slice(0, 140)}]`;
+  if (/authorization code|code has been used|code has expired|used or expired/i.test(m)) return 'Ye login code ek baar hi chalta hai aur wo use/expire ho chuka (page refresh ya dobara kholne se). yt-clips me Connect dobara dabao aur Continue sirf ek baar dabao.' + det;
+  if (/client secret|client_secret|invalid secret|Error validating application|Invalid application|Invalid client|app id|app_id|app secret/i.test(m)) return 'App Secret/ID galat hai. Meta dashboard → App settings → Basic me "App secret" ke aage Show dabao, wahi copy karke yt-clips Settings me "App badlo" se paste karo (Instagram app secret ya Client token NAHI). App ID wahi jo Basic me upar hai.' + det;
   return `Login fail: ${m.slice(0, 160)}`;
 }
 

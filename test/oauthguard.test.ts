@@ -86,3 +86,8 @@ test('network failure gives a readable reason, not just "fetch failed"', async (
   await assert.rejects(netFetch(`http://127.0.0.1:${port}/x`), /network: 127\.0\.0\.1:\d+ tak nahi pahunch paya \(.*ECONNREFUSED/);
   assert.match(friendlyOAuthError('network: graph.facebook.com tak nahi pahunch paya (ENOTFOUND)'), /Private DNS/);
 });
+test('Meta token errors: secret vs used code vs redirect are told apart and the raw Meta text is shown', () => {
+  assert.match(friendlyOAuthError('oauth: Error validating client secret.'), /App Secret\/ID galat.*Meta ne kaha: Error validating client secret/);
+  assert.match(friendlyOAuthError('oauth: This authorization code has been used.'), /ek baar hi chalta/);
+  assert.match(friendlyOAuthError("oauth: Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"), /Redirect URI/);
+});
