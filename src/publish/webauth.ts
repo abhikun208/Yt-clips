@@ -2,7 +2,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import type { Channel } from '../channels.ts';
-import { getChannel, ytSecretName } from '../channels.ts';
+import { getChannel, ytSecretName, updateChannel } from '../channels.ts';
 import { clientCreds, form, base, authBase, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { secretsFor, tokenFor } from './service.ts';
 import { YouTubeAdapter } from './youtube.ts';
@@ -18,6 +18,10 @@ const TTL_MS = 30 * 60_000;
 const key = (s: string) => `ytweb:${s}`;
 export interface WebStart { authUrl: string; redirectUri: string; share: boolean; expiresInSec: number }
 
+/** A channel the dashboard created as "YouTube account N" takes the real YouTube channel name once Google tells us (so the list shows names, not placeholders). Never touches a name the owner chose. */
+export function autoNameChannel(store: Store, ch: Channel, title: string): void {
+  try { if (ch.slug !== 'main' && /^YouTube account \d+$/.test(ch.name) && title.trim().length >= 2) updateChannel(store, ch.id, { name: title.trim().slice(0, 60) }, () => true); } catch { /* cosmetic */ }
+}
 export const PASTE_REDIRECT = 'http://127.0.0.1:8765/';
 export function startWebAuth(store: Store, cfg: Config, ch: Channel, o: { base: string; share?: boolean; paste?: boolean }): WebStart {
   const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('invalid: pehle Google client ID/secret save karo (Setup → Social accounts login → YouTube)');
@@ -48,6 +52,7 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   secretsFor(cfg).write(ytSecretName(ch), { refresh_token: r.json.refresh_token, scope: r.json.scope ?? YT_WEB_SCOPE, connected_at: new Date().toISOString() });
   let identity: Identity | null = null;
   try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString() }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }
+  if (identity) autoNameChannel(store, ch, identity.title);
   store.logState('youtube-connect', ch.id, null, 'connected', identity ? identity.channelId : 'no identity yet');
   return { slug: st.slug, identity };
 }

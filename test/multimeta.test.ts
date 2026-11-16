@@ -29,3 +29,12 @@ test('YouTube auth messages: unauthorized_client is a client mismatch, invalid_g
   assert.match(explainConnError('AUTH_REVOKED: unauthorized_client — reconnect')!, /AUR Client ID|NAHI hai/);
   assert.match(explainConnError('AUTH_REVOKED: invalid_grant — reconnect')!, /Testing.*Publish app/);
 });
+
+import { autoNameChannel } from '../src/publish/webauth.ts';
+import { createChannel, getChannel } from '../src/channels.ts';
+test('several YouTube accounts: placeholder channel takes the real YouTube name; a name the owner chose is never overwritten', () => {
+  const store = new Store(join(tmpDir(), 'm.db')); const a = createChannel(store, { name: 'YouTube account 2' }, () => true); const b = createChannel(store, { name: 'Decider Gaming' }, () => true);
+  autoNameChannel(store, a, 'Team Unknown'); autoNameChannel(store, b, 'Other Name');
+  assert.equal(getChannel(store, a.id).name, 'Team Unknown'); assert.equal(getChannel(store, b.id).name, 'Decider Gaming');
+  assert.equal(getChannel(store, a.id).slug, 'youtube-account-2', 'slug (and so the token secret) never changes on rename');
+});
