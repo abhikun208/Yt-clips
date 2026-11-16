@@ -45,7 +45,7 @@ const channelByUpload = (store: Store, uploadId: number): Channel => { const r =
 export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Channel): Adapter {
   if (platform === 'dryrun') return new DryRunAdapter();
   if (platform === 'youtube_shorts' || platform === 'youtube') return new YouTubeAdapter(store, ch ? tokenFor(cfg, ch) : new TokenProvider(secretsFor(cfg)));
-  if ((platform === 'facebook_reels' || platform === 'instagram_reels') && metaCanPublish(secretsFor(cfg), platform)) { const cred = secretsFor(cfg).read<Record<string, string>>(platform === 'facebook_reels' ? 'facebook' : 'instagram'); if (cred) return platform === 'facebook_reels' ? new FacebookReelsAdapter(store, cred) : new InstagramReelsAdapter(store, cred); }
+  if ((platform === 'facebook_reels' || platform === 'instagram_reels') && metaCanPublish(secretsFor(cfg), platform)) { const nm = platform === 'facebook_reels' ? 'facebook' : 'instagram'; const own = ch && ch.slug !== 'main' ? secretsFor(cfg).read<Record<string, string>>(`${nm}-${ch.slug}`) : null; const cred = own && own.access_token ? own : secretsFor(cfg).read<Record<string, string>>(nm); if (cred) return platform === 'facebook_reels' ? new FacebookReelsAdapter(store, cred) : new InstagramReelsAdapter(store, cred); }
   if (isManual(platform)) return new ManualAdapter(platform);
   const info = platformInfo(platform);
   if (info?.kind === 'direct' && info.secret) {

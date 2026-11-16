@@ -21,7 +21,7 @@ import { setSavedBase, getSavedBase, cleanBase, lastOAuth, handleOAuthCallback, 
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick } from '../watcher/live-monitor.ts';
-import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable } from '../sources/youtube.ts';
+import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable, prettySource } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
 import { checkDisk, freeMb } from '../util/disk.ts';
@@ -29,7 +29,7 @@ import { recentLogs, logsSince, info, warn, error } from '../util/log.ts';
 import { loadTranscript, applyCueEdits, type CueEdit } from '../analysis/transcript.ts';
 import { setDefaultResultOrder } from 'node:dns';
 try { setDefaultResultOrder('ipv4first'); } catch { /* old node */ } // Termux/mobile networks: broken IPv6 makes every fetch to graph.facebook.com fail
-import { setRelay, getRelay, DEFAULT_RELAY, startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
+import { metaPages, assignMetaPage, setRelay, getRelay, DEFAULT_RELAY, startAuth, handleCallback, saveAppCreds, appCreds, type SocialApp } from '../publish/socialOauth.ts';
 import { aiStatus, saveAi, sttCreds, llmChain, llmSlot, SLOT_LIST } from '../ai/settings.ts';
 import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
@@ -370,7 +370,7 @@ export function createApp(o: AppOptions = {}): App {
         updateOwnerConfig(cfg, { youtube: patch }); Object.assign(cfg.youtube, patch); return json(res, 200, cfg.youtube);
       }
       if (p === '/api/sources/poll' && m === 'POST') { if (!(await ytdlpAvailable())) return json(res, 200, { error: 'yt-dlp install nahi hai: pkg install python && pip install -U yt-dlp' }); return json(res, 200, await pollSources(store, cfg)); }
-      if (p === '/api/sources' && m === 'GET') return json(res, 200, { poll: (() => { try { return JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)?.v ?? 'null'); } catch { return null; } })(), ytdlp: await ytdlpAvailable(), sources: store.all<{ id: number; kind: string; meta_json: string | null }>(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id WHERE s.status<>'removed' ORDER BY s.id DESC LIMIT 200`).map((x) => { if (x.kind !== 'youtube_channel') return x; let mj: Record<string, unknown> = {}; try { mj = JSON.parse(x.meta_json || '{}'); } catch { /* ignore */ } return { ...x, settings: sourceSettings(mj, cfg), lock: lockOn(cfg), ...channelBusy(store, x.id, cfg.automation.maxActiveVideosPerChannel ?? 1) }; }) });
+      if (p === '/api/sources' && m === 'GET') return json(res, 200, { poll: (() => { try { return JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)?.v ?? 'null'); } catch { return null; } })(), ytdlp: await ytdlpAvailable(), sources: store.all<{ id: number; kind: string; meta_json: string | null }>(`SELECT s.id, s.kind, s.uri, s.title, s.status, s.authorized, s.channel_id, s.meta_json, ch.slug AS channel FROM sources s LEFT JOIN channels ch ON ch.id=s.channel_id WHERE s.status<>'removed' ORDER BY s.id DESC LIMIT 200`).map((x) => { { const t = (x as unknown as { title?: string }).title; if (t && /^https?:\/\//.test(t)) (x as unknown as { title: string }).title = prettySource(t); } if (x.kind !== 'youtube_channel') return x; let mj: Record<string, unknown> = {}; try { mj = JSON.parse(x.meta_json || '{}'); } catch { /* ignore */ } return { ...x, settings: sourceSettings(mj, cfg), lock: lockOn(cfg), ...channelBusy(store, x.id, cfg.automation.maxActiveVideosPerChannel ?? 1) }; }) });
       if (p === '/api/sources' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { url?: string; authorized?: boolean; channel?: string; audioLang?: string; range?: string };
         const audioLang = String(b.audioLang ?? '').trim().toLowerCase(); if (audioLang && !/^[a-z]{2,3}(-[a-z0-9]{2,8})?$/.test(audioLang)) return json(res, 400, { error: 'audioLang: use a language code like hi or en' });
@@ -452,6 +452,8 @@ export function createApp(o: AppOptions = {}): App {
       if (p === '/api/analytics' && m === 'GET') return json(res, 200, { platforms: analyticsSummary(store, cfg.timezone, (pl) => hourStats(store, cfg.timezone, pl)) });
       if (p === '/api/analytics/import' && m === 'POST') return json(res, 200, importAnalyticsCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'), url.searchParams.get('platform') ?? undefined));
       if (await handleStudio({ req, res, p, m, url, store, cfg, deps: o.studioDeps ?? {}, json, readBody, sendPath })) return;
+      if (p === '/api/meta/accounts' && m === 'GET') { const sec = secretsFor(cfg); return json(res, 200, { pages: metaPages(cfg), channels: listChannels(store).map((c) => ({ slug: c.slug, name: c.name, pageName: (() => { try { return sec.read<{ page_name?: string }>(`facebook-${c.slug}`)?.page_name ?? null; } catch { return null; } })() })) }); }
+      { const mm = /^\/api\/channels\/([a-z0-9-]+)\/meta$/.exec(p); if (mm && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { pageId?: string }; try { const r = assignMetaPage(cfg, mm[1]!, String(b.pageId ?? '')); chCache = null; return json(res, 200, { ok: true, ...(r ?? { page: null, instagram: false }) }); } catch (e) { return json(res, 400, { error: (e as Error).message.replace(/^invalid:\s*/, '') }); } } }
       if (p === '/api/channels' && m === 'GET') {
         if (chCache && Date.now() - chCache.t < 15_000) return json(res, 200, chCache.body); // planning slots per channel is CPU heavy (≈20 ms each): with hundreds of channels + a busy dashboard it starved the server, so the answer is shared for 15 s and any write clears it
         const from = new Date(); if (!chPending) chPending = (async () => { const out = []; for (const ch of listChannels(store)) { out.push((() => {

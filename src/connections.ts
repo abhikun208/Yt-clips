@@ -110,7 +110,8 @@ async function check(store: Store, cfg: Config, target: string): Promise<[boolea
 
 /** Turns a raw connection error into the plain sentence the owner should see. 'reconnect' used to match /ECONN/ and was shown as a network failure. */
 export function explainConnError(m: string): string | null {
-  if (/AUTH_REVOKED|invalid_grant/i.test(m)) return `Google ne YouTube login wapas le liya (${m.slice(0, 60)}). Sabse common wajah: Google Cloud ka OAuth app "Testing" mode mein hai, isme token 7 din mein expire hota hai. Fix: Google Cloud > APIs & Services > OAuth consent screen > "Publish app" (Production). Phir yahan Connect dobara dabao.`;
+  if (/unauthorized_client|invalid_client/i.test(m)) return `Google ko ye OAuth client pehchaan me nahi aa raha (${m.slice(0, 50)}). Ye "7 din wala Testing" masla NAHI hai. Wajah: YouTube login kisi AUR Client ID/Secret se bana tha aur ab Settings me alag/badla hua client saved hai (ya client delete hua, ya type "Web application" ki jagah "Desktop" hai). Fix: Settings me wahi Client ID + Secret rakho jo naye login ke liye use karna hai, phir is channel ka YouTube **Connect dobara** dabao (purana token naye client par nahi chalta).`;
+  if (/AUTH_REVOKED|invalid_grant/i.test(m)) return `Google ne YouTube login wapas le liya (${m.slice(0, 60)}). Sabse common wajah: Google Cloud ka OAuth app "Testing" mode mein hai, isme token 7 din mein expire hota hai (ya password badla / access hataya). Fix: Google Cloud > APIs & Services > OAuth consent screen > "Publish app" (Production). Phir yahan Connect dobara dabao.`;
   return null;
 }
 export async function testConnection(store: Store, cfg: Config, target: string): Promise<ConnResult> {

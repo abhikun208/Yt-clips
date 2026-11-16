@@ -376,3 +376,9 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - (5b) Relay worked (callback reached the server) but the token step died with "fetch failed" = phone could not reach graph.facebook.com. Added netFetch (3 tries, real reason ENOTFOUND/ETIMEDOUT/ECONNREFUSED/EAI_AGAIN), IPv4-first DNS at server start (broken IPv6 on mobile networks), friendly "Private DNS / VPN / internet" message. UNVERIFIED which of these is the cause on the owner's phone.
 - (5c) Network drop during token exchange no longer burns the one-time login state (page refresh can retry). Node->graph.facebook.com verified OK on the owner's phone (OK 400).
 - (5d) Relay + Meta consent worked; token step said secret wrong. Error text now shows Meta's raw message and separates wrong secret / used code / redirect mismatch; saveAppCreds strips whitespace/newlines from pasted ID/secret.
+
+## 2026-11-16 — Multi-account Meta, source names, YouTube error truth
+- Meta login now keeps EVERY Page you manage (secret `meta-pages`: id/name/token/IG id; tokens never sent to the browser). Settings → Facebook card: per-channel select "Facebook Page + Instagram" (GET /api/meta/accounts, POST /api/channels/:slug/meta). adapterFor uses `facebook-<slug>` / `instagram-<slug>` when set, else the default account. Several YouTube channels already worked (per-channel login). TikTok is still one account (not built).
+- Sources show the channel name: real name from yt-dlp on each poll (title column), "@handle"/UC id immediately when added, old link-titles prettified in /api/sources.
+- YouTube `unauthorized_client` was explained as "Testing mode 7 days" — wrong. unauthorized_client/invalid_client = this OAuth client does not match the one that made the token (client changed/deleted/wrong type) -> reconnect with the current client; invalid_grant keeps the Testing/Publish-app advice (connections.ts explainConnError).
+- Tests: multimeta (3).

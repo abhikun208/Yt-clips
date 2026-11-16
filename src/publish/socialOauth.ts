@@ -85,6 +85,7 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
   if (!list.length) throw new Error('oauth: no Facebook Page found for this login (Page admin access is needed for Facebook/Instagram insights)');
   let perms: string[] = []; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); perms = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission); } catch { /* publishing just stays manual */ }
   const pg = list.find((p) => p.instagram_business_account) ?? list[0]!; const connected = ['facebook'];
+  sec.write('meta-pages', { pages: list.map((p) => ({ id: p.id, name: p.name, access_token: p.access_token, ig_user_id: p.instagram_business_account?.id ?? null })), user_token: user, perms, connected_at: new Date().toISOString() }); // every Page you manage, so each channel can publish to its own Page/Instagram
   sec.write('facebook', { access_token: pg.access_token, page_id: pg.id, page_name: pg.name, perms, connected_at: new Date().toISOString() });
   if (pg.instagram_business_account) { sec.write('instagram', { access_token: user, page_token: pg.access_token, ig_user_id: pg.instagram_business_account.id, perms, connected_at: new Date().toISOString() }); connected.push('instagram'); }
   return { connected, note: pg.instagram_business_account ? undefined : `Page "${pg.name}" has no linked Instagram professional account` };
@@ -114,4 +115,19 @@ export async function metaTokenStatus(cfg: Config): Promise<{ name: string; ok: 
 export function tiktokTokenInfo(cfg: Config): { connected: boolean; expiresAt?: number; refreshExpiresAt?: number } {
   let t: { access_token?: string; expires_at?: number; refresh_expires_at?: number } | null = null; try { t = secretsOf(cfg).read('tiktok'); } catch { t = null; }
   return t?.access_token ? { connected: true, expiresAt: t.expires_at, refreshExpiresAt: t.refresh_expires_at } : { connected: false };
+}
+
+/** All Facebook Pages (and whether each has an Instagram account) from the last Meta login. No tokens leave this function. */
+export function metaPages(cfg: Config): { id: string; name: string; instagram: boolean }[] {
+  try { const d = secretsOf(cfg).read<{ pages?: { id: string; name: string; ig_user_id: string | null }[] }>('meta-pages'); return (d?.pages ?? []).map((p) => ({ id: p.id, name: p.name, instagram: !!p.ig_user_id })); } catch { return []; }
+}
+/** Point one channel at one Page (+ its Instagram): the channel then publishes there instead of the default account. pageId '' = back to default. */
+export function assignMetaPage(cfg: Config, slug: string, pageId: string): { page: string; instagram: boolean } | null {
+  const sec = secretsOf(cfg); if (!/^[a-z0-9-]{1,40}$/.test(slug)) throw new Error('invalid: channel slug');
+  if (!pageId) { for (const n of ['facebook', 'instagram']) try { sec.write(`${n}-${slug}`, {}); } catch { /* none */ } return null; }
+  const d = sec.read<{ pages?: { id: string; name: string; access_token: string; ig_user_id: string | null }[]; user_token?: string; perms?: string[] }>('meta-pages'); const pg = d?.pages?.find((p) => p.id === pageId);
+  if (!pg) throw new Error('invalid: Page not found in the last Meta login (login again)');
+  sec.write(`facebook-${slug}`, { access_token: pg.access_token, page_id: pg.id, page_name: pg.name, perms: d?.perms ?? [], connected_at: new Date().toISOString() });
+  if (pg.ig_user_id) sec.write(`instagram-${slug}`, { access_token: d?.user_token ?? pg.access_token, page_token: pg.access_token, ig_user_id: pg.ig_user_id, perms: d?.perms ?? [], connected_at: new Date().toISOString() }); else sec.write(`instagram-${slug}`, {});
+  return { page: pg.name, instagram: !!pg.ig_user_id };
 }

@@ -51,9 +51,17 @@ export function parseEntries(stdout: string): Entry[] {
   const j = JSON.parse(stdout) as { entries?: Array<{ id?: string; title?: string; duration?: number | null } | null> };
   return (j.entries ?? []).filter((e): e is { id: string; title?: string; duration?: number | null } => !!e && typeof e.id === 'string' && /^[\w-]{6,20}$/.test(e.id)).map((e) => ({ id: e.id, title: e.title ?? e.id, duration: typeof e.duration === 'number' ? e.duration : null }));
 }
+/** Readable label for a channel/video URL while the real channel name is not known yet: "@handle" / "UCxxxx" instead of the whole link. */
+export function prettySource(url: string): string {
+  try { const u = new URL(url); const seg = u.pathname.split('/').filter(Boolean); const h = seg.find((x) => x.startsWith('@')); if (h) return decodeURIComponent(h);
+    const i = seg.findIndex((x) => ['channel', 'c', 'user'].includes(x)); if (i >= 0 && seg[i + 1]) return decodeURIComponent(seg[i + 1]!); if (u.hostname.includes('youtu') && (u.searchParams.get('v') || seg[0] === 'shorts')) return 'YouTube video'; return u.hostname.replace(/^www\./, '') + (seg[0] ? '/' + seg[0] : ''); } catch { return url.slice(0, 40); }
+}
+const seenNames = new Map<string, string>();
+export const channelNameFor = (url: string): string | undefined => seenNames.get(url);
 export async function listChannelVideos(url: string, limit = 30, from = 1): Promise<Entry[]> {
   const r = await run('yt-dlp', [...extra(), '--flat-playlist', '--dump-single-json', ...(from > 1 ? ['--playlist-start', String(from)] : []), '--playlist-end', String(from + limit - 1), '--no-warnings', url], { timeoutMs: 5 * 60_000 });
   if (r.code !== 0) throw new Error(`yt-dlp list failed: ${r.stderr.trim().slice(-200)}`);
+  try { const j = JSON.parse(r.stdout) as { channel?: string; uploader?: string; title?: string }; const nm = String(j.channel || j.uploader || (j.title ?? '').replace(/\s+-\s+(Videos|Shorts|Live|Streams)$/i, '') || '').trim(); if (nm) seenNames.set(url, nm.slice(0, 80)); } catch { /* name is cosmetic */ }
   return parseEntries(r.stdout);
 }
 /**
@@ -101,7 +109,7 @@ export function addYoutubeSource(store: Store, rawUrl: string, authorized: boole
   const ex = store.get<{ id: number; status: string }>('SELECT id, status FROM sources WHERE uri=?', p.url);
   if (ex) { if (ex.status === 'removed') store.exec(`UPDATE sources SET status=?, meta_json=?, channel_id=COALESCE(?, channel_id) WHERE id=?`, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0, ...(opt.audioLang ? { audioLang: opt.audioLang } : {}), ...(opt.range ? { range: opt.range } : {}) } : {}), channelId ?? null, ex.id); return { id: ex.id, kind: p.kind, duplicate: ex.status !== 'removed' }; } // a removed link added again is switched back on
   const chId = channelId ?? store.get<{ id: number }>(`SELECT id FROM channels WHERE slug='main'`)!.id;
-  const r = store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', kind, p.url, p.url, 1, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0, ...(opt.audioLang ? { audioLang: opt.audioLang } : {}), ...(opt.range ? { range: opt.range } : {}) } : {}), chId);
+  const r = store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', kind, p.url, prettySource(p.url), 1, p.kind === 'video' ? 'pending' : 'active', JSON.stringify(p.kind === 'video' ? { videoId: p.videoId, tries: 0, ...(opt.audioLang ? { audioLang: opt.audioLang } : {}), ...(opt.range ? { range: opt.range } : {}) } : {}), chId);
   return { id: r.lastId, kind: p.kind, duplicate: false };
 }
 
@@ -144,6 +152,7 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
         if (tooLong) res.skipped++; else { res.discovered++; n++; }
       } return n; };
       const added = add(await listChannelVideos(ch.uri, set.scanDepth), known);
+      { const nm = channelNameFor(ch.uri); if (nm) store.exec('UPDATE sources SET title=? WHERE id=? AND (title IS NULL OR title<>?)', nm, ch.id, nm); } // show the channel's real name, not its link
       // nothing new and nothing waiting -> reach further back into the channel's OLD videos (page by page) so the queue never runs dry
       const waiting = store.get<{ n: number }>(`SELECT COUNT(*) n FROM sources WHERE kind='youtube_video' AND status='pending' AND json_extract(meta_json,'$.channelSource')=?`, ch.id)?.n ?? 0;
       if (set.backlog && !added && !waiting) {

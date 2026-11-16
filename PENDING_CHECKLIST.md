@@ -83,3 +83,6 @@
 - [ ] (2026-11-15) Re-render clip_064-type (PC game + small facecam) and check cam crop/zone; if a HUD corner (minimap) is mistaken for a cam set edit.autoFacecam=false for that channel.
 
 - [ ] (2026-11-15) Enable GitHub Pages (repo Settings → Pages → Branch main, folder /docs); open https://abhikun208.github.io/Yt-clips/oauth-relay.html (should say "state galat"); then Relay ON in Settings and register that single URI in Meta.
+
+- [ ] (2026-11-16) Meta: after the next successful login pick a Page per channel in Settings; TikTok multi-account NOT built.
+- [ ] (2026-11-16) YouTube: reconnect each channel after the Client ID/Secret is final (unauthorized_client = client changed). Google Cloud → consent screen → Publish app so tokens do not die in 7 days.
