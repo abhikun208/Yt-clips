@@ -39,9 +39,12 @@ export function remapCuesCuts(cues: Cue[], clipStart: number, p: CutPlan): Cue[]
 }
 /** select/aselect graph: both streams drop the same time spans, so A/V stay locked. */
 export function cutFilter(p: CutPlan, hasAudio: boolean): string {
-  const expr = p.removed.map((r) => `between(t\\,${r.start.toFixed(3)}\\,${r.end.toFixed(3)})`).join('+');
-  const v = `[0:v]select='not(${expr})',setpts=N/FRAME_RATE/TB[v]`;
-  return hasAudio ? `${v};[0:a]aselect='not(${expr})',asetpts=N/SR/TB,afade=t=in:st=0:d=0.01[a]` : v;
+  // trim + concat per kept span: deterministic across ffmpeg versions (the old select/aselect form let audio and video drift apart on newer ffmpeg builds)
+  const f = (n: number) => n.toFixed(3); const k = p.keep; const parts: string[] = [];
+  k.forEach((r, i) => { parts.push(`[0:v]trim=start=${f(r.start)}:end=${f(r.end)},setpts=PTS-STARTPTS[v${i}]`); if (hasAudio) parts.push(`[0:a]atrim=start=${f(r.start)}:end=${f(r.end)},asetpts=PTS-STARTPTS[a${i}]`); });
+  const ins = k.map((_, i) => `[v${i}]${hasAudio ? `[a${i}]` : ''}`).join('');
+  parts.push(hasAudio ? `${ins}concat=n=${k.length}:v=1:a=1[v][ac];[ac]afade=t=in:st=0:d=0.01[a]` : `${ins}concat=n=${k.length}:v=1:a=0[v]`);
+  return parts.join(';');
 }
 
 /** Owner-chosen cuts (words deleted in the transcript editor): clip-relative intervals -> CutPlan. Overlaps merged, anything outside the clip ignored; null when nothing valid is left or less than 1.5 s would remain. */
