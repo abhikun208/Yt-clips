@@ -77,3 +77,8 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Killfeed OCR signal | DONE; real tesseract on synthetic frames | test/killfeed.test.ts |
 | Per-word caption font fallback | DONE | test/captions.test.ts |
 | Real-service tests (owner-run) | WRITTEN, not executed by author | test/real/real.test.ts |
+| Connected Accounts: destination registry (yt/fb/ig/tt), stable IDs, enable/disable, per-account disconnect, duplicate warning | DONE; fake-server tested, real accounts UNVERIFIED | test/destinations.test.ts |
+| Login never replaces another account (YouTube new-slug/merge guard, Meta Page merge, TikTok per-account secret) | DONE; fake-server tested | test/destinations.test.ts |
+| Upload shows target account; per-upload destination history | DONE | src/accounts/destinations.ts (stampUpload) |
+| YouTube callback repeat-safe | DONE | test/webauth.test.ts |
+| Real Meta/TikTok publish & multi-login on phone | NOT TESTED (needs owner authorization) | — |

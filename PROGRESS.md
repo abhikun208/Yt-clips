@@ -397,3 +397,12 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - UNVERIFIED (needs real accounts): real Google/Meta/TikTok logins on the phone, Meta IG eligibility, TikTok display_name (shows "TikTok <id tail>" until user.info scope is used). Publishing flags untouched (disabled by default).
 - (9b) CI had been red since 2026-11-16 on 3 real-ffmpeg tests (cutFilter A/V duration mismatch on the runner's newer ffmpeg; local ffmpeg 6.1 passed). Root cause: select/aselect cut let audio and video drift apart on newer ffmpeg builds. cutFilter now uses trim/atrim + concat per kept span (version-independent). Verified locally (jumpcut, queueorder); CI result to be read from the next run.
 - (9c) "Failed: link expire ya pehle hi use ho chuka" right after Google's "hasn't verified" screen: the callback state is single-use and phone browsers often fire the redirect twice, so the 2nd hit showed an error over the 1st success. finishWebAuth now remembers a finished state for 15 min (kv ytweb-done:<state>) and a repeat shows the same "Connected" result (no second token exchange). Unknown/forged states still rejected. Test: webauth.test.ts.
+
+## 2026-11-17 (10) — Autonomous continuity pass
+- State at start: tree clean, last 2 CI runs success (4d58fdf).
+- Reconnect button now really starts the YouTube login for that account's channel (Meta/TikTok: guided toast); the old "REPLACE kar dega" confirm text was wrong after the guard and is corrected; uploads list shows "→ account" via destination_id (API adds destination/destinationId).
+- Tests: destinations+webauth 11/11, publishwire+server 13/13. UI script syntax-checked. FEATURE_MATRIX + BRAIN updated.
+- Status list — PASS (fake-server): multi-login non-replacement, merge guard, disable isolation, repeat callback. NOT TESTED: real Google/Meta/TikTok on phone. BLOCKED: Meta/TikTok publish (needs owner authorization), TikTok verified domain.
+- Not pushed (instruction: no push without authorization); committed locally.
+- NEXT STEP: owner runs `git pull`-equivalent after authorizing push, tests Connected Accounts on phone; then TikTok user.info for display names.
+- Resume: `cd yt-clips && git log --oneline | head -3 && npm test`
