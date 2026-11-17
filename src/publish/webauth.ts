@@ -33,7 +33,12 @@ function guardReplacement(store: Store, cfg: Config, ch: Channel, identity: Iden
   const sec = secretsFor(cfg); const had = !!prevSecret?.refresh_token;
   const other = listChannels(store, true).find((c) => c.slug !== ch.slug && identityOf(store, c.slug)?.channelId === identity.channelId && (() => { try { return !!sec.read<{ refresh_token?: string }>(ytSecretName(c))?.refresh_token; } catch { return false; } })());
   const restore = () => { if (had) sec.write(ytSecretName(ch), prevSecret!); else sec.delete(ytSecretName(ch)); if (prevIdent) putIdent(store, ch.slug, prevIdent); else store.exec('DELETE FROM kv WHERE k=?', `ytinfo:${ch.slug}`); };
-  if (other) { sec.write(ytSecretName(other), fresh); putIdent(store, other.slug, identity); restore(); store.logState('youtube-connect', other.id, null, 'reconnected', `${identity.channelId} (duplicate login merged)`); return { slug: other.slug, identity }; }
+  if (other) {
+    sec.write(ytSecretName(other), fresh); putIdent(store, other.slug, identity); // the already-known copy of this channel gets the fresh token (cures a stale one made with an older client)
+    if (had && prevIdent && prevIdent.channelId !== identity.channelId) { restore(); store.logState('youtube-connect', other.id, null, 'reconnected', `${identity.channelId} (kept ${prevIdent.channelId} on ${ch.slug})`); return { slug: other.slug, identity }; }
+    // the card the owner clicked had no other verified account: it becomes connected too, so the click visibly works (both point at the same channel; the registry warns about the duplicate)
+    putIdent(store, ch.slug, identity); autoNameChannel(store, ch, identity.title); store.logState('youtube-connect', ch.id, null, 'connected', `${identity.channelId} (also on ${other.slug})`); return { slug: ch.slug, identity };
+  }
   if (had && prevIdent && prevIdent.channelId !== identity.channelId) {
     const n = createChannel(store, { name: `YouTube account ${listChannels(store, true).length + 1}` }, () => true);
     sec.write(ytSecretName(n), fresh); putIdent(store, n.slug, identity); autoNameChannel(store, n, identity.title); restore();

@@ -84,6 +84,9 @@ test('Google: a second login for a DIFFERENT channel on the same slug never repl
     const r3 = await login('main', 'c1'); assert.equal(r3.slug, 'main'); // reconnect of the same channel
     const r4 = await login(r2.slug, 'c1'); assert.equal(r4.slug, 'main', 'same channel via another slug is merged, not duplicated');
     assert.equal(sec.read<{ refresh_token: string }>(ytSecretName(getChannel(store, r2.slug)))!.refresh_token, 'RT-c2', 'second account still intact');
+    const e = createChannel(store, { name: 'Empty card' }, () => true); const r5 = await login(e.slug, 'c1');
+    assert.equal(r5.slug, e.slug, 'clicked card becomes connected'); assert.equal(sec.read<{ refresh_token: string }>(ytSecretName(main))!.refresh_token, 'RT-c1');
+    assert.equal(sec.read<{ refresh_token: string }>(ytSecretName(getChannel(store, r2.slug)))!.refresh_token, 'RT-c2', 'other account untouched');
     const ids = listDestinations(store, cfg).filter((d) => d.platform === 'youtube' && d.status === 'connected').map((d) => d.id).sort(); assert.deepEqual(ids, ['yt:UC_ONE', 'yt:UC_TWO']);
   } finally { g.s.close(); delete process.env.YT_OAUTH_BASE; delete process.env.YT_API_BASE; delete process.env.YT_OAUTH_CLIENT_ID; delete process.env.YT_OAUTH_CLIENT_SECRET; }
 });
