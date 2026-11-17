@@ -103,12 +103,12 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   // 1) raw clip (frame-accurate: seek AFTER -i, re-encode)
   if (!existsSync(rawPath)) {
     const tmp = rawPath + '.part.mp4';
-    const r = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', v.path, '-ss', c.start_sec.toFixed(3), '-t', dur.toFixed(3), ...encodeArgs(enc, { crf: 17, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp], { timeoutMs: 20 * 60_000 }));
+    const r = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', v.path, '-ss', c.start_sec.toFixed(3), '-t', dur.toFixed(3), '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn', ...encodeArgs(enc, { crf: 17, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-ar', '48000', '-movflags', '+faststart', tmp], { timeoutMs: 20 * 60_000 }));
     let rr = r;
     if (rr.code !== 0 && /dav1d|av1|obu_|Failed to parse temporal|Invalid data/i.test(rr.stderr)) { // broken/unsupported AV1 decode (common on Termux/ARM builds): retry with the other decoder, then tolerate corrupt packets
       for (const pre of [['-c:v', 'libaom-av1'], ['-err_detect', 'ignore_err', '-fflags', '+discardcorrupt+genpts']]) {
         rmSync(tmp, { force: true });
-        rr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, ...pre, '-i', v.path, '-ss', c.start_sec.toFixed(3), '-t', dur.toFixed(3), ...encodeArgs(enc, { crf: 17, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', tmp], { timeoutMs: 20 * 60_000 }));
+        rr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, ...pre, '-i', v.path, '-ss', c.start_sec.toFixed(3), '-t', dur.toFixed(3), '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn', ...encodeArgs(enc, { crf: 17, preset: 'veryfast' }), '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-ar', '48000', '-movflags', '+faststart', tmp], { timeoutMs: 20 * 60_000 }));
         if (rr.code === 0 && existsSync(tmp)) break;
       }
     }
@@ -126,7 +126,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
       else { cuts = planCuts(await detectSilence(rawPath, -35, 0.55), m.duration); cutNote = cuts ? '' : 'no long silences / clip too short'; }
       if (cuts) {
         const cp = join(cfg.dirs.tmp, `${outputId}.cut.mp4`); tmpFiles.push(cp);
-        const cr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', cutFilter(cuts!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 15, preset: 'ultrafast' }), '-c:a', 'aac', '-b:a', '192k', cp], { timeoutMs: 20 * 60_000 }));
+        const cr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', rawPath, '-filter_complex', cutFilter(cuts!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 15, preset: 'ultrafast' }), '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-ar', '48000', cp], { timeoutMs: 20 * 60_000 }));
         if (cr.code !== 0) { cuts = null; cutNote = 'ffmpeg cut failed; rendered without'; } else {
           const mc = await probe(cp); if (Math.abs(mc.duration - (m.duration - cuts.saved)) > 0.6) { cuts = null; cutNote = 'cut duration mismatch; rendered without'; } else { srcPath = cp; m = mc; }
         }
@@ -140,7 +140,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
       const peaks = pickPeaks(await audioEnergy(srcPath, 0.25), { duration: m.duration, max: 1 }); ramp = planRamp(peaks[0], m.duration); rampNote = ramp ? '' : 'no strong peak / clip too short';
       if (ramp) {
         const rp = join(cfg.dirs.tmp, `${outputId}.ramp.mp4`);
-        const rr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', srcPath, '-filter_complex', rampFilter(ramp!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 15, preset: 'ultrafast' }), '-c:a', 'aac', '-b:a', '192k', rp], { timeoutMs: 20 * 60_000 }));
+        const rr = await withEncoderFallback(cfg, (enc) => run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', srcPath, '-filter_complex', rampFilter(ramp!, true), '-map', '[v]', '-map', '[a]', ...encodeArgs(enc, { crf: 15, preset: 'ultrafast' }), '-c:a', 'aac', '-b:a', '192k', '-ac', '2', '-ar', '48000', rp], { timeoutMs: 20 * 60_000 }));
         if (rr.code !== 0) { ramp = null; rampNote = 'ffmpeg ramp failed; rendered without'; } else {
           const mr = await probe(rp); if (Math.abs(mr.duration - rampedDuration(m.duration, ramp)) > 0.5) { ramp = null; rampNote = 'ramped duration mismatch; rendered without'; rmSync(rp, { force: true }); } else { editSrc = rp; m = mr; }
         }
