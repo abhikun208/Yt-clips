@@ -2,7 +2,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import type { Channel } from '../channels.ts';
-import { getChannel, ytSecretName, updateChannel } from '../channels.ts';
+import { getChannel, ytSecretName, updateChannel, createChannel, listChannels } from '../channels.ts';
 import { clientCreds, form, base, authBase, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { secretsFor, tokenFor } from './service.ts';
 import { YouTubeAdapter } from './youtube.ts';
@@ -21,6 +21,25 @@ export interface WebStart { authUrl: string; redirectUri: string; share: boolean
 /** A channel the dashboard created as "YouTube account N" takes the real YouTube channel name once Google tells us (so the list shows names, not placeholders). Never touches a name the owner chose. */
 export function autoNameChannel(store: Store, ch: Channel, title: string): void {
   try { if (ch.slug !== 'main' && /^YouTube account \d+$/.test(ch.name) && title.trim().length >= 2) updateChannel(store, ch.id, { name: title.trim().slice(0, 60) }, () => true); } catch { /* cosmetic */ }
+}
+const putIdent = (store: Store, slug: string, i: Identity) => store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${slug}`, JSON.stringify(i));
+/**
+ * Replacement guard. A channel slug holds ONE YouTube token, so a login for a DIFFERENT YouTube channel must never overwrite the one already there:
+ * (a) the same YouTube channel is already connected on another slug -> that slug gets the fresh token (reconnect), nothing new is created;
+ * (b) this slug already holds another verified channel -> the new login goes to a NEW "YouTube account N" slug and the old token is restored.
+ * Otherwise (first connect, or reconnecting the same channel) the normal path continues. Returns null when no redirect happened.
+ */
+function guardReplacement(store: Store, cfg: Config, ch: Channel, identity: Identity, fresh: Record<string, unknown>, prevSecret: Record<string, unknown> | null, prevIdent: Identity | null): { slug: string; identity: Identity | null } | null {
+  const sec = secretsFor(cfg); const had = !!prevSecret?.refresh_token;
+  const other = listChannels(store, true).find((c) => c.slug !== ch.slug && identityOf(store, c.slug)?.channelId === identity.channelId && (() => { try { return !!sec.read<{ refresh_token?: string }>(ytSecretName(c))?.refresh_token; } catch { return false; } })());
+  const restore = () => { if (had) sec.write(ytSecretName(ch), prevSecret!); else sec.delete(ytSecretName(ch)); if (prevIdent) putIdent(store, ch.slug, prevIdent); else store.exec('DELETE FROM kv WHERE k=?', `ytinfo:${ch.slug}`); };
+  if (other) { sec.write(ytSecretName(other), fresh); putIdent(store, other.slug, identity); restore(); store.logState('youtube-connect', other.id, null, 'reconnected', `${identity.channelId} (duplicate login merged)`); return { slug: other.slug, identity }; }
+  if (had && prevIdent && prevIdent.channelId !== identity.channelId) {
+    const n = createChannel(store, { name: `YouTube account ${listChannels(store, true).length + 1}` }, () => true);
+    sec.write(ytSecretName(n), fresh); putIdent(store, n.slug, identity); autoNameChannel(store, n, identity.title); restore();
+    store.logState('youtube-connect', n.id, null, 'connected', `${identity.channelId} (kept ${prevIdent.channelId} untouched)`); return { slug: n.slug, identity };
+  }
+  return null;
 }
 export const PASTE_REDIRECT = 'http://127.0.0.1:8765/';
 export function startWebAuth(store: Store, cfg: Config, ch: Channel, o: { base: string; share?: boolean; paste?: boolean }): WebStart {
@@ -48,10 +67,13 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('Google client ID/secret nahi mila');
   const r = await form(`${base()}/token`, { client_id: cc.clientId, client_secret: cc.clientSecret, code: q.code, code_verifier: st.verifier, redirect_uri: st.redirectUri, grant_type: 'authorization_code' });
   if (r.status !== 200 || !r.json.refresh_token) throw new Error(r.json.error === 'invalid_client' ? 'Google client ID/secret galat hai' : r.json.error === 'redirect_uri_mismatch' ? `redirect URI Google Console mein add karo: ${st.redirectUri}` : `token nahi mila (${String(r.json.error ?? r.status).slice(0, 40)}). Gmail ko "Test users" mein add karo ya app ko In production karo`);
-  const ch = getChannel(store, st.slug);
-  secretsFor(cfg).write(ytSecretName(ch), { refresh_token: r.json.refresh_token, scope: r.json.scope ?? YT_WEB_SCOPE, connected_at: new Date().toISOString() });
+  const ch = getChannel(store, st.slug); const sec = secretsFor(cfg); const prevSecret = (() => { try { return sec.read<Record<string, unknown>>(ytSecretName(ch)); } catch { return null; } })(); const prevIdent = identityOf(store, ch.slug);
+  const fresh = { refresh_token: r.json.refresh_token, scope: r.json.scope ?? YT_WEB_SCOPE, connected_at: new Date().toISOString() };
+  sec.write(ytSecretName(ch), fresh);
   let identity: Identity | null = null;
   try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString(), ...(w.thumb ? { thumb: w.thumb } : {}) }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }
+  const guarded = identity ? guardReplacement(store, cfg, ch, identity, fresh, prevSecret, prevIdent) : null;
+  if (guarded) return guarded;
   if (identity) autoNameChannel(store, ch, identity.title);
   store.logState('youtube-connect', ch.id, null, 'connected', identity ? identity.channelId : 'no identity yet');
   return { slug: st.slug, identity };

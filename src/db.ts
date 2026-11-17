@@ -95,6 +95,13 @@ const MIGRATIONS: string[] = [
    CREATE TABLE IF NOT EXISTS studio_uploads (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL, mime TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, remote_url TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
   // v13 (additive): fair-share routing (src/publish/router.ts) remembers when a clip was last picked
   `ALTER TABLE clips ADD COLUMN last_attempt_at TEXT;`,
+  // v14 (additive): Connected Accounts registry. One row per publishing destination; points at the encrypted secret, stores no token.
+  `CREATE TABLE IF NOT EXISTS destinations (
+    id TEXT PRIMARY KEY, platform TEXT NOT NULL, external_id TEXT NOT NULL, name TEXT NOT NULL, thumb TEXT, channel_slug TEXT, secret_ref TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'connected', enabled INTEGER NOT NULL DEFAULT 1, meta_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(platform, external_id));
+   CREATE INDEX IF NOT EXISTS idx_dest_channel ON destinations(channel_slug, platform);`,
+  `ALTER TABLE uploads ADD COLUMN destination_id TEXT;`,
 ];
 
 export type Row = Record<string, unknown>;

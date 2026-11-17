@@ -68,14 +68,18 @@ async function getJ(url: string, init?: RequestInit): Promise<any> {
   const r = await netFetch(url, init); const j = await r.json().catch(() => ({})); if (!r.ok || j?.error) throw new Error(`oauth: ${(j?.error?.message ?? j?.error_description ?? j?.error ?? r.status)}`.toString().slice(0, 200)); return j;
 }
 
+interface MetaPage { id: string; name: string; access_token: string; ig_user_id: string | null; ut?: string }
 export async function handleCallback(store: Store, cfg: Config, app: SocialApp, q: { code?: string | null; state?: string | null; error?: string | null }, base: string): Promise<{ connected: string[]; note?: string }> {
   if (q.error) throw new Error(`oauth: ${q.error}`.slice(0, 100)); if (!q.code || !q.state) throw new Error('invalid: missing code/state');
   takeState(store, q.state, app); const c = appCreds(cfg, app)!; const sec = secretsOf(cfg); const ru = redirectUri(base, app);
   if (app === 'tiktok') {
     const j = await getJ(`${ttApi()}/v2/oauth/token/`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_key: c.id, client_secret: c.secret, code: q.code, grant_type: 'authorization_code', redirect_uri: ru }) });
     if (!j.access_token) throw new Error('oauth: no access_token from TikTok');
-    sec.write('tiktok', { access_token: j.access_token, refresh_token: j.refresh_token, open_id: j.open_id, expires_at: Date.now() + (Number(j.expires_in) || 86400) * 1000, refresh_expires_at: Date.now() + (Number(j.refresh_expires_in) || 31536000) * 1000 });
-    return { connected: ['tiktok'] };
+    const rec = { access_token: j.access_token, refresh_token: j.refresh_token, open_id: j.open_id, expires_at: Date.now() + (Number(j.expires_in) || 86400) * 1000, refresh_expires_at: Date.now() + (Number(j.refresh_expires_in) || 31536000) * 1000 };
+    // each TikTok account keeps its own secret (tiktok-<open_id>); the default `tiktok` is only set when empty or when it is the same account (reconnect)
+    const cur = (() => { try { return sec.read<{ open_id?: string; access_token?: string }>('tiktok'); } catch { return null; } })(); const oid = String(j.open_id ?? '').replace(/[^\w-]/g, '').slice(0, 64);
+    if (!cur?.access_token || cur.open_id === j.open_id || !oid) sec.write('tiktok', rec); else sec.write(`tiktok-${oid}`, rec);
+    return { connected: ['tiktok'], note: cur?.access_token && cur.open_id && cur.open_id !== j.open_id ? 'Naya TikTok account alag se jud gaya; pehla account jaisa tha waisa hi hai' : undefined };
   }
   const t1 = await getJ(`${graph()}/oauth/access_token?${new URLSearchParams({ client_id: c.id, redirect_uri: ru, client_secret: c.secret, code: q.code })}`);
   let user = String(t1.access_token ?? ''); if (!user) throw new Error('oauth: no access_token from Facebook');
@@ -85,10 +89,19 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
   if (!list.length) throw new Error('oauth: no Facebook Page found for this login (Page admin access is needed for Facebook/Instagram insights)');
   let perms: string[] = []; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); perms = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission); } catch { /* publishing just stays manual */ }
   const pg = list.find((p) => p.instagram_business_account) ?? list[0]!; const connected = ['facebook'];
-  sec.write('meta-pages', { pages: list.map((p) => ({ id: p.id, name: p.name, access_token: p.access_token, ig_user_id: p.instagram_business_account?.id ?? null })), user_token: user, perms, connected_at: new Date().toISOString() }); // every Page you manage, so each channel can publish to its own Page/Instagram
-  sec.write('facebook', { access_token: pg.access_token, page_id: pg.id, page_name: pg.name, perms, connected_at: new Date().toISOString() });
-  if (pg.instagram_business_account) { sec.write('instagram', { access_token: user, page_token: pg.access_token, ig_user_id: pg.instagram_business_account.id, perms, connected_at: new Date().toISOString() }); connected.push('instagram'); }
-  return { connected, note: pg.instagram_business_account ? undefined : `Page "${pg.name}" has no linked Instagram professional account` };
+  // MERGE, never replace: a second Meta login (another person / another Page set) adds its Pages; Pages seen before stay, refreshed when returned again.
+  const prev = (() => { try { return sec.read<{ pages?: MetaPage[] }>('meta-pages'); } catch { return null; } })();
+  const fresh: MetaPage[] = list.map((p) => ({ id: p.id, name: p.name, access_token: p.access_token, ig_user_id: p.instagram_business_account?.id ?? null, ut: user }));
+  const keep = (prev?.pages ?? []).filter((o) => !fresh.some((n) => n.id === o.id));
+  sec.write('meta-pages', { pages: [...keep, ...fresh], user_token: user, perms, connected_at: new Date().toISOString() });
+  // the default Facebook/Instagram account is only set when none exists, or refreshed when this login returns that same Page; another account is never overwritten
+  const curF = (() => { try { return sec.read<{ page_id?: string; access_token?: string }>('facebook'); } catch { return null; } })();
+  const curI = (() => { try { return sec.read<{ ig_user_id?: string; access_token?: string }>('instagram'); } catch { return null; } })();
+  const refreshF = !curF?.access_token || list.some((p) => p.id === curF.page_id); const fp = (curF?.access_token && list.find((p) => p.id === curF.page_id)) || pg;
+  if (refreshF) sec.write('facebook', { access_token: fp.access_token, page_id: fp.id, page_name: fp.name, perms, connected_at: new Date().toISOString() });
+  const ig = (refreshF ? fp : null)?.instagram_business_account ?? (!curI?.access_token ? pg.instagram_business_account : undefined);
+  if (ig && (!curI?.access_token || curI.ig_user_id === ig.id || refreshF)) { const owner = list.find((p) => p.instagram_business_account?.id === ig.id) ?? pg; sec.write('instagram', { access_token: user, page_token: owner.access_token, ig_user_id: ig.id, perms, connected_at: new Date().toISOString() }); connected.push('instagram'); }
+  return { connected, note: ig ? undefined : `Page "${pg.name}" has no linked Instagram professional account` };
 }
 
 /** Valid TikTok access token: refreshes with the refresh token when expired (access tokens last 24h per TikTok docs). */
@@ -125,9 +138,9 @@ export function metaPages(cfg: Config): { id: string; name: string; instagram: b
 export function assignMetaPage(cfg: Config, slug: string, pageId: string): { page: string; instagram: boolean } | null {
   const sec = secretsOf(cfg); if (!/^[a-z0-9-]{1,40}$/.test(slug)) throw new Error('invalid: channel slug');
   if (!pageId) { for (const n of ['facebook', 'instagram']) try { sec.write(`${n}-${slug}`, {}); } catch { /* none */ } return null; }
-  const d = sec.read<{ pages?: { id: string; name: string; access_token: string; ig_user_id: string | null }[]; user_token?: string; perms?: string[] }>('meta-pages'); const pg = d?.pages?.find((p) => p.id === pageId);
+  const d = sec.read<{ pages?: MetaPage[]; user_token?: string; perms?: string[] }>('meta-pages'); const pg = d?.pages?.find((p) => p.id === pageId);
   if (!pg) throw new Error('invalid: Page not found in the last Meta login (login again)');
   sec.write(`facebook-${slug}`, { access_token: pg.access_token, page_id: pg.id, page_name: pg.name, perms: d?.perms ?? [], connected_at: new Date().toISOString() });
-  if (pg.ig_user_id) sec.write(`instagram-${slug}`, { access_token: d?.user_token ?? pg.access_token, page_token: pg.access_token, ig_user_id: pg.ig_user_id, perms: d?.perms ?? [], connected_at: new Date().toISOString() }); else sec.write(`instagram-${slug}`, {});
+  if (pg.ig_user_id) sec.write(`instagram-${slug}`, { access_token: pg.ut ?? d?.user_token ?? pg.access_token, page_token: pg.access_token, ig_user_id: pg.ig_user_id, perms: d?.perms ?? [], connected_at: new Date().toISOString() }); else sec.write(`instagram-${slug}`, {});
   return { page: pg.name, instagram: !!pg.ig_user_id };
 }

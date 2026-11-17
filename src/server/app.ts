@@ -39,6 +39,7 @@ import { STUDIO_HTML, MANIFEST, SW, iconPng } from '../studio/assets.ts';
 import { handleStudio } from '../studio/routes.ts';
 import { resumeStudio, type Deps as StudioDeps } from '../studio/service.ts';
 import { isPace } from '../edit/pace.ts';
+import { listDestinations, setDestinationEnabled, disconnectDestination } from '../accounts/destinations.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
 import { storageTick, storageStatus, testRemote, listRemotes, rcloneAvailable, validRemote } from '../storage/cloud.ts';
@@ -396,10 +397,13 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/ai/health' && m === 'GET') { const { llmHealth } = await import('./../ai/health.ts'); const { llmChain } = await import('./../ai/settings.ts'); return json(res, 200, { llm: llmHealth(llmChain(cfg)) }); }
       if (p === '/api/logs' && m === 'GET') return json(res, 200, { now: new Date().toISOString(), paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs: recentLogs(Math.min(200, Number(url.searchParams.get('n') ?? 60)), url.searchParams.get('level') === 'warn' ? 'warn' : 'info') });
       if (p === '/api/uploads' && m === 'GET') return json(res, 200, { uploads: listUploads(store) });
+      if (p === '/api/accounts' && m === 'GET') return json(res, 200, { accounts: listDestinations(store, cfg) });
+      { const am = /^\/api\/accounts\/([\w:.-]{3,120})\/(enable|disable|disconnect)$/.exec(p);
+        if (am && m === 'POST') { const id = decodeURIComponent(am[1]!); try { if (am[2] === 'disconnect') disconnectDestination(store, cfg, id); else setDestinationEnabled(store, id, am[2] === 'enable'); return json(res, 200, { ok: true, accounts: listDestinations(store, cfg) }); } catch (e) { return json(res, 400, { error: String((e as Error).message).slice(0, 200) }); } } }
       if (p === '/api/uploads' && m === 'POST') {
-        const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { clipId?: number; platform?: string };
+        const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { clipId?: number; platform?: string; channel?: string };
         if (!Number.isInteger(b.clipId) || !b.platform) return json(res, 400, { error: 'invalid: clipId (int) and platform required' });
-        return json(res, 200, { ok: true, id: queueUpload(store, b.clipId!, String(b.platform)) });
+        return json(res, 200, { ok: true, id: queueUpload(store, b.clipId!, String(b.platform), b.channel ? getChannel(store, String(b.channel)).id : undefined) });
       }
       const adv = /^\/api\/uploads\/(\d+)\/advance$/.exec(p);
       if (adv && m === 'POST') {

@@ -59,5 +59,7 @@ export class SecretStore {
     const f = this.path(name); const tmp = f + '.tmp';
     writeFileSync(tmp, JSON.stringify(body), { mode: 0o600 }); chmodSync(tmp, 0o600); renameSync(tmp, f);
   }
+  /** secret names (not contents) that start with a prefix, e.g. every `tiktok-<openId>` */
+  names(prefix: string): string[] { try { return readdirSync(this.dir).filter((f) => f.endsWith('.json') && f.startsWith(prefix)).map((f) => f.slice(0, -5)); } catch { return []; } }
   delete(name: string): void { const f = this.path(name); if (existsSync(f)) writeFileSync(f, JSON.stringify({ v: 1, enc: false, data: {} }), { mode: 0o600 }); }
 }

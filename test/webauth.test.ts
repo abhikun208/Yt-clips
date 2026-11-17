@@ -11,8 +11,8 @@ test('web login: Connect -> Google redirect -> callback stores encrypted token, 
   const g = createServer((req, res) => { const ch: Buffer[] = []; req.on('data', (c) => ch.push(c)); req.on('end', () => { const u = new URL(req.url!, 'http://x'); const body = Buffer.concat(ch).toString(); seen.push(u.pathname);
     if (u.pathname === '/token' && new URLSearchParams(body).get('code') === 'connection-check') { res.writeHead(400, { 'content-type': 'application/json' }); return void res.end('{"error":"invalid_grant"}'); }
     res.writeHead(200, { 'content-type': 'application/json' });
-    if (u.pathname === '/token') { const p = new URLSearchParams(body); if (p.get('grant_type') !== 'refresh_token') { assert.ok(p.get('code_verifier')); assert.equal(p.get('redirect_uri')?.endsWith('/api/oauth/youtube/callback'), true); } return void res.end(JSON.stringify(p.get('grant_type') === 'refresh_token' ? { access_token: 'at', expires_in: 3600 } : { refresh_token: 'RT-SECRET-123', scope: 'x', access_token: 'at' })); }
-    if (u.pathname === '/youtube/v3/channels') return void res.end(JSON.stringify({ items: [{ id: 'UCabc123', snippet: { title: 'Team Unknown' } }] }));
+    if (u.pathname === '/token') { const p = new URLSearchParams(body); if (p.get('grant_type') !== 'refresh_token') { assert.ok(p.get('code_verifier')); assert.equal(p.get('redirect_uri')?.endsWith('/api/oauth/youtube/callback'), true); } return void res.end(JSON.stringify(p.get('grant_type') === 'refresh_token' ? { access_token: 'at' + p.get('refresh_token'), expires_in: 3600 } : { refresh_token: 'RT-SECRET-123' + (p.get('code') === 'C2' ? 'b' : ''), scope: 'x', access_token: 'at' })); }
+    if (u.pathname === '/youtube/v3/channels') { const two = /123b$/.test(String(req.headers.authorization)); return void res.end(JSON.stringify({ items: [{ id: two ? 'UCdecider' : 'UCabc123', snippet: { title: two ? 'Decider' : 'Team Unknown' } }] })); }
     res.end('{}'); }); });
   await new Promise<void>((r) => g.listen(0, '127.0.0.1', r)); const gb = `http://127.0.0.1:${(g.address() as { port: number }).port}`;
   process.env.YT_OAUTH_BASE = gb; process.env.YT_API_BASE = gb;

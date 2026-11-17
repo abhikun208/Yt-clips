@@ -21,6 +21,7 @@ import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish } from './m
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, BlueskyAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { notify } from '../notify.ts';
 import { planFromStore } from '../schedule/analytics.ts';
+import { destinationBlock, stampUpload } from '../accounts/destinations.ts';
 import { getChannel, listChannels, scheduleFor, ytSecretName, mainChannel, type Channel } from '../channels.ts';
 
 export const secretsFor = (cfg: Config) => SecretStore.forData(cfg.dataDir);
@@ -63,6 +64,9 @@ export function listUploads(store: Store) {
 export async function advance(store: Store, cfg: Config, uploadId: number, o: { approve?: boolean; scheduledAt?: Date | null } = {}): Promise<{ state: UploadState } | { state: string; blocked: string }> {
   const u = store.get<{ clip_id: number; platform: string; state: string }>('SELECT clip_id, platform, state FROM uploads WHERE id=?', uploadId);
   if (!u) throw new Error(`Unknown upload ${uploadId}`);
+  const dch = channelByUpload(store, uploadId);
+  try { stampUpload(store, cfg, uploadId, dch.slug, u.platform); } catch { /* history label only */ }
+  const off = (() => { try { return destinationBlock(store, cfg, dch.slug, u.platform); } catch { return null; } })(); if (off) return { state: u.state, blocked: off };
   const facts = await factsForClip(store, u.clip_id);
   try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId)), uploadId, { facts, ...o }) }; }
   catch (e) { const m = (e as Error).message; if (/^QUOTA_EXCEEDED/.test(m)) void notify(store, cfg, `quota-hit:${quotaDay(new Date())}`, '⏸ YouTube ka daily quota khatam. Uploads kal (midnight Pacific ke baad) apne aap resume honge; video banti rahegi.'); if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }

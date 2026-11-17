@@ -83,13 +83,13 @@ function channelIdOfClip(store: Store, clipId: number): number | null {
   return r?.cid ?? store.get<{ id: number }>(`SELECT id FROM channels WHERE slug='main'`)?.id ?? null;
 }
 
-export function queueUpload(store: Store, clipId: number, platform: string): number {
+export function queueUpload(store: Store, clipId: number, platform: string, channelId?: number): number {
   const clip = store.get<{ output_id: string; qc_pass: number | null }>('SELECT output_id, qc_pass FROM clips WHERE id=?', clipId);
   if (!clip) throw new Error(`Unknown clip ${clipId}`);
-  const key = `${platform}:${clip.output_id}`;
+  const own = channelIdOfClip(store, clipId); const key = `${platform}:${clip.output_id}${channelId && channelId !== own ? `@ch${channelId}` : ''}`; // same clip to ANOTHER destination = its own job
   const ex = store.get<{ id: number }>('SELECT id FROM uploads WHERE idempotency_key=?', key);
   if (ex) return ex.id; // never queue duplicates
-  const chId = channelIdOfClip(store, clipId);
+  const chId = channelId ?? own;
   const r = store.exec('INSERT INTO uploads(clip_id, platform, state, idempotency_key, channel_id) VALUES (?,?,?,?,?)', clipId, platform, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', key, chId);
   store.logState('upload', r.lastId, null, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', 'queued');
   return r.lastId;
