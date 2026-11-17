@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
@@ -33,12 +33,26 @@ export function editClipMeta(store: Store, id: number, e: { title?: string; desc
 }
 
 /** New thumbnail from the chosen frame (seconds into the edited clip), with the clip's thumbnail text. Returns null if the frame is rejected (flat/blank). */
-export async function setThumbnailFrame(store: Store, cfg: Config, id: number, atSec: number): Promise<string | null> {
+export async function setThumbnailFrame(store: Store, cfg: Config, id: number, atSec: number, text?: string): Promise<string | null> {
   const c = clipOf(store, id); if (!c.edited_path || !existsSync(c.edited_path)) throw new Error('invalid: clip file missing');
   if (!(atSec >= 0 && atSec < 600)) throw new Error('invalid: at');
   const md = c.metadata_json ? (JSON.parse(c.metadata_json) as Metadata) : null;
-  const t = await makeThumbnail(c.edited_path, join(cfg.dirs.thumbnails, `${c.output_id}.jpg`), md?.thumbnailText ?? '', atSec);
-  if (!t) return null; store.exec('UPDATE clips SET thumbnail_path=? WHERE id=?', t.path, id); return t.path;
+  // every pick is a NEW file (<output>.t<stamp>.jpg): earlier thumbnails are never overwritten
+  const t = await makeThumbnail(c.edited_path, join(cfg.dirs.thumbnails, `${c.output_id}.t${Date.now().toString(36)}.jpg`), (text ?? md?.thumbnailText ?? '').slice(0, 24), atSec);
+  if (!t) return null; store.exec('UPDATE clips SET thumbnail_path=? WHERE id=?', t.path, id); if (md && text !== undefined) editClipMeta(store, id, { thumbnailText: text }); return t.path;
+}
+
+/** Real frames of the clip to choose a thumbnail from (evenly spaced, no text). Returns seconds + file name served under /files/thumb. */
+export async function thumbCandidates(store: Store, cfg: Config, id: number, n = 6): Promise<{ at: number; file: string }[]> {
+  const c = clipOf(store, id); if (!c.edited_path || !existsSync(c.edited_path)) throw new Error('invalid: clip file missing');
+  const { run } = await import('../util/proc.ts'); const { probe } = await import('../media/probe.ts'); const info = await probe(c.edited_path); const out: { at: number; file: string }[] = [];
+  mkdirSync(cfg.dirs.thumbnails, { recursive: true });
+  for (let k = 1; k <= n; k++) {
+    const at = Math.min(Math.max(0.3, (info.duration * k) / (n + 1)), Math.max(0.3, info.duration - 0.2)); const file = `${c.output_id}.cand${k}.jpg`; const full = join(cfg.dirs.thumbnails, file);
+    const r = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-ss', at.toFixed(2), '-i', c.edited_path, '-frames:v', '1', '-vf', 'scale=360:-2', '-q:v', '4', full], { timeoutMs: 20_000 }).catch(() => null);
+    if (r && r.code === 0 && existsSync(full) && statSync(full).size > 2000) out.push({ at: Number(at.toFixed(2)), file });
+  }
+  return out;
 }
 
 /** Re-render the same moment with other options into a NEW output (v2, v3...). The previous output is never overwritten; metadata is copied; thumbnail regenerated. */
@@ -62,6 +76,8 @@ export function exportPackage(store: Store, cfg: Config, id: number): { path: st
   const files: { name: string; data: Buffer }[] = [{ name: `${c.output_id}.mp4`, data: readFileSync(c.edited_path) }];
   if (c.thumbnail_path && existsSync(c.thumbnail_path)) files.push({ name: `${c.output_id}_thumbnail.jpg`, data: readFileSync(c.thumbnail_path) });
   const srt = join(cfg.dataDir, 'captions', `${c.output_id}.srt`); if (existsSync(srt)) files.push({ name: `${c.output_id}.srt`, data: readFileSync(srt) });
+  { const mf = join(cfg.dirs.manifests, `${c.output_id}.json`); if (existsSync(mf)) files.push({ name: 'manifest.json', data: readFileSync(mf) }); // what was actually rendered (settings + treatments)
+    files.push({ name: 'version.json', data: Buffer.from(JSON.stringify({ clipId: id, outputId: c.output_id, variant: c.variant, exportedAt: new Date().toISOString() }, null, 2)) }); }
   if (md) {
     const hash = md.hashtags?.join(' ') ?? '';
     files.push({ name: 'title.txt', data: Buffer.from(md.title) }, { name: 'description.txt', data: Buffer.from(md.description) }, { name: 'tags.txt', data: Buffer.from(md.tags.join(', ')) });

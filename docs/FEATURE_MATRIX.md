@@ -82,3 +82,7 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Upload shows target account; per-upload destination history | DONE | src/accounts/destinations.ts (stampUpload) |
 | YouTube callback repeat-safe | DONE | test/webauth.test.ts |
 | Real Meta/TikTok publish & multi-login on phone | NOT TESTED (needs owner authorization) | — |
+| Editor metadata never blank: FALLBACK on failure, visible status, Generate AI, edits preserved on regeneration | DONE; fake/no-AI tested, real AI UNVERIFIED | test/editormeta.test.ts |
+| Thumbnail studio: real candidate frames, versioned thumbnails | DONE | test/editormeta.test.ts |
+| Export ZIP: video, SRT, manifest, version, title/description/tags, thumbnail | DONE | test/editormeta.test.ts |
+| Editor aspect ratios 16:9/1:1, music licensing, version compare | NOT BUILT | — |

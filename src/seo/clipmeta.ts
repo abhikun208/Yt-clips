@@ -30,7 +30,7 @@ const cooling = new Map<string, number>();
 export const cleanSourceTitle = (t: string): string => t.replace(/\.(mp4|mkv|webm|mov)$/i, '').replace(/_?(\d{3,4}p|hd|fhd|uhd|4k)_?/gi, ' ').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
 /** Real names the uploader put in the file name as tags (_tanyamittal _bigboss19): video-specific, used first for tags/hashtags. */
 export const sourceHints = (t: string): string[] => [...new Set((t.match(/(?:^|[\s_#])([a-z][a-z0-9]{3,29})(?=[\s_]|$)/gi) ?? []).map((x) => x.replace(/^[\s_#]/, '').toLowerCase()).filter((x) => !/^(mp4|comedy|funny|video|shorts|short|reaction|original|official|full|new|latest|viral|trending)$/.test(x)))].slice(0, 8);
-export async function metaForClip(store: Store, cfg: Config, clipId: number, o: { notifyOwner?: boolean } = {}): Promise<Metadata & { thumbnailOk: boolean }> {
+export async function metaForClip(store: Store, cfg: Config, clipId: number, o: { notifyOwner?: boolean; force?: boolean } = {}): Promise<Metadata & { thumbnailOk: boolean }> {
   const row = store.get<{ id: number; candidate_id: number; edited_path: string; output_id: string }>('SELECT id, candidate_id, edited_path, output_id FROM clips WHERE id=?', clipId); if (!row) throw new Error(`unknown clip ${clipId}`);
   const ch = channelOfClip(store, clipId);
   const cand = store.get<{ category: string; transcript: string | null; language: string | null; start_sec: number; end_sec: number; hook: string | null; part_no: number | null; part_total: number | null; video_id: number }>('SELECT category, transcript, language, start_sec, end_sec, hook, part_no, part_total, video_id FROM candidates WHERE id=?', row.candidate_id)!;
@@ -84,7 +84,29 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
     const fin = await finishClip(store, cfg, clipId, useAi ? screenTitle(md.title) : null, b); if (fin.ok) md = { ...md, warnings: [...md.warnings, `on-screen title: ${fin.title}${fin.broll ? ` (+${fin.broll} B-roll)` : ''}`] };
   } catch (e) { warn('on-screen title step failed', { clip: clipId, err: String((e as Error).message).slice(0, 120) }); }
   const thumb = await makeThumbnail(row.edited_path, join(cfg.dirs.thumbnails, `${row.output_id}.jpg`), md.thumbnailText).catch((e: Error) => { warn('thumbnail failed', { clip: clipId, err: e.message.slice(0, 80) }); return null; });
-  store.exec('UPDATE clips SET metadata_json=?, thumbnail_path=? WHERE id=?', JSON.stringify({ ...md, thumbnailOk: !!thumb }), thumb?.path ?? null, clipId);
+  { // the owner's manual edits survive a regeneration unless they confirmed overwriting (force): the new AI text is kept as a suggestion instead
+    const prev = (() => { try { return JSON.parse(store.get<{ m: string | null }>('SELECT metadata_json m FROM clips WHERE id=?', clipId)?.m ?? 'null') as (Metadata & { edited?: boolean }) | null; } catch { return null; } })();
+    if (prev?.edited && !o.force) md = { ...md, suggested: { title: md.title, description: md.description, tags: md.tags }, title: prev.title, description: prev.description, tags: prev.tags, edited: true } as typeof md;
+  }
+  store.exec('UPDATE clips SET metadata_json=?, thumbnail_path=COALESCE(thumbnail_path, ?) WHERE id=?', JSON.stringify({ ...md, thumbnailOk: !!thumb }), thumb?.path ?? null, clipId);
   if (o.notifyOwner !== false) void notify(store, cfg, `clip:${clipId}`, `Clip ready for review: ${md.titles[0] ?? row.output_id} (${ch.name}). Dashboard → Clips.`);
   return { ...md, thumbnailOk: !!thumb };
+}
+
+/**
+ * When the full metadata step cannot finish (provider down, validation error, no speech) the clip must NOT stay blank: a rules-based title/description/tags
+ * is saved and clearly labelled FALLBACK (never as AI output) so the editor has text and the automation re-tries it later (generic=true).
+ * Does nothing if the clip already has metadata.
+ */
+export function fallbackMetaForClip(store: Store, cfg: Config, clipId: number, reason: string): Metadata | null {
+  void cfg;
+  const row = store.get<{ candidate_id: number; metadata_json: string | null }>('SELECT candidate_id, metadata_json FROM clips WHERE id=?', clipId); if (!row || row.metadata_json) return null;
+  const cand = store.get<{ category: string; transcript: string | null; language: string | null; start_sec: number; end_sec: number; hook: string | null; video_id: number }>('SELECT category, transcript, language, start_sec, end_sec, hook, video_id FROM candidates WHERE id=?', row.candidate_id); if (!cand) return null;
+  const ch = channelOfClip(store, clipId); const src = store.get<{ title: string | null; path: string }>('SELECT s.title, v.path FROM videos v LEFT JOIN sources s ON s.id=v.source_id WHERE v.id=?', cand.video_id);
+  const sourceTitle = cleanSourceTitle(src?.title ?? src?.path.split('/').pop() ?? 'clip');
+  let md = buildMetadata({ sourceTitle, transcript: (cand.transcript ?? '').trim(), category: cand.category, language: cand.language ?? 'unknown', hook: cand.hook ?? undefined, cues: [], clipStart: cand.start_sec, duration: cand.end_sec - cand.start_sec, part: null, ...chMeta(ch) });
+  md = { ...md, generic: true, generatedBy: `FALLBACK (rules, not AI): ${reason.slice(0, 120)}`, warnings: [...md.warnings, 'FALLBACK metadata: the AI/metadata step did not finish'] };
+  { let tl = 0; const tags: string[] = []; for (const t of [...new Set(md.tags.map((x) => String(x).trim()).filter(Boolean))]) { if (tl + t.length + 1 > 450 || tags.length >= 15) break; tags.push(t.slice(0, 40)); tl += t.length + 1; } md = { ...md, title: md.title.slice(0, 100), description: md.description.slice(0, 4900), tags }; } // repair instead of leaving the clip blank
+  if (validateMetadata(md).length) return null;
+  store.exec('UPDATE clips SET metadata_json=? WHERE id=? AND metadata_json IS NULL', JSON.stringify(md), clipId); return md;
 }
