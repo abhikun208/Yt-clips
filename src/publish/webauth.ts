@@ -59,7 +59,8 @@ export const identityOf = (store: Store, slug: string): Identity | null => { try
 /** Finishes the redirect. The state is single-use and expires after 30 min; errors never echo the code/token. */
 export async function finishWebAuth(store: Store, cfg: Config, q: { code: string | null; state: string | null; error: string | null }): Promise<{ slug: string; identity: Identity | null }> {
   const row = q.state ? store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', key(q.state)) : undefined; if (q.state) store.exec('DELETE FROM kv WHERE k=?', key(q.state));
-  if (!row) throw new Error('link expire ya pehle hi use ho chuka — Connect dobara dabao');
+  if (!row && q.state) { const d = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytweb-done:${q.state}`)?.v; if (d) return JSON.parse(d) as { slug: string; identity: Identity | null }; } // phone browsers often fire the callback twice: the repeat shows the same success, not an error
+  if (!row) throw new Error('link expire ya pehle hi use ho chuka — agar pehli baar me "Connected" nahi dikha to Connect dobara dabao; warna Setup → Connected Accounts me check karo, shayad account pehle se jud chuka hai');
   const st = JSON.parse(row.v) as { slug: string; verifier: string; redirectUri: string; exp: number };
   if (st.exp < Date.now()) throw new Error('link expire ho gaya (30 min) — dobara banao');
   if (q.error) throw new Error(q.error === 'access_denied' ? 'Google ne access nahi diya. Ya to Allow nahi dabaya, ya (zyada common) Google app abhi "Testing" me hai aur ye Google account "Test users" me nahi hai. Fix: Google Cloud Console → APIs & Services → OAuth consent screen (Audience) → Test users → "+ Add users" → us account ka email daalo → Save, phir Connect dobara. (Ya app ko "Publish" karo.)' : `Google error: ${q.error.slice(0, 40)}`);
@@ -72,11 +73,12 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   sec.write(ytSecretName(ch), fresh);
   let identity: Identity | null = null;
   try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString(), ...(w.thumb ? { thumb: w.thumb } : {}) }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }
+  const done = (r: { slug: string; identity: Identity | null }) => { if (q.state) { store.exec(`DELETE FROM kv WHERE k LIKE 'ytweb-done:%' AND updated_at < datetime('now','-15 minutes')`); store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `ytweb-done:${q.state}`, JSON.stringify(r)); } return r; };
   const guarded = identity ? guardReplacement(store, cfg, ch, identity, fresh, prevSecret, prevIdent) : null;
-  if (guarded) return guarded;
+  if (guarded) return done(guarded);
   if (identity) autoNameChannel(store, ch, identity.title);
   store.logState('youtube-connect', ch.id, null, 'connected', identity ? identity.channelId : 'no identity yet');
-  return { slug: st.slug, identity };
+  return done({ slug: st.slug, identity });
 }
 
 /**

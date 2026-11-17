@@ -28,7 +28,7 @@ test('web login: Connect -> Google redirect -> callback stores encrypted token, 
     const state = au.searchParams.get('state')!;
     assert.match(await (await fetch(`${base}/api/oauth/youtube/callback?code=C1&state=WRONG`)).text(), /expire|use ho chuka/, 'bad state rejected');
     const ok = await fetch(`${base}/api/oauth/youtube/callback?code=C1&state=${state}`); const html = await ok.text(); assert.match(html, /Connected/); assert.match(html, /Team Unknown/); assert.doesNotMatch(html, /RT-SECRET/);
-    assert.match(await (await fetch(`${base}/api/oauth/youtube/callback?code=C1&state=${state}`)).text(), /use ho chuka|expire/, 'state is single-use');
+    assert.match(await (await fetch(`${base}/api/oauth/youtube/callback?code=C1&state=${state}`)).text(), /Connected/, 'a repeated callback (phone browsers fire it twice) shows the same success, and consumes no new token'); assert.match(await (await fetch(`${base}/api/oauth/youtube/callback?code=C1&state=OTHER`)).text(), /use ho chuka|expire/, 'unknown state still rejected');
     const st = await (await fetch(`${base}/api/channels/main/youtube`, { headers: auth })).json() as any; assert.equal(st.connected, true); assert.equal(st.identity.channelId, 'UCabc123'); assert.doesNotMatch(JSON.stringify(st), /RT-SECRET/);
     for (const p of ['/api/channels', '/api/settings', '/api/connections', '/api/youtube']) assert.doesNotMatch(await (await fetch(`${base}${p}`, { headers: auth })).text(), /RT-SECRET/, p);
     assert.equal(new SecretStore(dataDir, undefined).constructor.name, 'SecretStore'); // stored via the vault, not plaintext in config
