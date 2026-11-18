@@ -87,7 +87,11 @@ export function disconnectDestination(store: Store, cfg: Config, id: string): vo
   syncDestinations(store, cfg);
   const r = store.get<Row>('SELECT * FROM destinations WHERE id=?', id); if (!r) throw new Error('invalid: unknown account');
   const sec = secretsFor(cfg);
-  if (r.platform === 'youtube') { sec.delete(r.secret_ref); if (r.channel_slug) store.exec('DELETE FROM kv WHERE k=?', `ytinfo:${r.channel_slug}`); }
+  if (r.platform === 'youtube') { // the account, wherever it is stored: its own slug AND any duplicate slug holding the same channel
+    const dups = (JSON.parse(r.meta_json || '{}') as { duplicateSlugs?: string[] }).duplicateSlugs ?? [];
+    sec.delete(r.secret_ref); if (r.channel_slug) store.exec('DELETE FROM kv WHERE k=?', `ytinfo:${r.channel_slug}`);
+    for (const slug of dups) { try { sec.delete(slug === 'main' ? 'youtube' : `youtube-${slug}`); } catch { /* none */ } store.exec('DELETE FROM kv WHERE k=?', `ytinfo:${slug}`); }
+  }
   else if (r.platform === 'tiktok') sec.delete(r.secret_ref);
   else {
     const pid = r.platform === 'facebook' ? r.external_id : (JSON.parse(r.meta_json || '{}') as { pageId?: string }).pageId;
@@ -104,6 +108,16 @@ export function disconnectDestination(store: Store, cfg: Config, id: string): vo
   }
   store.exec(`UPDATE destinations SET status='disconnected', updated_at=datetime('now') WHERE id=?`, id); store.logState('destination', 0, null, 'disconnected', id);
   syncDestinations(store, cfg);
+}
+
+/** Removes ONLY the duplicate slugs' copies of a YouTube channel (the destination's own slug stays connected). Returns the slugs cleaned. */
+export function dedupeDestination(store: Store, cfg: Config, id: string): string[] {
+  syncDestinations(store, cfg);
+  const r = store.get<Row>('SELECT * FROM destinations WHERE id=?', id); if (!r || r.platform !== 'youtube') throw new Error('invalid: unknown YouTube account');
+  const dups = (JSON.parse(r.meta_json || '{}') as { duplicateSlugs?: string[] }).duplicateSlugs ?? []; const sec = secretsFor(cfg);
+  for (const slug of dups) { try { sec.delete(slug === 'main' ? 'youtube' : `youtube-${slug}`); } catch { /* none */ } store.exec('DELETE FROM kv WHERE k=?', `ytinfo:${slug}`); }
+  store.exec(`UPDATE destinations SET meta_json=json_remove(meta_json,'$.duplicateSlugs') WHERE id=?`, id); store.logState('destination', 0, null, 'dedupe', id);
+  syncDestinations(store, cfg); return dups;
 }
 
 /** The destination a channel publishes to on a platform (null = none registered yet). Used to gate the queue and to label uploads. */
