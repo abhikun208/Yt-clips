@@ -21,6 +21,7 @@ import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish } from './m
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, BlueskyAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { notify } from '../notify.ts';
 import { planFromStore } from '../schedule/analytics.ts';
+import { publicAtFor } from '../autopilot/engine.ts';
 import { destinationBlock, stampUpload } from '../accounts/destinations.ts';
 import { getChannel, listChannels, scheduleFor, ytSecretName, mainChannel, type Channel } from '../channels.ts';
 
@@ -160,8 +161,13 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
       try {
         const cur = store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', u.id)!.state; let at: Date | null = null;
         if (cur === 'UNLISTED_VERIFIED' && !cfg.automation.autoApprove) { r.blocked.NEEDS_APPROVAL = (r.blocked.NEEDS_APPROVAL ?? 0) + 1; break; }
-        if (cur === 'UNLISTED_VERIFIED') { const ch = channelByUpload(store, u.id); at = planFromStore(store, { n: 1, tz: cfg.timezone, cfg: scheduleFor(cfg, ch), from: now, platform: u.platform, channelId: ch.id }).slots[0]?.at ?? null; if (!at) { r.blocked.NO_SLOT = (r.blocked.NO_SLOT ?? 0) + 1; break; } }
-        const res = await advance(store, cfg, u.id, at ? { scheduledAt: at } : {});
+        let policyGo = false;
+        if (cur === 'UNLISTED_VERIFIED' && cfg.automation.autoPublic?.enabled) { // unlisted → wait the persisted random delay → public (QC + restriction checks still run inside advance)
+          const pa = publicAtFor(store, cfg, u.id, now); if (pa && pa.getTime() > now.getTime()) { r.blocked.WAIT_PUBLIC_DELAY = (r.blocked.WAIT_PUBLIC_DELAY ?? 0) + 1; break; }
+          policyGo = true;
+        }
+        if (cur === 'UNLISTED_VERIFIED' && !policyGo) { const ch = channelByUpload(store, u.id); at = planFromStore(store, { n: 1, tz: cfg.timezone, cfg: scheduleFor(cfg, ch), from: now, platform: u.platform, channelId: ch.id }).slots[0]?.at ?? null; if (!at) { r.blocked.NO_SLOT = (r.blocked.NO_SLOT ?? 0) + 1; break; } }
+        const res = await advance(store, cfg, u.id, at ? { scheduledAt: at } : policyGo ? { approve: true } : {});
         if ('blocked' in res) { const k = /^[A-Z_]+/.exec(res.blocked)?.[0] ?? 'BLOCKED'; if (k === 'HELD_RESTRICTED') void notify(store, cfg, `held:${u.id}`, `Upload #${u.id} held: ${res.blocked.slice(0, 200)}`); if (k === 'MANUAL_POST_REQUIRED') void notify(store, cfg, `manual:${u.id}`, `Post this clip now on ${u.platform} (task #${u.id}). Dashboard → Publish → Manual post tasks.`); r.blocked[k] = (r.blocked[k] ?? 0) + 1; break; }
         r.advanced++; if (res.state === 'PUBLISHED') { r.published++; void notify(store, cfg, `pub:${u.id}`, `Published on ${u.platform} (upload #${u.id}).`); break; } if (res.state === 'QC_FAILED' || res.state === 'FAILED') break;
       } catch (e) { r.errors.push(`upload ${u.id}: ${(e as Error).message.slice(0, 160)}`); break; }

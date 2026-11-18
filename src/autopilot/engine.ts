@@ -1,3 +1,4 @@
+import { effectiveSummary } from './flags.ts';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { scoreMetadata } from '../seo/score.ts';
@@ -15,7 +16,7 @@ const KEY = 'autopilot:paused';
 export const isPaused = (store: Store): boolean => store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', KEY)?.v === '1';
 export function setPaused(store: Store, on: boolean): void { store.exec('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', KEY, on ? '1' : '0'); }
 
-export interface AutopilotState { on: boolean; paused: boolean; handsFree: boolean; badge: string; missing: string[] }
+export interface AutopilotState { on: boolean; paused: boolean; handsFree: boolean; badge: string; missing: string[]; effective: string; autoPublic: { enabled: boolean; minMin: number; maxMin: number } | null; pendingPublic: number }
 /** handsFree = nothing for the owner to click: queue + approve are automatic and no review is required. */
 export function autopilotState(store: Store, cfg: Config): AutopilotState {
   const a = cfg.automation; const paused = isPaused(store); const missing: string[] = [];
@@ -24,7 +25,7 @@ export function autopilotState(store: Store, cfg: Config): AutopilotState {
   if (a.requireReview) missing.push('requireReview on: pehle review karna padega');
   if (!cfg.gates?.publishEnabled) missing.push('gates.publishEnabled off: upload sirf private/dry-run');
   const on = !!a.autoQueue && !paused; const handsFree = on && !!a.autoApprove && !a.requireReview;
-  return { on, paused, handsFree, badge: paused ? '⏸ Auto-Pilot PAUSED' : on ? (handsFree ? '🤖 Auto-Pilot ON' : '🤖 Auto-Pilot ON (kuch approval baaki)') : '⚪ Auto-Pilot OFF', missing };
+  return { on, paused, handsFree, badge: paused ? '⏸ Auto-Pilot PAUSED' : on ? (handsFree ? '🤖 Auto-Pilot ON' : '🤖 Auto-Pilot ON (kuch approval baaki)') : '⚪ Auto-Pilot OFF', missing, effective: effectiveSummary(a, cfg.gates ?? {}), autoPublic: a.autoPublic?.enabled ? a.autoPublic : null, pendingPublic: store.get<{ n: number }>("SELECT COUNT(*) n FROM kv WHERE k LIKE 'pubat:%' AND CAST(SUBSTR(k,7) AS INTEGER) IN (SELECT id FROM uploads WHERE state='UNLISTED_VERIFIED')")?.n ?? 0 };
 }
 
 /** One word for the dashboard: what happened to this clip automatically. */
@@ -51,4 +52,16 @@ export function autopilotPass(store: Store, cfg: Config): boolean {
     }
   } catch (e) { warn('autopilot pass failed', { why: (e as Error).message.slice(0, 120) }); }
   return true;
+}
+
+/**
+ * Delayed auto-public. The moment an upload is first seen as UNLISTED_VERIFIED we pick ONE random time in the owner's [min,max] window and persist it
+ * (kv `pubat:<uploadId>`), so a restart neither re-rolls nor loses it, and the same upload can never be published twice from two ticks.
+ */
+export function publicAtFor(store: Store, cfg: Config, uploadId: number, now = new Date(), rnd: () => number = Math.random): Date | null {
+  const ap = cfg.automation.autoPublic; if (!ap?.enabled) return null; const key = `pubat:${uploadId}`;
+  const cur = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', key)?.v; if (cur) { const d = new Date(cur); if (!Number.isNaN(d.getTime())) return d; }
+  const min = ap.minMin + Math.floor(rnd() * (ap.maxMin - ap.minMin + 1)); const at = new Date(now.getTime() + min * 60_000);
+  store.exec('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO NOTHING', key, at.toISOString());
+  return new Date(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', key)!.v);
 }

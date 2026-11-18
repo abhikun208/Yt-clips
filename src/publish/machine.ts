@@ -144,6 +144,10 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
         // the time chosen at approval is stored; a stored time already in the past means "publish now"
         const stored = u.scheduled_at ? new Date(u.scheduled_at) : null; const when = o.scheduledAt ?? (stored && stored.getTime() > Date.now() ? stored : null);
         const pr = await adapter.publish(u.remote_id!, when);
+        if (!when && !adapter.local) { // never report success from our own call: ask the platform what visibility the video really has
+          const seen = await adapter.verify(u.remote_id!).catch((e) => { throw new Error(`NOT_READY: could not confirm public visibility (${(e as Error).message.slice(0, 80)}) — will re-check, not marked published`); });
+          if (seen.visibility !== 'public') throw new Error(`NOT_READY: platform still reports visibility=${seen.visibility} after publish — will re-check, not marked published`);
+        }
         setState(store, u.id, from, 'PUBLISHED', { vis: 'public', ...(pr && pr.remoteId ? { remote: pr.remoteId } : {}) }); return 'PUBLISHED';
       }
       default: { const n = nextState(from); if (!n) return from; setState(store, u.id, from, n); return n; }

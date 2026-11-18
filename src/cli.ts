@@ -130,17 +130,14 @@ async function main(): Promise<number> {
     if (cmd === 'comment-approve') { setCommentStatus(s, Number(rest[0]), 'approve'); console.log('approved'); return 0; }
     if (cmd === 'comment-post') { await postComment(s, cfg, Number(rest[0])); console.log('posted'); return 0; }
     if (cmd === 'autopilot') {
-      const sub = rest[0] ?? 'status'; const yes = rest.includes('--yes');
+      const sub = rest[0] ?? 'status'; const args = rest.slice(1);
       if (sub === 'on') {
-        const patch: Record<string, unknown> = { automation: { autoQueue: true, ...(rest.includes('--review') ? { requireReview: true } : {}) } };
-        const risky = ['--publish', '--approve', '--public'].filter((f) => rest.includes(f));
-        if (risky.length && !yes) throw new Error(`refusing: ${risky.join(' ')} lets the system upload/publish on its own. Re-run with --yes only if you own the content and the connected account.`);
-        if (rest.includes('--publish')) (patch.gates as Record<string, boolean> | undefined) ? ((patch.gates as Record<string, boolean>).publishEnabled = true) : (patch.gates = { publishEnabled: true });
-        if (rest.includes('--public')) (patch.gates as Record<string, boolean> | undefined) ? ((patch.gates as Record<string, boolean>).publicVisibilityAllowed = true) : (patch.gates = { publicVisibilityAllowed: true });
-        if (rest.includes('--approve')) (patch.automation as Record<string, unknown>).autoApprove = true;
-        updateOwnerConfig(cfg, patch); console.log('autopilot ON', JSON.stringify(patch));
-      } else if (sub === 'off') { updateOwnerConfig(cfg, { automation: { autoQueue: false, autoApprove: false }, gates: { publishEnabled: false, publicVisibilityAllowed: false, commentsAutoPost: false } }); console.log('autopilot OFF (all gates closed)'); }
-      const c2 = loadConfig(); console.log(JSON.stringify({ automation: c2.automation, gates: c2.gates }, null, 2)); return 0;
+        const { parseAutopilotOn } = await import('./autopilot/flags.ts'); const pr = parseAutopilotOn(args); // throws on unknown/invalid flags — nothing is silently ignored
+        updateOwnerConfig(cfg, pr.patch); console.log('autopilot ON — saved:', pr.summary.length ? pr.summary.join(' | ') : 'queue only');
+      } else if (sub === 'off') { if (args.some((x) => x !== '--yes')) throw new Error(`unsupported flag(s) for "autopilot off": ${args.join(' ')}`); updateOwnerConfig(cfg, { automation: { autoQueue: false, autoApprove: false, autoPublic: { enabled: false } }, gates: { publishEnabled: false, publicVisibilityAllowed: false, commentsAutoPost: false } }); console.log('autopilot OFF (all gates closed)'); }
+      else if (sub !== 'status') throw new Error(`unknown autopilot subcommand "${sub}" (on | off | status)`);
+      else if (args.length) throw new Error(`"autopilot status" takes no flags (got ${args.join(' ')})`);
+      const c2 = loadConfig(); const { effectiveSummary } = await import('./autopilot/flags.ts'); console.log('EFFECTIVE:', effectiveSummary(c2.automation, c2.gates)); console.log(JSON.stringify({ automation: c2.automation, gates: c2.gates }, null, 2)); return 0;
     }
     if (cmd === 'tick') { console.log(await automationTick(s, cfg)); return 0; }
     if (cmd === 'platforms') { console.table(platformStatus(s, cfg)); return 0; }
