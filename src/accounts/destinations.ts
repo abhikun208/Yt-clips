@@ -137,3 +137,18 @@ export function destinationBlock(store: Store, cfg: Config, channelSlug: string,
 export function stampUpload(store: Store, cfg: Config, uploadId: number, channelSlug: string, uploadPlatform: string): void {
   const d = destinationFor(store, cfg, channelSlug, uploadPlatform); if (d) store.exec('UPDATE uploads SET destination_id=? WHERE id=? AND destination_id IS NULL', d.id, uploadId);
 }
+
+export interface SourceMapping { sourceId: number; channelId: number; platform: string; enabled: boolean; priority: number }
+/** Extra destinations of a source (besides the channel the source belongs to). */
+export function listSourceMappings(store: Store, sourceId?: number): SourceMapping[] {
+  return store.all<{ source_id: number; channel_id: number; platform: string; enabled: number; priority: number }>(`SELECT * FROM source_destinations ${sourceId ? 'WHERE source_id=?' : ''} ORDER BY priority DESC, channel_id`, ...(sourceId ? [sourceId] : []))
+    .map((r) => ({ sourceId: r.source_id, channelId: r.channel_id, platform: r.platform, enabled: !!r.enabled, priority: r.priority }));
+}
+export function setSourceMapping(store: Store, m: { sourceId: number; channelId: number; platform?: string; enabled?: boolean; priority?: number; remove?: boolean }): void {
+  const src = store.get<{ channel_id: number | null }>('SELECT channel_id FROM sources WHERE id=?', m.sourceId); if (!src) throw new Error('not found: source');
+  if (!store.get('SELECT 1 FROM channels WHERE id=?', m.channelId)) throw new Error('not found: channel');
+  const platform = m.platform ?? 'youtube_shorts';
+  if (m.remove) { store.exec('DELETE FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform); return; }
+  if (src.channel_id === m.channelId) throw new Error('invalid: ye source ka apna channel hai (wo already default destination hai)');
+  store.exec(`INSERT INTO source_destinations(source_id, channel_id, platform, enabled, priority) VALUES (?,?,?,?,?) ON CONFLICT(source_id, channel_id, platform) DO UPDATE SET enabled=excluded.enabled, priority=excluded.priority`, m.sourceId, m.channelId, platform, m.enabled === false ? 0 : 1, m.priority ?? 0);
+}

@@ -451,3 +451,9 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Duplicate YouTube channel (youtube-account-2 + decider-gamming same channel): Disconnect now removes the account's token from every slug holding it; new "Duplicate hatao (ek rakho)" button / POST /api/accounts/<id>/dedupe removes only the duplicate slug copies, keeps the main one connected.
 - Disconnect also tries Google token revocation (best effort); response `revoked` true/false; UI says honestly when Google didn't confirm (local credentials are removed either way).
 - Already existing from earlier rounds (audit for the isolation prompt): per-account destinations registry, per-channel tokens/clients, upload routing per channel, idempotent disconnect, jobs gated by DESTINATION_DISABLED. Not done: per-account "Test connection"/token-expiry columns in UI, Meta real HTTPS (owner domain/tunnel needed).
+
+## 2026-11-19 (18) — Prompt1 gap pass
+- Prompt1 = generic master prompt (appears twice in the file). Audited against repo: resumable upload+recovery, destination registry, per-job destination, unlisted-first/delayed public, CLI strictness, render FFprobe validation, model self-heal already existed.
+- NEW: pre-upload identity guard (AUTH_IDENTITY_MISMATCH pause), source→destination mapping (table v15, API, auto-queue, test), docs ARCHITECTURE / OAUTH_ARCHITECTURE / PUBLISHING_STATE_MACHINE / TESTING / KNOWN_ISSUES.
+- NOT done (honest): 8-tab UI redesign, mapping UI, per-account Test connection button, Meta real HTTPS (owner), AI upscaling.
+- Full suite: 459 pass, 0 fail.

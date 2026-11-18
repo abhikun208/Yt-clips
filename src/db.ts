@@ -102,6 +102,10 @@ const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(platform, external_id));
    CREATE INDEX IF NOT EXISTS idx_dest_channel ON destinations(channel_slug, platform);`,
   `ALTER TABLE uploads ADD COLUMN destination_id TEXT;`,
+  // v15 (additive): Source -> extra destination mappings (one source can feed several channels; a source's own channel stays its default destination).
+  `CREATE TABLE IF NOT EXISTS source_destinations (
+    source_id INTEGER NOT NULL, channel_id INTEGER NOT NULL, platform TEXT NOT NULL DEFAULT 'youtube_shorts', enabled INTEGER NOT NULL DEFAULT 1, priority INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (source_id, channel_id, platform));`,
 ];
 
 export type Row = Record<string, unknown>;

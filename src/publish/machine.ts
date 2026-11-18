@@ -59,6 +59,8 @@ export interface Adapter {
   publish(remoteId: string, at: Date | null): Promise<void | { remoteId?: string }>;
   /** Optional: what the platform itself reports about restrictions on an uploaded video (region blocks, rejection). Content ID claims are NOT part of YouTube's API. */
   restrictions?(remoteId: string): Promise<{ blockedRegions: string[]; allowedOnly: string[] | null; rejectionReason: string | null }>;
+  /** Optional: the identity the platform credentials really belong to (YouTube: channels.list mine=true). Checked before every upload. */
+  whoami?(): Promise<{ id: string; title: string } | null>;
   readonly local?: boolean;
 }
 
@@ -117,6 +119,11 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UPLOAD_PENDING': if (!adapter.local) assertPublishAllowed(cfg, 'unlisted'); setState(store, u.id, from, 'UPLOADING'); return 'UPLOADING';
       case 'UPLOADING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
+        if (adapter.whoami) { // never upload with credentials that belong to a different channel than the one this clip is routed to
+          const slug = channelOfClip(store, u.clip_id).slug; let want: string | null = null;
+          try { const v = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytinfo:${slug}`)?.v; want = v ? (JSON.parse(v) as { channelId?: string }).channelId ?? null : null; } catch { /* unknown identity: nothing to compare */ }
+          if (want) { const me = await adapter.whoami(); if (me && me.id !== want) throw new Error(`AUTH_IDENTITY_MISMATCH: channel "${slug}" is registered as ${want} but its login belongs to ${me.id} ("${me.title}"). Upload blocked — Setup me us channel ko dobara connect karo.`); }
+        }
         const sandbox = channelOfClip(store, u.clip_id).config.sandbox === true; const r = await adapter.upload({ filePath: clip.edited_path, title: sandbox && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
         if (adapter.thumbnail && o.facts.thumbnailPath) { try { await adapter.thumbnail(r.remoteId, o.facts.thumbnailPath); } catch { /* thumbnails are optional */ } }
         setState(store, u.id, from, 'UPLOAD_VERIFYING', { remote: r.remoteId, vis: 'unlisted' }); return 'UPLOAD_VERIFYING';

@@ -40,7 +40,7 @@ import { handleStudio } from '../studio/routes.ts';
 import { resumeStudio, type Deps as StudioDeps } from '../studio/service.ts';
 import { isPace } from '../edit/pace.ts';
 import { thumbCandidates } from '../review/review.ts';
-import { listDestinations, setDestinationEnabled, disconnectDestination, dedupeDestination } from '../accounts/destinations.ts';
+import { listDestinations, setDestinationEnabled, disconnectDestination, dedupeDestination, listSourceMappings, setSourceMapping } from '../accounts/destinations.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
 import { storageTick, storageStatus, testRemote, listRemotes, rcloneAvailable, validRemote } from '../storage/cloud.ts';
@@ -272,6 +272,9 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/claims' && m === 'GET') return json(res, 200, claimSummary(store));
       { const cm = p.match(/^\/api\/clips\/(\d+)\/claim$/); if (cm && req.method === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind: ClaimKind; ranges?: unknown; note?: string }; try { const cr = await recordClaim(store, Number(cm[1]), b); if (cr.sourcePaused) void notify(store, cfg, `srcpause:${cr.sourceId}`, `Source #${cr.sourceId} paused after ${cr.sourceClaims} copyright claims.`); return json(res, 200, cr); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg }); } } }
       if (p === '/api/doctor' && m === 'GET') return json(res, 200, { report: lastDoctor_(store) });
+      { const sm = p.match(/^\/api\/sources\/(\d+)\/destinations$/); if (sm) { const sid = Number(sm[1]);
+        if (m === 'GET') return json(res, 200, { mappings: listSourceMappings(store, sid) });
+        if (m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { channel?: string; platform?: string; enabled?: boolean; priority?: number; remove?: boolean }; try { setSourceMapping(store, { sourceId: sid, channelId: getChannel(store, String(b.channel)).id, platform: b.platform, enabled: b.enabled, priority: b.priority, remove: b.remove === true }); return json(res, 200, { ok: true, mappings: listSourceMappings(store, sid) }); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg.slice(0, 200) }); } } } }
       if (p === '/api/doctor' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { fix?: boolean }; return json(res, 200, { report: await runDoctor(store, cfg, { fix: b.fix !== false }) }); }
       if (p === '/api/why' && m === 'GET') return json(res, 200, { items: whyReport(store, cfg, { running: running || !!timer, ytdlp: await ytdlpAvailable() }) });
       if (p === '/api/remeta' && m === 'POST') { const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as { clipId?: number; all?: boolean; push?: boolean; confirm?: boolean }; if (b.push && b.confirm !== true) return json(res, 400, { error: 'YouTube par push ke liye confirm:true bhejo' }); return json(res, 200, { ok: true, ...(await remetaClips(store, cfg, { clipIds: b.clipId ? [Number(b.clipId)] : undefined, all: b.all === true, push: b.push === true })) }); }

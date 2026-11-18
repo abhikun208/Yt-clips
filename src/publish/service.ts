@@ -1,3 +1,4 @@
+import { listSourceMappings } from '../accounts/destinations.ts';
 import { fairPick } from './router.ts';
 import { autopilotPass } from '../autopilot/engine.ts';
 import { sweepSources } from '../sources/sequential.ts';
@@ -153,6 +154,11 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
     const rows = allRows.filter((x) => !x.lv || liveLeft-- > 0);
     const fresh = cfg.automation.fairShare === false ? rows.slice(0, cfg.automation.maxAdvancePerCycle) : fairPick(store, ch.id, platform, rows.map((x) => ({ clipId: x.id, sourceId: x.sid, lastAttemptAt: x.la })), { limit: cfg.automation.maxAdvancePerCycle, retryHours: cfg.automation.fairRetryHours, maxQueuedPerSource: cfg.automation.fairMaxQueued }).map((id) => ({ id }));
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
+  }
+  // source -> extra destinations: clips of a mapped source are ALSO queued for the mapped channel (own job, own idempotency key; the account gates still apply per job)
+  for (const m of listSourceMappings(store).filter((x) => x.enabled && cfg.automation.platforms.includes(x.platform))) {
+    const rows = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id WHERE v.source_id=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL ORDER BY c.id LIMIT ?`, m.sourceId, cfg.automation.maxAdvancePerCycle);
+    for (const c of rows) { const before = store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n; queueUpload(store, c.id, m.platform, m.channelId); if (store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n > before) r.queued++; }
   }
   { const used = store.get<{ units: number }>(`SELECT units FROM quota_usage WHERE day=? AND pool='units'`, quotaDay(now))?.units ?? 0; if (used >= 10_000 * ((cfg.automation.quotaPausePct ?? 80) / 100)) { r.blocked.QUOTA_GUARD = 1; void notify(store, cfg, `quota:${quotaDay(now)}`, `YouTube quota ${used}/10000 units: uploads paused until the Pacific-time reset.`); return r; } } // quota guardian
   const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"}) ORDER BY id LIMIT ?`, ...cfg.automation.platforms, cfg.automation.maxAdvancePerCycle);
