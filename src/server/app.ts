@@ -48,6 +48,7 @@ import { localReport } from '../localcheck.ts';
 import { pickLocal } from '../analysis/localStt.ts';
 import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
 import { dotEnvInfo } from '../env-boot.ts';
+import { loginClient } from '../publish/oauth.ts';
 import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor, installModelHealing } from '../ai/autodetect.ts';
 import { detectLocalEngines, testLocal, cppModelPath, voiceStudioUrl, type LocalEngineId } from '../analysis/localStt.ts';
 import { listModels, testConnection, lastResults, knownTargets } from '../connections.ts';
@@ -57,7 +58,7 @@ import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analyt
 import { collectAnalytics, analyticsSummary } from '../analytics/collect.ts';
 import { titleTestTick, funnelTick, listTitleTests } from '../publish/titletest.ts';
 import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPosted } from '../publish/direct.ts';
-import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ALLOWED_PLATFORMS } from '../channels.ts';
+import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ytSecretName, ALLOWED_PLATFORMS } from '../channels.ts';
 
 export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown>; studioDeps?: StudioDeps }
 export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean; applyEnv?(force?: boolean): Promise<unknown>; bootstrap?(): Promise<unknown> }
@@ -489,7 +490,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
         const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown };
         return json(res, 200, { ok: true, channel: createChannel(store, { name: String(b.name ?? ''), profile: b.profile, config: b.config }, (id) => !!getPreset(id)) });
       }
-      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube\/web|youtube\/paste|youtube|plan|optimize|videos))?$/.exec(p);
+      const chm = /^\/api\/channels\/([\w-]{1,40})(?:\/(youtube\/connect\/poll|youtube\/connect|youtube\/web|youtube\/paste|youtube\/client|youtube|plan|optimize|videos))?$/.exec(p);
       if (chm) {
         const ch = getChannel(store, chm[1]!);
         if (!chm[2] && m === 'POST') { const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown; archived?: boolean }; return json(res, 200, { ok: true, channel: updateChannel(store, ch.id, b, (id) => !!getPreset(id)) }); }
@@ -499,7 +500,12 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
         if (chm[2] === 'videos' && m === 'GET') { try { return json(res, 200, await channelVideos(store, cfg, ch)); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }
         if (chm[2] === 'optimize' && m === 'GET') return json(res, 200, storedAccountKit(store, ch.slug) ?? { kit: null });
         if (chm[2] === 'optimize' && m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { apply?: boolean; playlists?: boolean; confirm?: boolean }; if (b.apply && b.confirm !== true) return json(res, 400, { error: 'apply ke liye confirm:true bhejo' }); try { return json(res, 200, { ok: true, ...(await optimizeAccount(store, cfg, ch, { apply: b.apply === true, playlists: b.playlists === true })) }); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }
-        if (chm[2] === 'youtube' && m === 'GET') return json(res, 200, { ...youtubeStatus(store, cfg, ch), identity: identityOf(store, ch.slug) });
+        if (chm[2] === 'youtube' && m === 'GET') { const sc = secretsFor(cfg); const lc = loginClient(sc, ytSecretName(ch)); let own = false; try { own = !!sc.read<{ client_id?: string }>(`${ytSecretName(ch)}-client`)?.client_id; } catch { /* none */ } return json(res, 200, { ...youtubeStatus(store, cfg, ch), identity: identityOf(store, ch.slug), client: { own, idTail: lc ? lc.clientId.slice(0, 8) + '…' + lc.clientId.slice(-22) : null } }); }
+        if (chm[2] === 'youtube/client' && m === 'POST') { // per-channel Google client (e.g. channel owned by another Google account/project). Empty = back to the global client. Secret is never echoed.
+          const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { clientId?: string; clientSecret?: string }; const id = String(b.clientId ?? '').replace(/\s+/g, ''), sec = String(b.clientSecret ?? '').replace(/\s+/g, ''); const name = `${ytSecretName(ch)}-client`;
+          if (!id && !sec) { secretsFor(cfg).delete(name); return json(res, 200, { ok: true, own: false }); }
+          if (id.length < 10 || id.length > 200 || sec.length < 8 || sec.length > 200) return json(res, 400, { error: 'invalid: client ID/secret format' });
+          secretsFor(cfg).write(name, { client_id: id, client_secret: sec }); return json(res, 200, { ok: true, own: true }); }
         if (chm[2] === 'youtube/connect' && m === 'POST') { const d = await youtubeConnectStart(store, cfg, ch); return json(res, 200, { userCode: d.user_code, verificationUrl: d.verification_url, expiresIn: d.expires_in, interval: d.interval }); }
         if (chm[2] === 'youtube/connect/poll' && m === 'POST') return json(res, 200, await youtubeConnectPoll(store, cfg, ch));
       }

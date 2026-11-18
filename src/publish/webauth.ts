@@ -3,7 +3,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import type { Channel } from '../channels.ts';
 import { getChannel, ytSecretName, updateChannel, createChannel, listChannels } from '../channels.ts';
-import { clientCreds, form, base, authBase, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
+import { loginClient, form, base, authBase, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { secretsFor, tokenFor } from './service.ts';
 import { YouTubeAdapter } from './youtube.ts';
 
@@ -48,7 +48,7 @@ function guardReplacement(store: Store, cfg: Config, ch: Channel, identity: Iden
 }
 export const PASTE_REDIRECT = 'http://127.0.0.1:8765/';
 export function startWebAuth(store: Store, cfg: Config, ch: Channel, o: { base: string; share?: boolean; paste?: boolean }): WebStart {
-  const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('invalid: pehle Google client ID/secret save karo (Setup → Social accounts login → YouTube)');
+  const cc = loginClient(secretsFor(cfg), ytSecretName(ch)); if (!cc) throw new Error('invalid: pehle Google client ID/secret save karo (Setup → Social accounts login → YouTube)');
   const redirectUri = o.paste ? PASTE_REDIRECT : `${o.base.replace(/\/+$/, '')}/api/oauth/youtube/callback`;
   const verifier = randomBytes(32).toString('base64url'), state = randomBytes(24).toString('hex');
   store.exec(`DELETE FROM kv WHERE k LIKE 'ytweb:%' AND json_extract(v,'$.exp') < ?`, Date.now()); // expired states never pile up
@@ -70,11 +70,11 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   if (st.exp < Date.now()) throw new Error('link expire ho gaya (30 min) — dobara banao');
   if (q.error) throw new Error(q.error === 'access_denied' ? 'Google ne access nahi diya. Ya to Allow nahi dabaya, ya (zyada common) Google app abhi "Testing" me hai aur ye Google account "Test users" me nahi hai. Fix: Google Cloud Console → APIs & Services → OAuth consent screen (Audience) → Test users → "+ Add users" → us account ka email daalo → Save, phir Connect dobara. (Ya app ko "Publish" karo.)' : `Google error: ${q.error.slice(0, 40)}`);
   if (!q.code) throw new Error('Google se code nahi aaya');
-  const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('Google client ID/secret nahi mila');
+  const chn = getChannel(store, st.slug); const cc = loginClient(secretsFor(cfg), ytSecretName(chn)); if (!cc) throw new Error('Google client ID/secret nahi mila');
   const r = await form(`${base()}/token`, { client_id: cc.clientId, client_secret: cc.clientSecret, code: q.code, code_verifier: st.verifier, redirect_uri: st.redirectUri, grant_type: 'authorization_code' });
   if (r.status !== 200 || !r.json.refresh_token) throw new Error(r.json.error === 'invalid_client' ? 'Google client ID/secret galat hai' : r.json.error === 'redirect_uri_mismatch' ? `redirect URI Google Console mein add karo: ${st.redirectUri}` : `token nahi mila (${String(r.json.error ?? r.status).slice(0, 40)}). Gmail ko "Test users" mein add karo ya app ko In production karo`);
   const ch = getChannel(store, st.slug); const sec = secretsFor(cfg); const prevSecret = (() => { try { return sec.read<Record<string, unknown>>(ytSecretName(ch)); } catch { return null; } })(); const prevIdent = identityOf(store, ch.slug);
-  const fresh = { refresh_token: r.json.refresh_token, scope: r.json.scope ?? YT_WEB_SCOPE, connected_at: new Date().toISOString() };
+  const fresh = { refresh_token: r.json.refresh_token, client_id: cc.clientId, client_secret: cc.clientSecret, scope: r.json.scope ?? YT_WEB_SCOPE, connected_at: new Date().toISOString() };
   sec.write(ytSecretName(ch), fresh);
   let identity: Identity | null = null;
   try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString(), ...(w.thumb ? { thumb: w.thumb } : {}) }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }

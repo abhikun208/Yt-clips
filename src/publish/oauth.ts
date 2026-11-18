@@ -66,6 +66,11 @@ export async function startLoopbackFlow(secrets: SecretStore, creds: { clientId:
 export function connectedScope(secrets: SecretStore, name = 'youtube'): string | null { try { const s = secrets.read<{ refresh_token?: string; scope?: string }>(name); return s?.refresh_token ? (s.scope ?? YT_SCOPE) : null; } catch { return null; } }
 
 export interface ClientCreds { clientId: string; clientSecret: string }
+/** Client used to LOG IN a channel: its own override (`<token>-client`) if the owner saved one, else the global client. */
+export function loginClient(secrets: SecretStore, tokenName: string): ClientCreds | null {
+  try { const o = secrets.read<{ client_id?: string; client_secret?: string }>(`${tokenName}-client`); if (o?.client_id && o.client_secret) return { clientId: o.client_id, clientSecret: o.client_secret }; } catch { /* no override */ }
+  return clientCreds(secrets);
+}
 export function clientCreds(secrets: SecretStore): ClientCreds | null {
   const id = process.env.YT_OAUTH_CLIENT_ID, sec = process.env.YT_OAUTH_CLIENT_SECRET;
   if (id && sec) return { clientId: id, clientSecret: sec };
@@ -82,8 +87,11 @@ export class TokenProvider {
   connected(): boolean { try { return !!this.secrets.read<{ refresh_token?: string }>(this.name)?.refresh_token; } catch { return false; } }
   async accessToken(): Promise<string> {
     if (this.cache && this.cache.exp > Date.now() + 60_000) return this.cache.token;
-    const creds = clientCreds(this.secrets); if (!creds) throw new Error('AUTH_NOT_CONFIGURED: set YT_OAUTH_CLIENT_ID and YT_OAUTH_CLIENT_SECRET');
-    const rt = this.secrets.read<{ refresh_token?: string }>(this.name)?.refresh_token; if (!rt) throw new Error('AUTH_NOT_CONNECTED: connect the YouTube account first');
+    const tok = this.secrets.read<{ refresh_token?: string; client_id?: string; client_secret?: string }>(this.name);
+    // a refresh token only works with the client that minted it: tokens remember their client (older tokens fall back to override/global)
+    const creds = tok?.client_id && tok.client_secret ? { clientId: tok.client_id, clientSecret: tok.client_secret } : loginClient(this.secrets, this.name);
+    if (!creds) throw new Error('AUTH_NOT_CONFIGURED: set YT_OAUTH_CLIENT_ID and YT_OAUTH_CLIENT_SECRET');
+    const rt = tok?.refresh_token; if (!rt) throw new Error('AUTH_NOT_CONNECTED: connect the YouTube account first');
     const r = await form(`${base()}/token`, { client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: rt, grant_type: 'refresh_token' });
     if (r.status === 200 && r.json.access_token) { this.cache = { token: r.json.access_token, exp: Date.now() + (Number(r.json.expires_in) || 3600) * 1000 }; return r.json.access_token; }
     this.cache = null;

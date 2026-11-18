@@ -440,3 +440,8 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - NOT DONE in this pass: Meta HTTPS beyond the existing relay (GitHub Pages is only a redirect page to the phone's loopback, NOT a proxy — documented earlier; a real domain/tunnel remains an owner choice), motion graphics / word emphasis / dynamic zoom additions, chapters in descriptions, frontend redesign, AI upscaling, graphics-vs-speech verification.
 - Full suite: see entry below once finished.
 - Full suite after fixes: 455 tests, fail 0 (one regression found+fixed: static import of installModelHealing in app.ts; youtube.test expectation extended for remoteTitle/titleMatches).
+
+## 2026-11-18 (16) — Main "Reconnect" shows "Api keys 2" client (screen recording 10:13)
+- Evidence: Main = `AUTH_REVOKED: unauthorized_client`; Reconnect → Google chooser "to continue to Api keys 2" = the single GLOBAL OAuth client (Setup → Google client). All channels shared it, so a channel owned by another Google account/project could not use its own keys, and a token minted by an older client could not refresh after the global client changed.
+- Fix: (a) tokens now store the client that minted them and refresh with THAT client (older tokens fall back to override/global); (b) per-channel client override secret `<token>-client` (POST /api/channels/<slug>/youtube/client, empty body = back to global; UI: "Is channel ke liye alag Google client" in the connect dialog, shows which client id is active); login + callback use the override. Test: channelclient.test.ts. UNVERIFIED: real Google consent with an override client.
+- Owner action for Main: either add the Main account as Test user of "Api keys 2" project / publish it, or save that account's own client in the new box, then Reconnect.
