@@ -2,13 +2,13 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server } 
 
 export interface Req { method: string; path: string; query: URLSearchParams; headers: IncomingMessage['headers']; body: Buffer }
 export interface Fake {
-  server: Server; base: string; log: Req[]; videos: Map<string, any>; sessions: Map<string, { total: number; got: Buffer; init: any }>;
+  server: Server; base: string; log: Req[]; by: Record<string, string>; videos: Map<string, any>; sessions: Map<string, { total: number; got: Buffer; init: any }>;
   opts: { failChunkOnce: number | null; dropAfterStoreOnce: number | null; processedAfterPolls: number; thumbStatus: number; revoked: boolean; device: string[]; initStatus: number; expireSessionOnce: boolean; uploadStatusFinal: string; quotaOnList: boolean; commentScopeOk: boolean };
   chunkCount: number; polls: Record<string, number>; close(): Promise<void>;
 }
 
 export async function startFake(): Promise<Fake> {
-  const f: Fake = { server: null as any, base: '', log: [], videos: new Map(), sessions: new Map(), chunkCount: 0, polls: {}, close: async () => {},
+  const f: Fake = { server: null as any, base: '', log: [], by: {}, videos: new Map(), sessions: new Map(), chunkCount: 0, polls: {}, close: async () => {},
     opts: { failChunkOnce: null, dropAfterStoreOnce: null, processedAfterPolls: 0, thumbStatus: 200, revoked: false, device: ['pending', 'ok'], initStatus: 200, expireSessionOnce: false, uploadStatusFinal: 'processed', quotaOnList: false, commentScopeOk: true } };
   let n = 0;
   const send = (res: ServerResponse, code: number, body?: unknown, h: Record<string, string> = {}) => { res.writeHead(code, { 'content-type': 'application/json', ...h }); res.end(body === undefined ? '' : JSON.stringify(body)); };
@@ -21,7 +21,7 @@ export async function startFake(): Promise<Fake> {
     if (u.pathname === '/token') {
       const p = form();
       if (p.get('grant_type') === 'urn:ietf:params:oauth:grant-type:device_code') { const s = f.opts.device.shift() ?? 'ok'; return s === 'ok' ? send(res, 200, { access_token: 'at', refresh_token: 'REFRESH-TOKEN-XYZ', expires_in: 3600 }) : send(res, 428, { error: s === 'pending' ? 'authorization_pending' : s }); }
-      if (p.get('grant_type') === 'refresh_token') { if (f.opts.revoked || p.get('refresh_token') !== 'REFRESH-TOKEN-XYZ') return send(res, 400, { error: 'invalid_grant' }); return send(res, 200, { access_token: `fake-access-${++n}`, expires_in: 3600 }); }
+      if (p.get('grant_type') === 'refresh_token') { if (f.opts.revoked || !/^(REFRESH-TOKEN-XYZ|REFRESH-CH-\w+)$/.test(String(p.get('refresh_token'))) ) return send(res, 400, { error: 'invalid_grant' }); return send(res, 200, { access_token: `fake-access-${++n}-${p.get('refresh_token')}`, expires_in: 3600 }); }
       if (p.get('grant_type') === 'authorization_code') { if (!p.get('code_verifier') || p.get('code') !== 'AUTHCODE' || !String(p.get('redirect_uri')).startsWith('http://127.0.0.1:')) return send(res, 400, { error: 'invalid_grant' }); return send(res, 200, { access_token: 'at', refresh_token: 'REFRESH-TOKEN-XYZ', expires_in: 3600, scope: 'https://www.googleapis.com/auth/youtube.force-ssl' }); }
       return send(res, 400, { error: 'unsupported_grant_type' });
     }
@@ -29,7 +29,7 @@ export async function startFake(): Promise<Fake> {
     if (!/^Bearer fake-access-/.test(String(req.headers.authorization ?? ''))) return send(res, 401, { error: { message: 'unauthorized' } });
     if (u.pathname === '/upload/youtube/v3/videos' && req.method === 'POST') {
       if (f.opts.initStatus !== 200) return send(res, f.opts.initStatus, { error: { errors: [{ reason: 'quotaExceeded' }], message: 'quota' } });
-      const id = `sess${f.sessions.size + 1}`; f.sessions.set(id, { total: Number(req.headers['x-upload-content-length']), got: Buffer.alloc(0), init: JSON.parse(body.toString()) });
+      const id = `sess${f.sessions.size + 1}`; { const init0 = JSON.parse(body.toString()) as { snippet: { title: string } }; f.by[init0.snippet.title] = String(req.headers.authorization ?? '').replace(/^Bearer fake-access-\d+-/, ''); } f.sessions.set(id, { total: Number(req.headers['x-upload-content-length']), got: Buffer.alloc(0), init: JSON.parse(body.toString()) });
       return send(res, 200, undefined, { location: `${f.base}/upload/session/${id}`, 'content-length': '0' });
     }
     const sm = /^\/upload\/session\/(\w+)$/.exec(u.pathname);

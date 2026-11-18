@@ -31,9 +31,15 @@ export function adaptForHost(url: string, init: RequestInit): RequestInit {
   } catch { /* leave the request as it was */ }
   try { if (new URL(url).hostname !== 'api.anthropic.com' || typeof init.body !== 'string') return init; const b = JSON.parse(init.body) as Record<string, unknown>; if (!('temperature' in b) && !('top_p' in b)) return init; delete b.temperature; delete b.top_p; return { ...init, body: JSON.stringify(b) }; } catch { return init; }
 }
+/** The saved model was withdrawn by the provider (OpenRouter free models disappear): HTTP 404 "no longer available / no endpoints / model not found". */
+export const STALE_MODEL = /no longer available|no provider serves|no endpoints found|model.{0,40}(not found|does not exist|not exist|decommission)|unknown model/i;
+type StaleHandler = (e: LlmEnvLike) => void | Promise<void>; let staleHandler: StaleHandler | null = null; const staleSeen = new Map<string, number>();
+/** Install the self-heal (runs once per provider+model per 10 min in the background; never throws into the caller). */
+export function onStaleModel(h: StaleHandler | null): void { staleHandler = h; staleSeen.clear(); }
 export async function llmFetch(f: typeof fetch, e: LlmEnvLike, url: string, init: RequestInit): Promise<Response> {
   try {
     const r = await f(url, adaptForHost(url, init)); const oc = outcomeOfStatus(r.status);
+    if (r.status === 404 && staleHandler) { try { const t = await r.clone().text(); if (STALE_MODEL.test(t)) { reportLlm(e, 'auth'); const k = providerKey(e); if (Date.now() - (staleSeen.get(k) ?? 0) > 10 * 60_000) { staleSeen.set(k, Date.now()); void Promise.resolve(staleHandler(e)).catch(() => undefined); } } } catch { /* body unreadable: leave as is */ } }
     if (oc === 'ok' || r.status < 500 && r.status !== 429 && r.status !== 401 && r.status !== 403) { if (oc === 'ok') reportLlm(e, 'ok'); } // 400/404 = our request, not the provider's health
     else reportLlm(e, oc, { retryAfterSec: Number(r.headers.get('retry-after')) || undefined });
     return r;

@@ -52,7 +52,7 @@ export interface Adapter {
   /** Upload privately/unlisted. Must be idempotent on idempotencyKey. Returns remote id. */
   upload(a: { filePath: string; title: string; description: string; tags: string[]; visibility: 'private' | 'unlisted'; idempotencyKey: string; categoryId?: string; language?: string }): Promise<{ remoteId: string }>;
   /** Check REMOTE processing + metadata state (not just HTTP 200). Throw `NOT_READY: ...` while the platform is still processing. */
-  verify(remoteId: string, expect?: { title: string; visibility: string }): Promise<{ processed: boolean; metadataMatches: boolean; visibility: string }>;
+  verify(remoteId: string, expect?: { title: string; visibility: string }): Promise<{ processed: boolean; metadataMatches: boolean; visibility: string; remoteTitle?: string; titleMatches?: boolean }>;
   /** Best-effort custom thumbnail; returns false (never throws for ordinary rejections). */
   thumbnail?(remoteId: string, path: string): Promise<boolean>;
   /** May return the final remote id/URL. `local` adapters never touch the network (manual platforms) so the publish gates don't apply to them. */
@@ -124,7 +124,11 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UPLOAD_VERIFYING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
         const sbx = channelOfClip(store, u.clip_id).config.sandbox === true; const v = await adapter.verify(u.remote_id!, { title: sbx && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, visibility: 'unlisted' });
-        if (!v.processed || !v.metadataMatches || v.visibility === 'public') throw new Error(`remote verify failed: ${JSON.stringify(v)}`);
+        if (v.processed && v.visibility === 'public') { // already live on the platform (owner flipped it in Studio, or an earlier publish call landed before the state was saved): reconcile, never fail the upload for that
+          if (v.titleMatches === false) store.logState('upload', u.id, from, 'PUBLISHED', `already public; remote title differs: ${String(v.remoteTitle).slice(0, 80)}`);
+          setState(store, u.id, from, 'PUBLISHED', { vis: 'public' }); return 'PUBLISHED';
+        }
+        if (!v.processed || !v.metadataMatches) throw new Error(`remote verify failed: ${v.titleMatches === false ? `title differs (remote "${String(v.remoteTitle).slice(0, 80)}")` : 'not processed'} ${JSON.stringify({ processed: v.processed, visibility: v.visibility })}`);
         setState(store, u.id, from, 'UNLISTED_VERIFIED'); return 'UNLISTED_VERIFIED';
       }
       case 'UNLISTED_VERIFIED': {
@@ -155,7 +159,7 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
   } catch (e) {
     const msg = (e as Error).message;
     // Gate / approval / not-ready / quota / auth blocks are NOT failures: state stays so it resumes later.
-    if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED|SANDBOX_HOLD)/.test(msg)) { store.exec(/^(UNLISTED_BUFFER|HELD_RESTRICTED|SANDBOX_HOLD)/.test(msg) ? `UPDATE uploads SET error=? WHERE id=?` : `UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; } // the buffer clock must not restart on each blocked attempt
+    if (/^(NETWORK_ERROR|PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED|SANDBOX_HOLD)/.test(msg)) { store.exec(/^(UNLISTED_BUFFER|HELD_RESTRICTED|SANDBOX_HOLD)/.test(msg) ? `UPDATE uploads SET error=? WHERE id=?` : `UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, msg, u.id); throw e; } // the buffer clock must not restart on each blocked attempt
     setState(store, u.id, from, 'FAILED', { err: msg.slice(0, 500) });
     // keep a retry pointer: FAILED re-enters via READY_FOR_QC which re-validates, upload key is idempotent
     throw e;

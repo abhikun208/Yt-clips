@@ -1,3 +1,5 @@
+import { setDefaultResultOrder } from 'node:dns';
+try { setDefaultResultOrder('ipv4first'); } catch { /* old node */ } // mobile/Termux networks with broken IPv6 made every Google call 'fetch failed' (also for CLI runs, not only the server)
 import { openSync, readSync, closeSync, statSync, readFileSync } from 'node:fs';
 import type { Store } from '../db.ts';
 import type { Adapter } from './machine.ts';
@@ -47,7 +49,9 @@ export class YouTubeAdapter implements Adapter {
         return r;
       } catch (e) { if (String((e as Error).message).startsWith('AUTH_')) throw e; last = e; if (a < this.o.maxRetries && init.retry !== false) await this.o.sleep(Math.min(30_000, 500 * 2 ** a)); }
     }
-    throw new Error(`network error: ${(last as Error | undefined)?.message ?? 'unknown'}`);
+    const cause = ((last as { cause?: { code?: string; message?: string } } | undefined)?.cause); const why = cause?.code ?? cause?.message ?? '';
+    // NETWORK_ERROR is a pause, not a failure: the upload keeps its state and is retried by the next tick (see machine.ts)
+    throw new Error(`NETWORK_ERROR: network error: ${(last as Error | undefined)?.message ?? 'unknown'}${why ? ` (${why})` : ''} — internet/DNS check karo (Termux: Wi-Fi/data badal ke dekho); upload resume hoga, dobara shuru nahi`);
   }
   private async apiError(r: Response, what: string): Promise<Error> {
     const t = await r.text().catch(() => ''); let reason = ''; try { const j = JSON.parse(t); reason = j.error?.errors?.[0]?.reason ?? j.error?.message ?? ''; } catch { /* not json */ }
@@ -148,14 +152,14 @@ export class YouTubeAdapter implements Adapter {
     this.charge('list'); const r = await this.req(`${API()}/youtube/v3/videos?part=${encodeURIComponent(parts)}&id=${encodeURIComponent(id)}`);
     if (!r.ok) throw await this.apiError(r, 'videos.list'); return ((await r.json()) as { items?: any[] }).items?.[0] ?? null;
   }
-  async verify(id: string, expect?: { title: string; visibility: string }): Promise<{ processed: boolean; metadataMatches: boolean; visibility: string }> {
+  async verify(id: string, expect?: { title: string; visibility: string }): Promise<{ processed: boolean; metadataMatches: boolean; visibility: string; remoteTitle?: string; titleMatches?: boolean }> {
     const v = await this.getVideo(id, 'snippet,status,processingDetails'); if (!v) throw new Error(`remote video ${id} not found`);
     const st = v.status?.uploadStatus as string | undefined;
     if (st === 'failed' || st === 'rejected' || st === 'deleted') throw new Error(`remote upload ${st}: ${v.status?.failureReason ?? v.status?.rejectionReason ?? ''}`.trim());
     const ps = v.processingDetails?.processingStatus as string | undefined;
     if (st !== 'processed' || ps === 'processing') throw new Error(`NOT_READY: uploadStatus=${st} processing=${ps ?? 'n/a'}`);
     const visibility = v.status?.privacyStatus as string;
-    return { processed: true, visibility, metadataMatches: !expect || (v.snippet?.title === expect.title && visibility === expect.visibility) };
+    return { processed: true, visibility, metadataMatches: !expect || (normTitle(v.snippet?.title) === normTitle(expect.title) && visibility === expect.visibility), remoteTitle: v.snippet?.title ?? '', titleMatches: !expect || normTitle(v.snippet?.title) === normTitle(expect.title) };
   }
   /** Public statistics for up to 50 of our own videos in ONE call (videos.list, 1 quota unit). Missing ids are simply absent. */
   /**
@@ -261,3 +265,6 @@ export class YouTubeAdapter implements Adapter {
     if (!r.ok) throw await this.apiError(r, 'videos.update');
   }
 }
+
+/** YouTube trims/normalises titles (whitespace, < > are stripped): compare the way the platform stores them. */
+export const normTitle = (t: unknown): string => String(t ?? '').normalize('NFC').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim();

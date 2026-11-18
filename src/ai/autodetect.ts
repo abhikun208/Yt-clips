@@ -138,3 +138,15 @@ export function keyShape(raw: string): { length: number; start: string; problems
   const problems: string[] = []; if (/^["']|["']$/.test(raw)) problems.push('quotes ke saath'); if (/\s/.test(raw.trim())) problems.push('beech mein space/newline'); if (raw !== raw.trim()) problems.push('aage/peeche space'); if (/[^\x21-\x7e]/.test(raw.trim())) problems.push('non-ASCII character (copy ke saath kuch extra aa gaya)'); if (/^bearer/i.test(raw)) problems.push('"Bearer" likha hai'); if (/#/.test(raw)) problems.push('# hai (comment samjha ja sakta hai)');
   return { length: raw.trim().length, start: raw.trim().slice(0, 4), problems };
 }
+
+/**
+ * Self-heal for a withdrawn model (e.g. OpenRouter "Model is no longer available"): find the slot that still uses it, re-run the auto setup for that slot
+ * (lists the live models, picks one and PROVES it with a real call before saving) and log what was replaced. Nothing is changed when no working model is found.
+ */
+export function installModelHealing(cfg: Config, log: (m: string) => void = () => undefined, fetchFn: typeof fetch = fetch): void {
+  void import('./health.ts').then(({ onStaleModel }) => onStaleModel(async (e) => {
+    const { SLOT_LIST, llmSlot } = await import('./settings.ts'); const slot = SLOT_LIST.find((n) => { const c = llmSlot(cfg, n); return c && c.baseUrl.replace(/\/+$/, '') === e.baseUrl.replace(/\/+$/, '') && c.model === e.model; });
+    if (!slot) return; const rep = await autoFix(cfg, `llm:${slot}`, fetchFn);
+    log(rep.ok ? `AI model "${e.model}" was withdrawn by the provider — replaced by "${rep.llm?.model}" (slot ${slot}, proven with a real call)` : `AI model "${e.model}" was withdrawn and no replacement could be proven: ${rep.steps.map((s) => s.text).join(' | ').slice(0, 200)}`);
+  }));
+}

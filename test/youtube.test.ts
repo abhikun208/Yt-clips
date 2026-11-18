@@ -86,7 +86,7 @@ test('verify: NOT_READY while processing, then processed; title/visibility misma
   try { await env(f, async () => {
     const { ad, file } = setup(f); const { remoteId } = await ad.upload(up(file));
     await assert.rejects(ad.verify(remoteId, { title: 'My Title', visibility: 'unlisted' }), /NOT_READY/); await assert.rejects(ad.verify(remoteId), /NOT_READY/);
-    assert.deepEqual(await ad.verify(remoteId, { title: 'My Title', visibility: 'unlisted' }), { processed: true, visibility: 'unlisted', metadataMatches: true });
+    assert.deepEqual(await ad.verify(remoteId, { title: 'My Title', visibility: 'unlisted' }), { processed: true, visibility: 'unlisted', metadataMatches: true, remoteTitle: 'My Title', titleMatches: true });
     assert.equal((await ad.verify(remoteId, { title: 'Other', visibility: 'unlisted' })).metadataMatches, false);
     assert.equal((await ad.verify(remoteId, { title: 'My Title', visibility: 'public' })).metadataMatches, false);
     await assert.rejects(ad.verify('nope'), /not found/); f.opts.uploadStatusFinal = 'rejected'; await assert.rejects(ad.verify(remoteId), /remote upload rejected/);

@@ -48,7 +48,7 @@ import { localReport } from '../localcheck.ts';
 import { pickLocal } from '../analysis/localStt.ts';
 import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
 import { dotEnvInfo } from '../env-boot.ts';
-import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor } from '../ai/autodetect.ts';
+import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor, installModelHealing } from '../ai/autodetect.ts';
 import { detectLocalEngines, testLocal, cppModelPath, voiceStudioUrl, type LocalEngineId } from '../analysis/localStt.ts';
 import { listModels, testConnection, lastResults, knownTargets } from '../connections.ts';
 import { channelVideos, optimizeAccount, storedAccountKit, remetaClips, advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
@@ -629,6 +629,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
         const port = (server.address() as { port: number }).port;
         if (o.autoRun ?? process.env.AUTO_RUN !== '0') { const every = (o.loopSeconds ?? Number(process.env.LOOP_SECONDS ?? 30)) * 1000; timer = setInterval(() => { if (!stopping) void runOnce(); }, every); void runOnce(); }
         info('server listening', { host, port, auth: token ? 'token' : 'none(loopback)', autoRun: !!timer }); ok(port);
+      try { installModelHealing(cfg, (m) => warn('ai model self-heal', { m })); } catch { /* optional */ }
       try { setRelay(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'oauth:relay')?.v || null); } catch { /* off */ }
       try { setSavedBase(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'oauth:base')?.v || null); } catch { /* none saved */ }
       const wantTunnel = !getRelay() && !getSavedBase() && (process.env.YT_CLIPS_TUNNEL === '1' || (!process.env.NODE_TEST_CONTEXT && process.env.YT_CLIPS_AUTOTUNNEL !== '0' && (!!appCreds(cfg, 'facebook') || !!appCreds(cfg, 'tiktok')))); // login app saved -> keep an https link up from boot so Settings never shows http

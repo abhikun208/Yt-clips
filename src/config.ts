@@ -15,7 +15,7 @@ export interface Config {
     series?: { enabled: boolean; partSec: number; maxParts: number }; dupBlock?: number; dupFlag?: number;
   };
   edit: {
-    width: number; height: number; fps: number; crf: number; preset: string; encoder: 'auto' | 'libx264' | 'h264_nvenc' | 'h264_videotoolbox' | 'h264_mediacodec';
+    width: number; height: number; /** 'standard' = 1080x1920; '2k' = 1440x2560 (YouTube then serves its higher-bitrate 1440p encode). Conventional Lanczos upscaling — NOT AI enhancement. */ quality?: 'standard' | '2k'; fps: number; crf: number; preset: string; encoder: 'auto' | 'libx264' | 'h264_nvenc' | 'h264_videotoolbox' | 'h264_mediacodec';
     avoidBurnedSubs?: boolean; /** look for a facecam corner automatically (default on) */ autoFacecam?: boolean; /** no OpenCV: ffmpeg skin-tone face finder so a face-only video still gets a Fill crop (default on) */ faceFallback?: boolean; facecamMinConfidence?: number; reframe: 'crop' | 'fit_blur' | 'auto'; /** solid colour behind a fit layout, #rrggbb (default: blurred copy) */ bgColor?: string; fitZoom?: number; fitZoomBurned?: number; silenceGate?: boolean; treatmentTarget: number; targetLufs: number; font: string; captionPreset: string; captionEmphasis: string[]; exportSubtitles: boolean; beatEffects: boolean; speedRamp: boolean;
     vfx: { lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean };
     jumpCuts: boolean; /** final playback speed: 1 (off) or exactly one of 1.05 1.06 1.07 1.08 1.09 1.10 */ speed?: number; /** on-screen title strip glued to the top edge, shown start to end: black (white text), white (black text) or off */ titleBar?: 'black' | 'white' | 'off'; /** print the on-screen title only AFTER the AI has watched the finished clip (default on) */ deferTitle?: boolean; /** Pexels B-roll cutaways (needs PEXELS_API_KEY; default off) */ broll?: boolean; /** synthesised whoosh/pop sound effects (default on) */ sfx?: boolean; /** face-follow pan speed 0..1 (default 0.5) */ trackSensitivity?: number; /** built-in synthesised background music when assets/music is empty (default on) */ autoMusic?: boolean; closeups?: boolean; llmCaptionFix?: boolean; captionPunctuation?: boolean; emphasisZoom: boolean; hookTitle?: boolean; narration?: boolean; memeHook?: boolean; musicVolume?: number; speakerFollow?: boolean; cta?: string; captionLanguage?: 'auto' | 'hinglish' | 'hi' | 'en' | 'original'; pace: 'fast' | 'medium' | 'relaxed' | 'off';
@@ -102,6 +102,7 @@ export function loadConfig(rootDir = resolve(process.cwd()), opts: { dataDir?: s
     catch (e) { throw new Error(`Invalid ${file}: ${(e as Error).message}`); }
   }
   if (opts.overrides) cfg = deepMerge(cfg, opts.overrides);
+  if (cfg.edit.quality === '2k') { cfg.edit.width = 1440; cfg.edit.height = 2560; cfg.edit.crf = Math.min(cfg.edit.crf, 19); }
   if (opts.mkdirs !== false) {
     for (const d of [cfg.dataDir, cfg.dirs.sources, cfg.dirs.rawClips, cfg.dirs.editedShorts, cfg.dirs.manifests, cfg.dirs.thumbnails, cfg.dirs.transcripts, cfg.dirs.tmp]) mkdirSync(d, { recursive: true });
   }
