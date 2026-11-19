@@ -486,3 +486,8 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - docs/UI_CONTROL_INVENTORY.md (generated) + test/ui_api_routes.test.ts (every UI API path exists server-side).
 - STILL OPEN: derived per-platform re-encodes (only validation, no auto-transcode), Meta/TikTok Test Connection, click-through tests of each dynamic UI action in a browser, AI upscaling/16:9 2K (secondary), real-account verification (blocked externally).
 - Suite (22): 470 pass; 3 fails (dry-run adapter media check, old 7-tab ui.test) fixed + re-run green individually; full re-run pending after next batch.
+
+## (23) Test Connection for Facebook / Instagram / TikTok
+- `testSocial` in src/accounts/destinations.ts: real Graph `/{id}` and TikTok `/v2/user/info/` call; token rejected -> `expired` (+health marker, survives sync), id mismatch -> `mismatch`, success -> `connected` + `verifiedAt` (kept across syncs).
+- VERIFIED (fake servers): test/social_testconn.test.ts. Full suite 474/474. UNVERIFIED: real Meta/TikTok tokens.
+- NEXT: P6 feature classification doc, per-destination mapping enable/policy UI, bulk distribution UI, click-through browser tests of dynamic actions, auto-transcode per platform.

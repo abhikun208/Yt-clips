@@ -94,3 +94,4 @@
 - [ ] Owner: Phone par `git pull && npm start`; Setup → Connected Accounts → **Test** dabao har account par (Main abhi expired hona chahiye) → Main Reconnect.
 - [ ] Owner: Decider ke sources ko Decider channel par assign karo (ya source→destination mapping API) — default Main hai.
 - [ ] Dev: per-account schedule limits, parent batch/PARTIAL_SUCCESS, mapping UI, 8-tab dashboard, Meta/TikTok Test Connection.
+- [x] Test Connection Facebook/Instagram/TikTok (fake-server verified; real tokens UNVERIFIED)

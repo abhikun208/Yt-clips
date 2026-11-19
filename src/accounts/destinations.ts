@@ -19,11 +19,13 @@ interface Row { id: string; platform: string; external_id: string; name: string;
 /** upload platform id (queue) -> destination platform */
 export const destPlatformOf = (uploadPlatform: string): DestPlatform | null => uploadPlatform === 'youtube_shorts' || uploadPlatform === 'youtube' ? 'youtube' : uploadPlatform === 'facebook_reels' ? 'facebook' : uploadPlatform === 'instagram_reels' ? 'instagram' : uploadPlatform === 'tiktok' ? 'tiktok' : null;
 
-function upsert(store: Store, d: { id: string; platform: DestPlatform; externalId: string; name: string; thumb?: string | null; channelSlug: string | null; secretRef: string; status: DestStatus; meta?: Record<string, unknown> }): void {
+function upsert(store: Store, d0: { id: string; platform: DestPlatform; externalId: string; name: string; thumb?: string | null; channelSlug: string | null; secretRef: string; status: DestStatus; meta?: Record<string, unknown> }): void {
+  const d = { ...d0 }; if (d.platform !== 'youtube') { const old = store.get<{ meta_json: string }>('SELECT meta_json FROM destinations WHERE id=?', d.id); const v = old ? (JSON.parse(old.meta_json || '{}') as { verifiedAt?: string }).verifiedAt : undefined; if (v && !d.meta?.verifiedAt) d.meta = { ...d.meta, verifiedAt: v }; }
   store.exec(`INSERT INTO destinations(id, platform, external_id, name, thumb, channel_slug, secret_ref, status, meta_json) VALUES (?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET name=excluded.name, thumb=COALESCE(excluded.thumb, destinations.thumb), channel_slug=excluded.channel_slug, secret_ref=excluded.secret_ref, status=excluded.status, meta_json=excluded.meta_json, updated_at=datetime('now')`,
     d.id, d.platform, d.externalId, d.name, d.thumb ?? null, d.channelSlug, d.secretRef, d.status, JSON.stringify(d.meta ?? {}));
 }
+export const healthName = (id: string): string => `health-${id.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 const rd = <T extends Record<string, unknown>>(cfg: Config, name: string): T | null => { try { return secretsFor(cfg).read<T>(name); } catch { return null; } };
 
 /**
@@ -64,6 +66,7 @@ export function syncDestinations(store: Store, cfg: Config): void {
     const refreshDead = !!t.refresh_expires_at && t.refresh_expires_at < Date.now(); const accessDead = !!t.expires_at && t.expires_at < Date.now();
     upsert(store, { id: `tt:${t.open_id}`, platform: 'tiktok', externalId: t.open_id, name: t.display_name ?? `TikTok ${t.open_id.slice(-6)}`, channelSlug: store.get<{ channel_slug: string | null }>('SELECT channel_slug FROM destinations WHERE id=?', `tt:${t.open_id}`)?.channel_slug ?? MAIN_SLUG, secretRef: ref, status: refreshDead ? 'expired' : accessDead && !(t as { refresh_token?: string }).refresh_token ? 'expired' : 'connected' }); mark(`tt:${t.open_id}`);
   }
+  for (const r of store.all<{ id: string }>(`SELECT id FROM destinations WHERE platform!='youtube' AND status='connected'`)) if (seen.has(r.id) && rd<{ bad?: string }>(cfg, healthName(r.id))?.bad) store.exec(`UPDATE destinations SET status='expired' WHERE id=?`, r.id);
   // anything registered earlier whose evidence is gone is disconnected (row + history stay; other rows untouched)
   for (const r of store.all<{ id: string }>(`SELECT id FROM destinations WHERE status!='disconnected'`)) if (!seen.has(r.id)) store.exec(`UPDATE destinations SET status='disconnected', updated_at=datetime('now') WHERE id=?`, r.id);
 }
@@ -157,7 +160,7 @@ export function setSourceMapping(store: Store, m: { sourceId: number; channelId:
 export async function testDestination(store: Store, cfg: Config, id: string): Promise<{ ok: boolean; status: string; message: string; identity?: { id: string; title: string } }> {
   syncDestinations(store, cfg);
   const r = store.get<Row>('SELECT * FROM destinations WHERE id=?', id); if (!r) throw new Error('not found: account');
-  if (r.platform !== 'youtube') return { ok: false, status: 'untested', message: `${r.platform}: is platform ka Test Connection abhi implement nahi (sirf YouTube). Status wahi hai jo token se pata chala; asli check publish ke waqt hota hai.` };
+  if (r.platform !== 'youtube') return testSocial(store, cfg, r);
   const ch = listChannels(store, true).find((c) => c.slug === r.channel_slug); if (!ch) return { ok: false, status: 'disconnected', message: 'channel nahi mila' };
   const { YouTubeAdapter } = await import('../publish/youtube.ts'); const { tokenFor } = await import('../publish/service.ts');
   try {
@@ -168,4 +171,35 @@ export async function testDestination(store: Store, cfg: Config, id: string): Pr
     store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `ytinfo:${ch.slug}`, JSON.stringify({ ...(identityOf(store, ch.slug) ?? {}), channelId: me.id, title: me.title, at: new Date().toISOString() }));
     syncDestinations(store, cfg); return { ok: true, status: 'connected', message: `✓ Google ne confirm kiya: ${me.title}`, identity: { id: me.id, title: me.title } };
   } catch (e) { const m = String((e as Error).message); syncDestinations(store, cfg); return { ok: false, status: /AUTH_/.test(m) ? 'expired' : 'error', message: m.slice(0, 220) }; }
+}
+
+type TestRes = { ok: boolean; status: string; message: string; identity?: { id: string; title: string } };
+/** Real "Test connection" for Facebook Page / Instagram / TikTok: asks the provider who the token belongs to. Never fakes success. */
+async function testSocial(store: Store, cfg: Config, r: Row): Promise<TestRes> {
+  const [name, sub] = r.secret_ref.split('#'); const sec = rd<Record<string, unknown>>(cfg, name!);
+  if (!sec) return { ok: false, status: 'disconnected', message: 'token nahi mila — reconnect karo' };
+  const hn = healthName(r.id); const mark = (bad: string | null) => { try { const s = secretsFor(cfg); if (bad) s.write(hn, { bad, at: new Date().toISOString() }); else s.delete(hn); } catch { /* best effort */ } };
+  let url: string; const headers: Record<string, string> = {};
+  if (r.platform === 'tiktok') {
+    const tok = sec.access_token as string | undefined; if (!tok) return { ok: false, status: 'disconnected', message: 'token nahi mila — reconnect karo' };
+    url = `${process.env.TIKTOK_API_BASE ?? 'https://open.tiktokapis.com'}/v2/user/info/?fields=open_id,display_name`; headers.authorization = `Bearer ${tok}`;
+  } else {
+    const page = sub ? (sec.pages as { id: string; access_token?: string }[] | undefined)?.find((p) => p.id === sub) : undefined;
+    const tok = (page?.access_token ?? sec.access_token ?? sec.page_token) as string | undefined; if (!tok) return { ok: false, status: 'disconnected', message: 'token nahi mila — reconnect karo' };
+    const id = r.platform === 'instagram' && r.secret_ref.includes('#') ? r.external_id : r.external_id;
+    url = `${process.env.GRAPH_API_BASE ?? 'https://graph.facebook.com/v26.0'}/${encodeURIComponent(id)}?fields=id,name&access_token=${encodeURIComponent(tok)}`;
+  }
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) }); const txt = await res.text(); let j: any = {}; try { j = JSON.parse(txt); } catch { /* */ }
+    const code = j?.error?.code; const rejected = res.status === 401 || code === 190 || /expired|invalid.*token|access_token/i.test(String(j?.error?.message ?? j?.error?.code ?? ''));
+    if (!res.ok || j?.error?.code && j.error.code !== 'ok') {
+      if (rejected) { mark('token rejected'); syncDestinations(store, cfg); return { ok: false, status: 'expired', message: `${r.platform} ne token reject kiya — reconnect karo` }; }
+      return { ok: false, status: 'error', message: `${r.platform} error ${res.status}: ${String(j?.error?.message ?? txt).slice(0, 160)}` };
+    }
+    const got = r.platform === 'tiktok' ? (j?.data?.user?.open_id as string | undefined) : (j?.id as string | undefined);
+    const title = String(r.platform === 'tiktok' ? j?.data?.user?.display_name ?? r.name : j?.name ?? r.name);
+    if (got && got !== r.external_id) return { ok: false, status: 'mismatch', message: `Is token ka account ${title} (${got}) hai, registered ${r.external_id} nahi — upload block rahega.`, identity: { id: got, title } };
+    mark(null); store.exec(`UPDATE destinations SET status='connected', meta_json=json_set(meta_json,'$.verifiedAt',?) WHERE id=?`, new Date().toISOString(), r.id);
+    return { ok: true, status: 'connected', message: `✓ ${r.platform} ne confirm kiya: ${title}`, identity: { id: r.external_id, title } };
+  } catch (e) { return { ok: false, status: 'error', message: String((e as Error).message).slice(0, 200) }; }
 }
