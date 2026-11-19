@@ -1,4 +1,4 @@
-export interface SchedConfig { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number; staggerMinutes?: number }
+export interface SchedConfig { perDayCap: number; minGapMinutes: number; quietHours: [number, number]; baselineHours: number[]; jitterMinutes: number; staggerMinutes?: number; /** IANA zone for THIS account's posting hours/quiet hours (falls back to the global timezone) */ timezone?: string }
 export interface HourStat { hour: number; views: number; samples: number }
 
 const fmtCache = new Map<string, Intl.DateTimeFormat>();

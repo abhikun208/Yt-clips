@@ -48,6 +48,7 @@ import { localReport } from '../localcheck.ts';
 import { pickLocal } from '../analysis/localStt.ts';
 import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
 import { dotEnvInfo } from '../env-boot.ts';
+import { listDistributions } from '../publish/distribution.ts';
 import { loginClient, base as oauthBase } from '../publish/oauth.ts';
 import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor, installModelHealing } from '../ai/autodetect.ts';
 import { detectLocalEngines, testLocal, cppModelPath, voiceStudioUrl, type LocalEngineId } from '../analysis/localStt.ts';
@@ -275,6 +276,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       { const sm = p.match(/^\/api\/sources\/(\d+)\/destinations$/); if (sm) { const sid = Number(sm[1]);
         if (m === 'GET') return json(res, 200, { mappings: listSourceMappings(store, sid) });
         if (m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { channel?: string; platform?: string; enabled?: boolean; priority?: number; remove?: boolean }; try { setSourceMapping(store, { sourceId: sid, channelId: getChannel(store, String(b.channel)).id, platform: b.platform, enabled: b.enabled, priority: b.priority, remove: b.remove === true }); return json(res, 200, { ok: true, mappings: listSourceMappings(store, sid) }); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg.slice(0, 200) }); } } } }
+      if (p === '/api/distribution' && m === 'GET') return json(res, 200, { distributions: listDistributions(store, Math.min(200, Number(url.searchParams.get('limit')) || 100)) });
       if (p === '/api/doctor' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { fix?: boolean }; return json(res, 200, { report: await runDoctor(store, cfg, { fix: b.fix !== false }) }); }
       if (p === '/api/why' && m === 'GET') return json(res, 200, { items: whyReport(store, cfg, { running: running || !!timer, ytdlp: await ytdlpAvailable() }) });
       if (p === '/api/remeta' && m === 'POST') { const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as { clipId?: number; all?: boolean; push?: boolean; confirm?: boolean }; if (b.push && b.confirm !== true) return json(res, 400, { error: 'YouTube par push ke liye confirm:true bhejo' }); return json(res, 200, { ok: true, ...(await remetaClips(store, cfg, { clipIds: b.clipId ? [Number(b.clipId)] : undefined, all: b.all === true, push: b.push === true })) }); }
@@ -485,7 +487,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/channels' && m === 'GET') {
         if (chCache && Date.now() - chCache.t < 15_000) return json(res, 200, chCache.body); // planning slots per channel is CPU heavy (≈20 ms each): with hundreds of channels + a busy dashboard it starved the server, so the answer is shared for 15 s and any write clears it
         const from = new Date(); if (!chPending) chPending = (async () => { const out = []; for (const ch of listChannels(store)) { out.push((() => {
-          const eff = scheduleFor(cfg, ch); const pl = planFromStore(store, { n: 3, tz: cfg.timezone, cfg: eff, from, channelId: ch.id });
+          const eff = scheduleFor(cfg, ch); const pl = planFromStore(store, { n: 3, tz: eff.timezone ?? cfg.timezone, cfg: eff, from, channelId: ch.id });
           const cnt = store.get<{ sources: number }>('SELECT count(*) AS sources FROM sources WHERE channel_id=?', ch.id)!;
           const up = store.get<{ queued: number; scheduled: number; published: number }>(`SELECT count(*) AS queued, sum(state='SCHEDULED_OR_APPROVED') AS scheduled, sum(state='PUBLISHED') AS published FROM uploads WHERE channel_id=?`, ch.id)!;
           const yt = youtubeStatus(store, cfg, ch);
@@ -503,7 +505,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (chm) {
         const ch = getChannel(store, chm[1]!);
         if (!chm[2] && m === 'POST') { const b = JSON.parse((await readBody(req, 16 * 1024)).toString('utf8') || '{}') as { name?: string; profile?: string; config?: unknown; archived?: boolean }; return json(res, 200, { ok: true, channel: updateChannel(store, ch.id, b, (id) => !!getPreset(id)) }); }
-        if (chm[2] === 'plan' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 7))), tz: cfg.timezone, cfg: scheduleFor(cfg, ch), channelId: ch.id, platform: url.searchParams.get('platform') ?? undefined }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
+        if (chm[2] === 'plan' && m === 'GET') { const pl = planFromStore(store, { n: Math.min(30, Math.max(1, Number(url.searchParams.get('n') ?? 7))), tz: scheduleFor(cfg, ch).timezone ?? cfg.timezone, cfg: scheduleFor(cfg, ch), channelId: ch.id, platform: url.searchParams.get('platform') ?? undefined }); return json(res, 200, { samples: pl.samples, slots: pl.slots.map((x) => ({ at: x.at.toISOString(), hour: x.hour, basis: x.basis })) }); }
         if (chm[2] === 'youtube/web' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { share?: boolean; paste?: boolean }; const w = startWebAuth(store, cfg, ch, { base: localBase(req), share: b.share === true, paste: b.paste === true }); return json(res, 200, w); }
         if (chm[2] === 'youtube/paste' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { url?: string }; try { const r = await finishPaste(store, cfg, ch.slug, String(b.url ?? '')); return json(res, 200, { ok: true, identity: r.identity }); } catch (e) { return json(res, 400, { error: String((e as Error).message).slice(0, 240) }); } }
         if (chm[2] === 'videos' && m === 'GET') { try { return json(res, 200, await channelVideos(store, cfg, ch)); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }

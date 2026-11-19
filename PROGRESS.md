@@ -463,3 +463,10 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - MOCK-TESTED only (fake Google). UNVERIFIED on real accounts: Main must be reconnected by the owner (token dead).
 - NEXT STEP: per-destination job parent batch/PARTIAL_SUCCESS states, per-account schedule (daily limit/min gap/quiet hours/missed-job policy), mapping UI, 8-tab dashboard, Test Connection for Meta/TikTok. Run the full suite then push.
 - Full suite after batch (19): 461 pass, 0 fail.
+
+## 2026-11-19 (20) — Distribution status + per-account timezone
+- NEW `src/publish/distribution.ts` + GET /api/distribution + "Distribution" card in Publish tab: per clip, independent destination jobs with derived SUCCESS / PARTIAL_SUCCESS / BLOCKED / RETRY / FAILED / IN_PROGRESS (no new state to desync). Test: distribution.test.ts (MOCK/DB-tested).
+- NEW per-account `schedule.timezone` (validated IANA; used by the scheduler for that account's baseline/quiet hours; UTC stored). Test: account_timezone.test.ts (13:00 IST = 07:30Z, 13:00 New York = 18:00Z).
+- Existing per-account perDayCap / minGapMinutes / quietHours / stagger remain. STILL MISSING: missed-job policy after restart (overdue jobs), per-account pause/resume UI, mapping UI, 8-tab dashboard, Meta/TikTok Test Connection.
+- NEXT STEP: missed-job policy (don't publish all overdue at once after restart) → mapping UI → tabs.
+- Full suite after (20): 464 pass, 0 fail.

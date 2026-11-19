@@ -56,7 +56,8 @@ export function cleanConfig(c: unknown, presetOk: (id: string) => boolean): Chan
   if (i.schedule !== undefined) {
     const s = i.schedule as Record<string, unknown>; const out: Partial<SchedConfig> = {};
     const int = (v: unknown, lo: number, hi: number, name: string) => { const n = Number(v); if (!Number.isInteger(n) || n < lo || n > hi) throw new Error(`invalid: schedule.${name} must be ${lo}-${hi}`); return n; };
-    for (const k of Object.keys(s)) if (!['perDayCap', 'minGapMinutes', 'quietHours', 'baselineHours', 'jitterMinutes', 'staggerMinutes'].includes(k)) throw new Error(`invalid: unknown schedule setting ${k}`);
+    for (const k of Object.keys(s)) if (!['perDayCap', 'minGapMinutes', 'quietHours', 'baselineHours', 'jitterMinutes', 'staggerMinutes', 'timezone'].includes(k)) throw new Error(`invalid: unknown schedule setting ${k}`);
+    if (s.timezone !== undefined) { const tz = String(s.timezone); try { new Intl.DateTimeFormat('en', { timeZone: tz }); } catch { throw new Error('invalid: timezone (IANA naam jaise Asia/Kolkata)'); } out.timezone = tz; }
     if (s.perDayCap !== undefined) out.perDayCap = int(s.perDayCap, 1, 20, 'perDayCap');
     if (s.minGapMinutes !== undefined) out.minGapMinutes = int(s.minGapMinutes, 15, 24 * 60, 'minGapMinutes');
     if (s.staggerMinutes !== undefined) out.staggerMinutes = int(s.staggerMinutes, 0, 720, 'staggerMinutes');
