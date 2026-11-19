@@ -164,6 +164,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
   { const used = store.get<{ units: number }>(`SELECT units FROM quota_usage WHERE day=? AND pool='units'`, quotaDay(now))?.units ?? 0; if (used >= 10_000 * ((cfg.automation.quotaPausePct ?? 80) / 100)) { r.blocked.QUOTA_GUARD = 1; void notify(store, cfg, `quota:${quotaDay(now)}`, `YouTube quota ${used}/10000 units: uploads paused until the Pacific-time reset.`); return r; } } // quota guardian
   // round-robin across channels/platforms: the oldest job of EACH destination goes first, so one stuck/blocked account can never starve another
   const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM (SELECT id, platform, state, ROW_NUMBER() OVER (PARTITION BY COALESCE(channel_id, 0), platform ORDER BY id) AS rn FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"})) ORDER BY rn, id LIMIT 500`, ...cfg.automation.platforms)
+    .filter((x) => !store.get('SELECT 1 FROM kv WHERE k=?', `uppause:${x.id}`)) // owner paused this job: only a manual advance moves it
     .sort((x, y) => (lastTried.get(x.id) ?? 0) - (lastTried.get(y.id) ?? 0) || 0).slice(0, cfg.automation.maxAdvancePerCycle); // never-tried / least-recently-tried first: a job that just blocked yields its turn to the others
   for (const u of pending) lastTried.set(u.id, now.getTime());
   for (const u of pending) {

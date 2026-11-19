@@ -476,3 +476,13 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - NEW Sources list: per-source "Extra destinations" row (add/remove channel, calls /api/sources/<id>/destinations). Verified: ui.html JS parses; API tested earlier. No browser-driven UI test exists (UNVERIFIED on device).
 - NEXT STEP: 8-tab nav (Sources/Queue/Accounts/Analytics/Settings regroup), UI control inventory + HTTP tests, platform capability matrix doc (P2), per-account pause/resume, Meta/TikTok Test Connection.
 - Full suite after (21): 466 pass, 0 fail. Added docs/PLATFORM_CAPABILITIES.md.
+
+## 2026-11-19 (22) — Prompt1 P4/P5/P6 batch (8 tabs etc.)
+- 8-TAB DASHBOARD (Home/Sources/Clips/Studio/Queue/Accounts/Analytics/Settings): cards re-homed at load (ids/handlers unchanged), legacy #publish/#schedule/#insights map to new tabs. BROWSER_TESTED in real Chromium (test/ui_tabs.test.ts: 8 tabs open, own cards visible, no JS errors, legacy hashes; skipped where Playwright is absent, e.g. CI).
+- Queue: per-job Pause/Resume (kv `uppause:<id>`, skipped by automation loop, API POST /api/uploads/<id>/pause|resume; test in missed_job.test.ts). Existing retry/approve/reschedule/cancel kept.
+- Distribution: POST /api/distribute {clipIds[], destinations[], confirm} → preview (planned slot in the account's timezone, duplicates/disabled/expired/QC-failed refused per pair) then one independent job per (clip, account). UI: Clips → 🚀 dialog "kai accounts chuno → Preview → Confirm". Test distribute.test.ts.
+- P4 media: pre-upload FFprobe check against per-platform limits (src/publish/mediaCheck.ts; MEDIA_INVALID fails the job before any byte is sent). Limits are conservative defaults — re-check provider docs. Test mediacheck.test.ts; youtube.test machine test now uses a real mp4.
+- Accounts: shows last verified + token state; Analytics: per-account/platform/video breakdown with "unavailable" (never 0) (analytics_breakdown.test.ts); Settings: safety-gate display (read-only), system check, DB backup (VACUUM INTO, last 14, no secrets; backup.test.ts).
+- docs/UI_CONTROL_INVENTORY.md (generated) + test/ui_api_routes.test.ts (every UI API path exists server-side).
+- STILL OPEN: derived per-platform re-encodes (only validation, no auto-transcode), Meta/TikTok Test Connection, click-through tests of each dynamic UI action in a browser, AI upscaling/16:9 2K (secondary), real-account verification (blocked externally).
+- Suite (22): 470 pass; 3 fails (dry-run adapter media check, old 7-tab ui.test) fixed + re-run green individually; full re-run pending after next batch.

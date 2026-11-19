@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from 'node:http';
-import { createWriteStream, createReadStream, existsSync, statSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
+import { createWriteStream, createReadStream, existsSync, statSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { timingSafeEqual, randomUUID, randomBytes, createHash } from 'node:crypto';
 import { join, basename, resolve, sep } from 'node:path';
@@ -48,6 +48,7 @@ import { localReport } from '../localcheck.ts';
 import { pickLocal } from '../analysis/localStt.ts';
 import { applyEnvKeys, envStatus } from '../ai/envkeys.ts';
 import { dotEnvInfo } from '../env-boot.ts';
+import { distribute } from '../publish/distribute.ts';
 import { listDistributions } from '../publish/distribution.ts';
 import { loginClient, base as oauthBase } from '../publish/oauth.ts';
 import { autoSetup, autoFix, saveProviderKey, CATALOG, slotFor, installModelHealing } from '../ai/autodetect.ts';
@@ -56,7 +57,7 @@ import { listModels, testConnection, lastResults, knownTargets } from '../connec
 import { channelVideos, optimizeAccount, storedAccountKit, remetaClips, advance, queueUpload, listUploads, youtubeStatus, youtubeConnectStart, youtubeConnectPoll, analyticsProviders, saveTokenFor, platformStatus, automationTick, collectYoutubeComments, postComment, secretsFor, collectRetention, learnedCategoryPrior } from '../publish/service.ts';
 import { setCommentStatus } from '../comments/comments.ts';
 import { importAnalyticsCsv, planFromStore, hourStats } from '../schedule/analytics.ts';
-import { collectAnalytics, analyticsSummary } from '../analytics/collect.ts';
+import { collectAnalytics, analyticsSummary, analyticsBreakdown } from '../analytics/collect.ts';
 import { titleTestTick, funnelTick, listTitleTests } from '../publish/titletest.ts';
 import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPosted } from '../publish/direct.ts';
 import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ytSecretName, ALLOWED_PLATFORMS } from '../channels.ts';
@@ -420,7 +421,15 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       }
       if (p === '/api/ai/health' && m === 'GET') { const { llmHealth } = await import('./../ai/health.ts'); const { llmChain } = await import('./../ai/settings.ts'); return json(res, 200, { llm: llmHealth(llmChain(cfg)) }); }
       if (p === '/api/logs' && m === 'GET') return json(res, 200, { now: new Date().toISOString(), paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs: recentLogs(Math.min(200, Number(url.searchParams.get('n') ?? 60)), url.searchParams.get('level') === 'warn' ? 'warn' : 'info') });
-      if (p === '/api/uploads' && m === 'GET') { const names = new Map(listDestinations(store, cfg).map((d) => [d.id, d.name])); const ups = listUploads(store).map((u) => { const id = (store.get<{ destination_id: string | null }>('SELECT destination_id FROM uploads WHERE id=?', (u as { id: number }).id))?.destination_id ?? null; return { ...u, destinationId: id, destination: id ? names.get(id) ?? id : null }; }); return json(res, 200, { uploads: ups }); }
+      if (p === '/api/uploads' && m === 'GET') { const names = new Map(listDestinations(store, cfg).map((d) => [d.id, d.name])); const ups = listUploads(store).map((u) => { const id = (store.get<{ destination_id: string | null }>('SELECT destination_id FROM uploads WHERE id=?', (u as { id: number }).id))?.destination_id ?? null; return { ...u, destinationId: id, destination: id ? names.get(id) ?? id : null, paused: !!store.get(`SELECT 1 FROM kv WHERE k=?`, `uppause:${(u as { id: number }).id}`) }; }); return json(res, 200, { uploads: ups }); }
+      { const pm = /^\/api\/uploads\/(\d+)\/(pause|resume)$/.exec(p); if (pm && m === 'POST') { const id = Number(pm[1]); const u = store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', id); if (!u) return json(res, 404, { error: 'not found: upload' }); if (['PUBLISHED', 'QC_FAILED', 'FAILED', 'ANALYTICS_WAIT', 'ANALYZING', 'LEARNING', 'NEXT_CYCLE'].includes(u.state)) return json(res, 400, { error: `invalid: ${u.state} job ko pause nahi kar sakte` }); if (pm[2] === 'pause') store.exec(`INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)`, `uppause:${id}`, new Date().toISOString()); else store.exec('DELETE FROM kv WHERE k=?', `uppause:${id}`); return json(res, 200, { ok: true, paused: pm[2] === 'pause' }); } }
+      if (p === '/api/backup' && (m === 'GET' || m === 'POST')) { // DB-only snapshot (VACUUM INTO). Secrets are never copied or downloadable from here.
+        const dir = join(cfg.dataDir, 'backups'); mkdirSync(dir, { recursive: true });
+        if (m === 'POST') { const name = `yt-clips-${new Date().toISOString().replace(/[:.]/g, '-')}.db`; store.exec(`VACUUM INTO '${join(dir, name).replace(/'/g, "''")}'`); const keep = readdirSync(dir).filter((f) => f.endsWith('.db')).sort(); for (const old of keep.slice(0, Math.max(0, keep.length - 14))) { try { unlinkSync(join(dir, old)); } catch { /* keep going */ } } }
+        return json(res, 200, { ok: true, backups: readdirSync(dir).filter((f) => f.endsWith('.db')).sort().reverse().map((f) => ({ name: f, mb: Math.round(statSync(join(dir, f)).size / 1048.576) / 1000 })), note: 'Sirf database snapshot (last 14). Secrets/tokens isme copy nahi hote.' }); }
+      if (p === '/api/distribute' && m === 'POST') { const b = JSON.parse((await readBody(req, 16_384)).toString('utf8') || '{}') as { clipIds?: unknown; destinations?: unknown; confirm?: boolean };
+        const ids = Array.isArray(b.clipIds) ? b.clipIds.map(Number).filter(Number.isInteger) : [], dst = Array.isArray(b.destinations) ? b.destinations.map(String) : [];
+        if (!ids.length || !dst.length) return json(res, 400, { error: 'invalid: clipIds aur destinations (kam se kam ek ek) chahiye' }); return json(res, 200, distribute(store, cfg, { clipIds: ids, destinations: dst, confirm: b.confirm === true })); }
       if (p === '/api/accounts' && m === 'GET') return json(res, 200, { accounts: listDestinations(store, cfg) });
       { const am = /^\/api\/accounts\/([\w:.%-]{3,200})\/(enable|disable|disconnect|dedupe|test)$/.exec(p);
         if (am && m === 'POST') { const id = decodeURIComponent(am[1]!); try { let revoked: boolean | null = null; if (am[2] === 'test') return json(res, 200, { ok: true, test: await testDestination(store, cfg, id) }); if (am[2] === 'disconnect') { revoked = await revokeYoutubeGrant(cfg, listDestinations(store, cfg).find((d) => d.id === id)); disconnectDestination(store, cfg, id); } else if (am[2] === 'dedupe') dedupeDestination(store, cfg, id); else setDestinationEnabled(store, id, am[2] === 'enable'); return json(res, 200, { ok: true, revoked, accounts: listDestinations(store, cfg) }); } catch (e) { return json(res, 400, { error: String((e as Error).message).slice(0, 200) }); } } }
@@ -479,6 +488,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/retention/collect' && m === 'POST') return json(res, 200, await collectRetention(store, cfg));
       if (p === '/api/learnings' && m === 'GET') return json(res, 200, { channels: listChannels(store).map((ch) => ({ slug: ch.slug, categoryPrior: learnedCategoryPrior(store, ch.id), retentionRows: store.get<{ n: number }>('SELECT count(*) n FROM retention WHERE channel_id=?', ch.id)!.n })) });
       if (p === '/api/analytics/collect' && m === 'POST') return json(res, 200, { results: await collectAnalytics(store, analyticsProviders(store, cfg)) });
+      if (p === '/api/analytics/breakdown' && m === 'GET') return json(res, 200, analyticsBreakdown(store));
       if (p === '/api/analytics' && m === 'GET') return json(res, 200, { platforms: analyticsSummary(store, cfg.timezone, (pl) => hourStats(store, cfg.timezone, pl)) });
       if (p === '/api/analytics/import' && m === 'POST') return json(res, 200, importAnalyticsCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'), url.searchParams.get('platform') ?? undefined));
       if (await handleStudio({ req, res, p, m, url, store, cfg, deps: o.studioDeps ?? {}, json, readBody, sendPath })) return;

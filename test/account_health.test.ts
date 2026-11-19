@@ -22,7 +22,7 @@ test('a revoked token is shown as expired (not connected); Test Connection repor
     assert.equal(listDestinations(store, cfg).find((d) => d.id === 'yt:UC_A')?.status, 'connected', 'before any check it is only as good as the stored evidence');
     const t1 = await testDestination(store, cfg, 'yt:UC_A'); assert.equal(t1.ok, false); assert.equal(t1.status, 'expired');
     assert.equal(listDestinations(store, cfg).find((d) => d.id === 'yt:UC_A')?.status, 'expired');
-    revoked = false; const t2 = await testDestination(store, cfg, 'yt:UC_A'); assert.equal(t2.ok, true, t2.message);
+    revoked = false; const t2 = await testDestination(store, cfg, 'yt:UC_A'); assert.equal(t2.ok, true, t2.message); assert.ok(listDestinations(store, cfg).find((d) => d.id === 'yt:UC_A')?.verifiedAt, 'last verification recorded');
     assert.equal(listDestinations(store, cfg).find((d) => d.id === 'yt:UC_A')?.status, 'connected');
     store.exec(`UPDATE kv SET v=? WHERE k=?`, JSON.stringify({ channelId: 'UC_OTHER', title: 'x', at: 'x' }), `ytinfo:${a.slug}`); const t3 = await testDestination(store, cfg, 'yt:UC_OTHER'); assert.equal(t3.status, 'mismatch');
   } finally { srv.close(); for (const k of Object.keys(process.env)) if (!(k in old)) delete process.env[k]; Object.assign(process.env, old); }

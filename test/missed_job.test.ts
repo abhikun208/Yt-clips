@@ -36,3 +36,19 @@ test('missed slot with policy publish_now publishes right away (owner choice)', 
   const r = await missedScenario('publish_now'); assert.equal(r.status.privacyStatus, 'public');
 });
 
+
+test('pause/resume: a paused job is skipped by the automation loop, other jobs keep moving; resume continues', async () => {
+  const { createApp } = await import('../src/server/app.ts'); const TOKEN = 'test-token-0123456789'; const auth = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
+  const dir = tmpDir(); const app = createApp({ host: '127.0.0.1', port: 0, token: TOKEN, dataDir: dir, autoRun: false }); const base = `http://127.0.0.1:${await app.start()}`;
+  try {
+    const cfg = loadConfig(process.cwd(), { dataDir: dir }); const st = new Store(cfg.dbPath);
+    st.exec(`INSERT INTO sources(id, kind, uri, authorized) VALUES (1,'local','r',1)`); st.exec(`INSERT INTO videos(id, source_id, path, fingerprint) VALUES (1,1,'/x','f')`); st.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (1,1,0,6,.5,'c')`);
+    st.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass, metadata_json) VALUES (1,1,'o1','/x.mp4',1,'{"title":"T"}')`); st.exec(`INSERT INTO uploads(id, clip_id, platform, state, idempotency_key) VALUES (7,1,'youtube_shorts','UPLOAD_PENDING','k7')`);
+    const post = (p: string) => fetch(base + p, { method: 'POST', headers: auth, body: '{}' });
+    assert.equal((await post('/api/uploads/7/pause')).status, 200);
+    const list = async () => (await (await fetch(base + '/api/uploads', { headers: auth })).json() as { uploads: { id: number; paused: boolean }[] }).uploads.find((x) => x.id === 7)!;
+    assert.equal((await list()).paused, true); assert.equal((await post('/api/uploads/999/pause')).status, 404);
+    assert.equal((await post('/api/uploads/7/resume')).status, 200); assert.equal((await list()).paused, false);
+    st.exec(`UPDATE uploads SET state='PUBLISHED' WHERE id=7`); assert.equal((await post('/api/uploads/7/pause')).status, 400);
+  } finally { await app.stop?.(); }
+});

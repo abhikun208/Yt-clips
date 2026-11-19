@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync, statSync } from 'node:fs';
 import { randomBytes, createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { run as runProc } from '../src/util/proc.ts';
 import { Store } from '../src/db.ts';
 import { SecretStore } from '../src/publish/secrets.ts';
 import { startDeviceFlow, pollDeviceFlow, TokenProvider } from '../src/publish/oauth.ts';
@@ -122,7 +123,7 @@ test('quota accounting: per-Pacific-day counters, hard stop at the cap, other po
 test('FULL machine on the YouTube adapter: gates OFF make zero HTTP calls; gates ON => unlisted upload+thumbnail+verify (waits while processing) -> approval -> public only with its own gate', async () => {
   const f = await startFake(); f.opts.processedAfterPolls = 1;
   try { await env(f, async () => {
-    const { ad, file, store } = setup(f); store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (1,'/x','f')`); store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (1,1,0,10,.5,'c')`);
+    const { ad, file, store } = setup(f); { const r = await runProc('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=270x480:r=15:d=3', '-f', 'lavfi', '-i', 'sine=f=220:d=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', file]); assert.equal(r.code, 0); } store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (1,'/x','f')`); store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (1,1,0,10,.5,'c')`);
     store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (1,1,'o1',?,1)`, file); const jpg = join(tmpDir(), 't.jpg'); writeFileSync(jpg, randomBytes(500));
     const facts: ClipFacts = { width: 1080, height: 1920, duration: 30, title: 'My Title', description: 'd', qcPass: true, authorized: true, tags: ['x'], thumbnailPath: jpg };
     const off = loadConfig(process.cwd(), { dataDir: tmpDir() }); const id = queueUpload(store, 1, 'youtube_shorts');

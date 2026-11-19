@@ -37,3 +37,19 @@ export function analyticsSummary(store: Store, tz: string, hourFn: (platform?: s
     return { platform, videos: latest.length, totalViews: latest.reduce((a, x) => a + (x.views ?? 0), 0), top: latest.slice(0, 5), bestHour: hs ? { hour: hs.hour, meanViews: Math.round(hs.views / hs.samples), samples: hs.samples } : null, tz };
   });
 }
+
+/** Per-account, per-platform and per-video view of the LATEST snapshot of every published upload. Platforms/jobs without any snapshot are reported as unavailable — never as zero. */
+export function analyticsBreakdown(store: Store) {
+  const rows = store.all<{ upload_id: number; clip_id: number; platform: string; remote_id: string | null; slug: string | null; title: string | null; views: number | null; likes: number | null; comments: number | null; taken_at: string | null }>(
+    `SELECT u.id AS upload_id, u.clip_id, u.platform, u.remote_id, ch.slug AS slug, json_extract(c.metadata_json,'$.title') AS title, s.views, s.likes, s.comments, s.taken_at
+     FROM uploads u JOIN clips c ON c.id=u.clip_id LEFT JOIN channels ch ON ch.id=u.channel_id
+     LEFT JOIN analytics_snapshots s ON s.platform=u.platform AND s.remote_id=u.remote_id AND s.taken_at=(SELECT MAX(taken_at) FROM analytics_snapshots t WHERE t.platform=u.platform AND t.remote_id=u.remote_id)
+     WHERE u.state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND u.remote_id IS NOT NULL ORDER BY u.id DESC LIMIT 500`);
+  const videos = rows.map((r) => ({ uploadId: r.upload_id, clipId: r.clip_id, title: r.title ?? `clip ${r.clip_id}`, platform: r.platform, account: r.slug ?? 'main', views: r.views, likes: r.likes, comments: r.comments, asOf: r.taken_at, available: r.taken_at !== null }));
+  const acc = new Map<string, { account: string; platform: string; videos: number; withData: number; views: number; likes: number }>(); const plat = new Map<string, { platform: string; videos: number; withData: number; views: number }>();
+  for (const v of videos) {
+    const a = acc.get(v.account + '|' + v.platform) ?? { account: v.account, platform: v.platform, videos: 0, withData: 0, views: 0, likes: 0 }; a.videos++; if (v.available) { a.withData++; a.views += v.views ?? 0; a.likes += v.likes ?? 0; } acc.set(v.account + '|' + v.platform, a);
+    const p = plat.get(v.platform) ?? { platform: v.platform, videos: 0, withData: 0, views: 0 }; p.videos++; if (v.available) { p.withData++; p.views += v.views ?? 0; } plat.set(v.platform, p);
+  }
+  return { accounts: [...acc.values()], platforms: [...plat.values()].map((p) => ({ ...p, unavailable: p.withData === 0 })), videos };
+}

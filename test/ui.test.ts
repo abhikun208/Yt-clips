@@ -13,7 +13,7 @@ test('dashboard: every tab loads in a real browser without JS errors or load-err
   try {
     const pg = await b.newPage(); pg.on('pageerror', (e: Error) => errs.push('pageerror: ' + e.message));
     await pg.goto(`http://127.0.0.1:${port}/`); await pg.waitForTimeout(1200);
-    for (const t of ['home', 'clips', 'publish', 'schedule', 'insights', 'studio', 'settings']) { await pg.click(`nav button[data-tab="${t}"]`); await pg.waitForTimeout(900); const e: string[] = await pg.$$eval(`#t-${t} .loaderr`, (x: any[]) => x.map((y) => y.innerText.slice(0, 120))); if (e.length) errs.push(`${t}: ${e.join('|')}`); }
+    for (const t of ['home', 'sources', 'clips', 'studio', 'queue', 'accounts', 'analytics', 'settings']) { await pg.click(`nav button[data-tab="${t}"]`); await pg.waitForTimeout(900); const e: string[] = await pg.$$eval(`#t-${t} .loaderr`, (x: any[]) => x.map((y) => y.innerText.slice(0, 120))); if (e.length) errs.push(`${t}: ${e.join('|')}`); }
   } finally { await b.close(); await app.stop(); }
   assert.deepEqual(errs, []);
 });

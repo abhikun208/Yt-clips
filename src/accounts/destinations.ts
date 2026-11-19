@@ -13,7 +13,7 @@ import { identityOf } from '../publish/webauth.ts';
  */
 export type DestPlatform = 'youtube' | 'facebook' | 'instagram' | 'tiktok';
 export type DestStatus = 'connected' | 'unverified' | 'expired' | 'disconnected';
-export interface Destination { id: string; platform: DestPlatform; externalId: string; name: string; thumb: string | null; channelSlug: string | null; secretRef: string; status: DestStatus; enabled: boolean; lastUploadAt: string | null; createdAt: string; warnings: string[] }
+export interface Destination { id: string; platform: DestPlatform; externalId: string; name: string; thumb: string | null; channelSlug: string | null; secretRef: string; status: DestStatus; enabled: boolean; lastUploadAt: string | null; verifiedAt: string | null; createdAt: string; warnings: string[] }
 interface Row { id: string; platform: string; external_id: string; name: string; thumb: string | null; channel_slug: string | null; secret_ref: string; status: string; enabled: number; created_at: string; meta_json: string }
 
 /** upload platform id (queue) -> destination platform */
@@ -73,7 +73,7 @@ export function listDestinations(store: Store, cfg: Config): Destination[] {
   return store.all<Row>('SELECT * FROM destinations ORDER BY platform, created_at, id').map((r) => {
     const meta = JSON.parse(r.meta_json || '{}') as { duplicateSlugs?: string[] };
     const last = store.get<{ t: string | null }>(`SELECT MAX(updated_at) AS t FROM uploads WHERE state IN ('PUBLISHED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND (destination_id=? OR (destination_id IS NULL AND platform IN (?,?) AND channel_id=(SELECT id FROM channels WHERE slug=?)))`, r.id, ...(r.platform === 'youtube' ? ['youtube_shorts', 'youtube'] : [r.platform === 'facebook' ? 'facebook_reels' : r.platform === 'instagram' ? 'instagram_reels' : 'tiktok', '-']), r.channel_slug ?? '')?.t ?? null;
-    return { id: r.id, platform: r.platform as DestPlatform, externalId: r.external_id, name: r.name, thumb: r.thumb, channelSlug: r.channel_slug, secretRef: r.secret_ref.replace(/#.*/, ''), status: r.status as DestStatus, enabled: !!r.enabled, lastUploadAt: last, createdAt: r.created_at, warnings: meta.duplicateSlugs?.length ? [`Ye YouTube channel ${meta.duplicateSlugs.length + 1} jagah connected hai (${meta.duplicateSlugs.join(', ')}) — ek hi rakho`] : [] };
+    return { id: r.id, platform: r.platform as DestPlatform, externalId: r.external_id, name: r.name, thumb: r.thumb, channelSlug: r.channel_slug, secretRef: r.secret_ref.replace(/#.*/, ''), status: r.status as DestStatus, enabled: !!r.enabled, lastUploadAt: last, verifiedAt: (meta as { verifiedAt?: string }).verifiedAt ?? null, createdAt: r.created_at, warnings: meta.duplicateSlugs?.length ? [`Ye YouTube channel ${meta.duplicateSlugs.length + 1} jagah connected hai (${meta.duplicateSlugs.join(', ')}) — ek hi rakho`] : [] };
   });
 }
 

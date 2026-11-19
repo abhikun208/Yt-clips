@@ -1,3 +1,4 @@
+import { checkMedia } from './mediaCheck.ts';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { assertPublishAllowed } from '../config.ts';
@@ -62,10 +63,13 @@ export interface Adapter {
   /** Optional: the identity the platform credentials really belong to (YouTube: channels.list mine=true). Checked before every upload. */
   whoami?(): Promise<{ id: string; title: string } | null>;
   readonly local?: boolean;
+  /** Test doubles that send nothing skip the FFprobe pre-upload check. */
+  readonly skipMediaCheck?: boolean;
 }
 
 /** Records intents only; touches no network. Used for dry-runs and tests. */
 export class DryRunAdapter implements Adapter {
+  readonly skipMediaCheck = true; // never sends bytes anywhere: nothing to validate
   readonly name = 'dryrun';
   calls: string[] = [];
   private store = new Map<string, { vis: string; title: string }>();
@@ -119,6 +123,9 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UPLOAD_PENDING': if (!adapter.local) assertPublishAllowed(cfg, 'unlisted'); setState(store, u.id, from, 'UPLOADING'); return 'UPLOADING';
       case 'UPLOADING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
+        if (!adapter.local && !adapter.skipMediaCheck) { // FFprobe the real output against this destination's limits BEFORE any byte is sent
+          { const mc = await checkMedia(clip.edited_path, u.platform); if (!mc.ok) throw new Error(`MEDIA_INVALID: ${mc.problems.join('; ')}`); }
+        }
         if (adapter.whoami) { // never upload with credentials that belong to a different channel than the one this clip is routed to
           const slug = channelOfClip(store, u.clip_id).slug; let want: string | null = null;
           try { const v = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytinfo:${slug}`)?.v; want = v ? (JSON.parse(v) as { channelId?: string }).channelId ?? null : null; } catch { /* unknown identity: nothing to compare */ }
