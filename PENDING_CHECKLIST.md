@@ -89,3 +89,8 @@
 - [ ] (2026-11-17) Google Cloud → OAuth consent screen → Test users: add EVERY Google account you connect (or Publish app).
 - [ ] (2026-11-17) Phone: `git pull && npm start` → Setup → Connected Accounts. Connect 2 Google accounts; both must list. Disconnect one → other stays Connected.
 - [ ] (2026-11-17) Meta: login with 2nd Facebook user → both users' Pages should appear; TikTok: 2nd login should add a 2nd row. TikTok/Meta real publishing still OFF until you authorize.
+
+## 2026-11-19 additions
+- [ ] Owner: Phone par `git pull && npm start`; Setup → Connected Accounts → **Test** dabao har account par (Main abhi expired hona chahiye) → Main Reconnect.
+- [ ] Owner: Decider ke sources ko Decider channel par assign karo (ya source→destination mapping API) — default Main hai.
+- [ ] Dev: per-account schedule limits, parent batch/PARTIAL_SUCCESS, mapping UI, 8-tab dashboard, Meta/TikTok Test Connection.

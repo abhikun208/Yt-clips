@@ -141,6 +141,7 @@ export interface TickResult { queued: number; advanced: number; published: numbe
  * Queues QC-passed clips that have metadata, then advances each pending upload by steps until it blocks. Every step still passes
  * assertPublishAllowed (gates), so with gates off nothing touches a platform. Scheduling uses measured hours when enough evidence exists.
  */
+const lastTried = new Map<number, number>(); // process-local turn memory for the round-robin (rn order from SQL is kept for ties: sort is stable)
 export async function automationTick(store: Store, cfg: Config, now = new Date()): Promise<TickResult> {
   const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
   try { sweepSources(store, cfg); } catch (e) { r.errors.push(`cleanup: ${(e as Error).message}`); } // free disk of finished videos (storage.autoCleanup)
@@ -161,7 +162,10 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
     for (const c of rows) { const before = store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n; queueUpload(store, c.id, m.platform, m.channelId); if (store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n > before) r.queued++; }
   }
   { const used = store.get<{ units: number }>(`SELECT units FROM quota_usage WHERE day=? AND pool='units'`, quotaDay(now))?.units ?? 0; if (used >= 10_000 * ((cfg.automation.quotaPausePct ?? 80) / 100)) { r.blocked.QUOTA_GUARD = 1; void notify(store, cfg, `quota:${quotaDay(now)}`, `YouTube quota ${used}/10000 units: uploads paused until the Pacific-time reset.`); return r; } } // quota guardian
-  const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"}) ORDER BY id LIMIT ?`, ...cfg.automation.platforms, cfg.automation.maxAdvancePerCycle);
+  // round-robin across channels/platforms: the oldest job of EACH destination goes first, so one stuck/blocked account can never starve another
+  const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM (SELECT id, platform, state, ROW_NUMBER() OVER (PARTITION BY COALESCE(channel_id, 0), platform ORDER BY id) AS rn FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"})) ORDER BY rn, id LIMIT 500`, ...cfg.automation.platforms)
+    .sort((x, y) => (lastTried.get(x.id) ?? 0) - (lastTried.get(y.id) ?? 0) || 0).slice(0, cfg.automation.maxAdvancePerCycle); // never-tried / least-recently-tried first: a job that just blocked yields its turn to the others
+  for (const u of pending) lastTried.set(u.id, now.getTime());
   for (const u of pending) {
     for (let step = 0; step < 8; step++) {
       try {

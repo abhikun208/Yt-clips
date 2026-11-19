@@ -84,6 +84,10 @@ export class TokenProvider {
   private secrets: SecretStore;
   private name: string;
   constructor(secrets: SecretStore, name = 'youtube') { this.secrets = secrets; this.name = name; }
+  /** Remembers whether Google still accepts this login, so a dead token is never shown as "connected". `<name>-health` holds no secret. */
+  private markHealth(bad: string | null): void {
+    try { const had = this.secrets.read<{ bad?: string }>(`${this.name}-health`)?.bad; if (bad) { if (had !== bad) this.secrets.write(`${this.name}-health`, { bad, at: new Date().toISOString() }); } else if (had) this.secrets.delete(`${this.name}-health`); } catch { /* health is best-effort */ }
+  }
   connected(): boolean { try { return !!this.secrets.read<{ refresh_token?: string }>(this.name)?.refresh_token; } catch { return false; } }
   async accessToken(): Promise<string> {
     if (this.cache && this.cache.exp > Date.now() + 60_000) return this.cache.token;
@@ -93,8 +97,9 @@ export class TokenProvider {
     if (!creds) throw new Error('AUTH_NOT_CONFIGURED: set YT_OAUTH_CLIENT_ID and YT_OAUTH_CLIENT_SECRET');
     const rt = tok?.refresh_token; if (!rt) throw new Error('AUTH_NOT_CONNECTED: connect the YouTube account first');
     const r = await form(`${base()}/token`, { client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: rt, grant_type: 'refresh_token' });
-    if (r.status === 200 && r.json.access_token) { this.cache = { token: r.json.access_token, exp: Date.now() + (Number(r.json.expires_in) || 3600) * 1000 }; return r.json.access_token; }
+    if (r.status === 200 && r.json.access_token) { this.cache = { token: r.json.access_token, exp: Date.now() + (Number(r.json.expires_in) || 3600) * 1000 }; this.markHealth(null); return r.json.access_token; }
     this.cache = null;
+    if (r.json.error === 'invalid_grant' || r.json.error === 'invalid_client' || r.json.error === 'unauthorized_client') this.markHealth(String(r.json.error));
     if (r.json.error === 'invalid_grant' || r.json.error === 'invalid_client' || r.json.error === 'unauthorized_client') throw new Error(`AUTH_REVOKED: ${r.json.error} — reconnect the YouTube account`);
     throw new Error(`AUTH_REFRESH_FAILED: ${r.json.error ?? r.status}`);
   }

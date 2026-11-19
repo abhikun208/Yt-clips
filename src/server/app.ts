@@ -40,7 +40,7 @@ import { handleStudio } from '../studio/routes.ts';
 import { resumeStudio, type Deps as StudioDeps } from '../studio/service.ts';
 import { isPace } from '../edit/pace.ts';
 import { thumbCandidates } from '../review/review.ts';
-import { listDestinations, setDestinationEnabled, disconnectDestination, dedupeDestination, listSourceMappings, setSourceMapping } from '../accounts/destinations.ts';
+import { listDestinations, setDestinationEnabled, disconnectDestination, dedupeDestination, testDestination, listSourceMappings, setSourceMapping } from '../accounts/destinations.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
 import { metaCanPublish, metaPerms } from '../publish/meta.ts';
 import { storageTick, storageStatus, testRemote, listRemotes, rcloneAvailable, validRemote } from '../storage/cloud.ts';
@@ -420,8 +420,8 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/logs' && m === 'GET') return json(res, 200, { now: new Date().toISOString(), paused: queuePaused(store), running: store.all(`SELECT kind, key, attempts FROM jobs WHERE state='RUNNING' ORDER BY id LIMIT 10`), pending: store.get<{ n: number }>(`SELECT count(*) n FROM jobs WHERE state IN ('PENDING','RETRY')`)?.n ?? 0, logs: recentLogs(Math.min(200, Number(url.searchParams.get('n') ?? 60)), url.searchParams.get('level') === 'warn' ? 'warn' : 'info') });
       if (p === '/api/uploads' && m === 'GET') { const names = new Map(listDestinations(store, cfg).map((d) => [d.id, d.name])); const ups = listUploads(store).map((u) => { const id = (store.get<{ destination_id: string | null }>('SELECT destination_id FROM uploads WHERE id=?', (u as { id: number }).id))?.destination_id ?? null; return { ...u, destinationId: id, destination: id ? names.get(id) ?? id : null }; }); return json(res, 200, { uploads: ups }); }
       if (p === '/api/accounts' && m === 'GET') return json(res, 200, { accounts: listDestinations(store, cfg) });
-      { const am = /^\/api\/accounts\/([\w:.%-]{3,200})\/(enable|disable|disconnect|dedupe)$/.exec(p);
-        if (am && m === 'POST') { const id = decodeURIComponent(am[1]!); try { let revoked: boolean | null = null; if (am[2] === 'disconnect') { revoked = await revokeYoutubeGrant(cfg, listDestinations(store, cfg).find((d) => d.id === id)); disconnectDestination(store, cfg, id); } else if (am[2] === 'dedupe') dedupeDestination(store, cfg, id); else setDestinationEnabled(store, id, am[2] === 'enable'); return json(res, 200, { ok: true, revoked, accounts: listDestinations(store, cfg) }); } catch (e) { return json(res, 400, { error: String((e as Error).message).slice(0, 200) }); } } }
+      { const am = /^\/api\/accounts\/([\w:.%-]{3,200})\/(enable|disable|disconnect|dedupe|test)$/.exec(p);
+        if (am && m === 'POST') { const id = decodeURIComponent(am[1]!); try { let revoked: boolean | null = null; if (am[2] === 'test') return json(res, 200, { ok: true, test: await testDestination(store, cfg, id) }); if (am[2] === 'disconnect') { revoked = await revokeYoutubeGrant(cfg, listDestinations(store, cfg).find((d) => d.id === id)); disconnectDestination(store, cfg, id); } else if (am[2] === 'dedupe') dedupeDestination(store, cfg, id); else setDestinationEnabled(store, id, am[2] === 'enable'); return json(res, 200, { ok: true, revoked, accounts: listDestinations(store, cfg) }); } catch (e) { return json(res, 400, { error: String((e as Error).message).slice(0, 200) }); } } }
       if (p === '/api/uploads' && m === 'POST') {
         const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { clipId?: number; platform?: string; channel?: string };
         if (!Number.isInteger(b.clipId) || !b.platform) return json(res, 400, { error: 'invalid: clipId (int) and platform required' });

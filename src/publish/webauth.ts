@@ -34,14 +34,14 @@ function guardReplacement(store: Store, cfg: Config, ch: Channel, identity: Iden
   const other = listChannels(store, true).find((c) => c.slug !== ch.slug && identityOf(store, c.slug)?.channelId === identity.channelId && (() => { try { return !!sec.read<{ refresh_token?: string }>(ytSecretName(c))?.refresh_token; } catch { return false; } })());
   const restore = () => { if (had) sec.write(ytSecretName(ch), prevSecret!); else sec.delete(ytSecretName(ch)); if (prevIdent) putIdent(store, ch.slug, prevIdent); else store.exec('DELETE FROM kv WHERE k=?', `ytinfo:${ch.slug}`); };
   if (other) {
-    sec.write(ytSecretName(other), fresh); putIdent(store, other.slug, identity); // the already-known copy of this channel gets the fresh token (cures a stale one made with an older client)
+    sec.write(ytSecretName(other), fresh); try { sec.delete(`${ytSecretName(other)}-health`); } catch { /* none */ } putIdent(store, other.slug, identity); // the already-known copy of this channel gets the fresh token (cures a stale one made with an older client)
     if (had && prevIdent && prevIdent.channelId !== identity.channelId) { restore(); store.logState('youtube-connect', other.id, null, 'reconnected', `${identity.channelId} (kept ${prevIdent.channelId} on ${ch.slug})`); return { slug: other.slug, identity }; }
     // the card the owner clicked had no other verified account: it becomes connected too, so the click visibly works (both point at the same channel; the registry warns about the duplicate)
     putIdent(store, ch.slug, identity); autoNameChannel(store, ch, identity.title); store.logState('youtube-connect', ch.id, null, 'connected', `${identity.channelId} (also on ${other.slug})`); return { slug: ch.slug, identity };
   }
   if (had && prevIdent && prevIdent.channelId !== identity.channelId) {
     const n = createChannel(store, { name: `YouTube account ${listChannels(store, true).length + 1}` }, () => true);
-    sec.write(ytSecretName(n), fresh); putIdent(store, n.slug, identity); autoNameChannel(store, n, identity.title); restore();
+    sec.write(ytSecretName(n), fresh); try { sec.delete(`${ytSecretName(n)}-health`); } catch { /* none */ } putIdent(store, n.slug, identity); autoNameChannel(store, n, identity.title); restore();
     store.logState('youtube-connect', n.id, null, 'connected', `${identity.channelId} (kept ${prevIdent.channelId} untouched)`); return { slug: n.slug, identity };
   }
   return null;
@@ -75,7 +75,7 @@ export async function finishWebAuth(store: Store, cfg: Config, q: { code: string
   if (r.status !== 200 || !r.json.refresh_token) throw new Error(r.json.error === 'invalid_client' ? 'Google client ID/secret galat hai' : r.json.error === 'redirect_uri_mismatch' ? `redirect URI Google Console mein add karo: ${st.redirectUri}` : `token nahi mila (${String(r.json.error ?? r.status).slice(0, 40)}). Gmail ko "Test users" mein add karo ya app ko In production karo`);
   const ch = getChannel(store, st.slug); const sec = secretsFor(cfg); const prevSecret = (() => { try { return sec.read<Record<string, unknown>>(ytSecretName(ch)); } catch { return null; } })(); const prevIdent = identityOf(store, ch.slug);
   const fresh = { refresh_token: r.json.refresh_token, client_id: cc.clientId, client_secret: cc.clientSecret, scope: r.json.scope ?? YT_WEB_SCOPE, connected_at: new Date().toISOString() };
-  sec.write(ytSecretName(ch), fresh);
+  sec.write(ytSecretName(ch), fresh); try { sec.delete(`${ytSecretName(ch)}-health`); } catch { /* none */ }
   let identity: Identity | null = null;
   try { const w = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami(); if (w) { identity = { channelId: w.id, title: w.title, at: new Date().toISOString(), ...(w.thumb ? { thumb: w.thumb } : {}) }; store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')`, `ytinfo:${st.slug}`, JSON.stringify(identity)); } } catch { /* connected, identity lookup can be retried with Test */ }
   const done = (r: { slug: string; identity: Identity | null }) => { if (q.state) { store.exec(`DELETE FROM kv WHERE k LIKE 'ytweb-done:%' AND updated_at < datetime('now','-15 minutes')`); store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `ytweb-done:${q.state}`, JSON.stringify(r)); } return r; };

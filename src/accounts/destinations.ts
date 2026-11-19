@@ -42,7 +42,7 @@ export function syncDestinations(store: Store, cfg: Config): void {
     if (ident) { store.exec('DELETE FROM destinations WHERE id=? AND NOT EXISTS (SELECT 1 FROM uploads WHERE destination_id=destinations.id)', `yt:slug:${ch.slug}`); }
     const l = byChan.get(id) ?? []; l.push(ch.slug); byChan.set(id, l);
     if (l.length > 1) continue; // duplicate of an already-registered channel: first slug stays the owner of the row
-    upsert(store, { id, platform: 'youtube', externalId: ident?.channelId ?? `slug:${ch.slug}`, name: ident?.title ?? ch.name, thumb: ident?.thumb ?? null, channelSlug: ch.slug, secretRef: ref, status: ident ? 'connected' : 'unverified', meta: {} });
+    upsert(store, { id, platform: 'youtube', externalId: ident?.channelId ?? `slug:${ch.slug}`, name: ident?.title ?? ch.name, thumb: ident?.thumb ?? null, channelSlug: ch.slug, secretRef: ref, status: rd<{ bad?: string }>(cfg, `${ref}-health`)?.bad ? 'expired' : ident ? 'connected' : 'unverified', meta: { ...(ident?.at ? { verifiedAt: ident.at } : {}) } });
     mark(id);
   }
   for (const [id, slugs] of byChan) if (slugs.length > 1) store.exec(`UPDATE destinations SET meta_json=json_set(meta_json,'$.duplicateSlugs',json(?)) WHERE id=?`, JSON.stringify(slugs.slice(1)), id);
@@ -151,4 +151,21 @@ export function setSourceMapping(store: Store, m: { sourceId: number; channelId:
   if (m.remove) { store.exec('DELETE FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform); return; }
   if (src.channel_id === m.channelId) throw new Error('invalid: ye source ka apna channel hai (wo already default destination hai)');
   store.exec(`INSERT INTO source_destinations(source_id, channel_id, platform, enabled, priority) VALUES (?,?,?,?,?) ON CONFLICT(source_id, channel_id, platform) DO UPDATE SET enabled=excluded.enabled, priority=excluded.priority`, m.sourceId, m.channelId, platform, m.enabled === false ? 0 : 1, m.priority ?? 0);
+}
+
+/** Real "Test connection" for a YouTube account: refreshes the token and asks Google who it is, compares with the registered channel. Never fakes success. */
+export async function testDestination(store: Store, cfg: Config, id: string): Promise<{ ok: boolean; status: string; message: string; identity?: { id: string; title: string } }> {
+  syncDestinations(store, cfg);
+  const r = store.get<Row>('SELECT * FROM destinations WHERE id=?', id); if (!r) throw new Error('not found: account');
+  if (r.platform !== 'youtube') return { ok: false, status: 'untested', message: `${r.platform}: is platform ka Test Connection abhi implement nahi (sirf YouTube). Status wahi hai jo token se pata chala; asli check publish ke waqt hota hai.` };
+  const ch = listChannels(store, true).find((c) => c.slug === r.channel_slug); if (!ch) return { ok: false, status: 'disconnected', message: 'channel nahi mila' };
+  const { YouTubeAdapter } = await import('../publish/youtube.ts'); const { tokenFor } = await import('../publish/service.ts');
+  try {
+    const me = await new YouTubeAdapter(store, tokenFor(cfg, ch)).whoami();
+    if (!me) return { ok: false, status: 'unverified', message: 'Login chal gaya par is Google account par YouTube channel nahi hai' };
+    const want = r.external_id.startsWith('slug:') ? null : r.external_id;
+    if (want && me.id !== want) return { ok: false, status: 'mismatch', message: `Is login ka channel ${me.title} (${me.id}) hai, registered ${want} nahi — upload block rahega. Reconnect karo.`, identity: { id: me.id, title: me.title } };
+    store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `ytinfo:${ch.slug}`, JSON.stringify({ ...(identityOf(store, ch.slug) ?? {}), channelId: me.id, title: me.title, at: new Date().toISOString() }));
+    syncDestinations(store, cfg); return { ok: true, status: 'connected', message: `✓ Google ne confirm kiya: ${me.title}`, identity: { id: me.id, title: me.title } };
+  } catch (e) { const m = String((e as Error).message); syncDestinations(store, cfg); return { ok: false, status: /AUTH_/.test(m) ? 'expired' : 'error', message: m.slice(0, 220) }; }
 }
