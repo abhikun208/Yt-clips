@@ -470,3 +470,9 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Existing per-account perDayCap / minGapMinutes / quietHours / stagger remain. STILL MISSING: missed-job policy after restart (overdue jobs), per-account pause/resume UI, mapping UI, 8-tab dashboard, Meta/TikTok Test Connection.
 - NEXT STEP: missed-job policy (don't publish all overdue at once after restart) → mapping UI → tabs.
 - Full suite after (20): 464 pass, 0 fail.
+
+## 2026-11-19 (21) — Missed-job policy + mapping UI
+- NEW `automation.missedJob {policy:'reschedule'|'publish_now', graceMinutes:30}` (default reschedule): a SCHEDULED_OR_APPROVED job whose planned time is >grace in the past (downtime/blocked gate) is re-planned through the account's own caps/gap/quiet hours instead of being published immediately. Tests: missed_job.test.ts (fake Google: publishAt in future vs public for publish_now). MOCK-TESTED.
+- NEW Sources list: per-source "Extra destinations" row (add/remove channel, calls /api/sources/<id>/destinations). Verified: ui.html JS parses; API tested earlier. No browser-driven UI test exists (UNVERIFIED on device).
+- NEXT STEP: 8-tab nav (Sources/Queue/Accounts/Analytics/Settings regroup), UI control inventory + HTTP tests, platform capability matrix doc (P2), per-account pause/resume, Meta/TikTok Test Connection.
+- Full suite after (21): 466 pass, 0 fail. Added docs/PLATFORM_CAPABILITIES.md.
