@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { maybeFreeSource } from './sources/sequential.ts';
 import { join } from 'node:path';
 import { repairVideo, DECODE_ERR } from './ops/repair.ts';
@@ -31,8 +32,23 @@ export function seedJobs(store: Store, cfg: Config): number {
   return n;
 }
 
+/** exact failure text when a live-captured chunk's file is missing/discarded; null for normal videos or an intact chunk */
+export function liveChunkGone(store: Store, videoId: number): string | null {
+  const live = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `live:video:${videoId}`);
+  if (!live) return null;
+  const v = store.get<{ path: string }>('SELECT path FROM videos WHERE id=?', videoId); if (!v) return null;
+  if (existsSync(v.path)) return null;
+  const why = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `live:discarded:${videoId}`)?.v;
+  return `live chunk missing: video ${videoId} file ${v.path} nahi mili${why ? ` (retention ne hataya: ${why})` : ' (kisi ne nahi hataya - disk/storage problem?)'}`;
+}
+
 async function handle(store: Store, cfg: Config, job: Job): Promise<void> {
   const id = Number(job.key.split(':')[1]);
+  // live chunk already removed by the rolling buffer: fail with the exact cause (path + reason) instead of a vague ffmpeg error
+  if (job.kind === 'analyze' || job.kind === 'render') {
+    const vid = job.kind === 'analyze' ? id : store.get<{ video_id: number }>('SELECT video_id FROM candidates WHERE id=?', id)?.video_id;
+    if (vid) { const gone = liveChunkGone(store, vid); if (gone) throw new Error(gone); }
+  }
   if (job.kind === 'analyze') { await analyzeVideo(store, cfg, id); seedJobs(store, cfg); return; }
   if (job.kind === 'render') {
     const meta = store.get<{ category: string; transcript: string; language: string; video_id: number }>('SELECT category, transcript, language, video_id FROM candidates WHERE id=?', id)!;

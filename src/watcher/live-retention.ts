@@ -20,7 +20,7 @@ export function cleanLiveTemp(cfg: Config): number {
   try { for (const d of readdirSync(cfg.dirs.tmp)) if (/^live_\d+$/.test(d)) { rmSync(join(cfg.dirs.tmp, d), { recursive: true, force: true }); n++; } } catch { /* no tmp dir yet */ }
   return n;
 }
-export interface RetentionResult { discarded: number; freedBytes: number; keptBytes: number; dropped: number }
+export interface RetentionResult { discarded: number; freedBytes: number; keptBytes: number; dropped: number; protectedBytes: number; capExceeded: boolean; stale: number }
 
 function discard(store: Store, v: { id: number; path: string }, why: string): number {
   let freed = 0;
@@ -29,32 +29,57 @@ function discard(store: Store, v: { id: number; path: string }, why: string): nu
   return freed;
 }
 
+/** Why a raw chunk may NOT be deleted yet (empty = nothing depends on it). Every selected highlight of the chunk must have a rendered, QC-passed, non-empty clip file, and no job may still need the chunk. */
+export function chunkDependencies(store: Store, v: { id: number; state: string }): string[] {
+  const why: string[] = [];
+  if (v.state !== 'ANALYZED') why.push(`analysis not finished (${v.state})`);
+  const cands = store.all<{ id: number; status: string }>(`SELECT id, status FROM candidates WHERE video_id=? AND status IN ('candidate','rendered')`, v.id);
+  for (const c of cands) {
+    const clips = store.all<{ id: number; edited_path: string | null; qc_pass: number | null }>('SELECT id, edited_path, qc_pass FROM clips WHERE candidate_id=?', c.id);
+    if (!clips.length) { why.push(`selected highlight #${c.id} not rendered yet`); continue; }
+    for (const k of clips) {
+      let size = 0; try { size = k.edited_path && existsSync(k.edited_path) ? statSync(k.edited_path).size : 0; } catch { size = 0; }
+      if (!size) why.push(`clip #${k.id} output file missing/empty`); else if (k.qc_pass !== 1) why.push(`clip #${k.id} not QC-passed`);
+    }
+  }
+  const active = store.all<{ key: string }>(`SELECT key FROM jobs WHERE state IN ('PENDING','RETRY','RUNNING') AND (key = ? OR key IN (SELECT 'render:' || id FROM candidates WHERE video_id=?))`, `analyze:${v.id}`, v.id);
+  for (const a of active) why.push(`job ${a.key} still active`);
+  for (const k of store.all<{ id: number }>(`SELECT k.id FROM clips k JOIN candidates c ON c.id=k.candidate_id WHERE c.video_id=?`, v.id))
+    if (store.get(`SELECT 1 FROM jobs WHERE state IN ('PENDING','RETRY','RUNNING') AND key LIKE ?`, `rerender:${k.id}:%`)) why.push(`rerender of clip #${k.id} active`);
+  return why;
+}
+
 export function liveRetention(store: Store, cfg: Config, now = Date.now()): RetentionResult {
-  const lim = liveLimits(cfg); const res: RetentionResult = { discarded: 0, freedBytes: 0, keptBytes: 0, dropped: 0 };
+  const lim = liveLimits(cfg); const res: RetentionResult = { discarded: 0, freedBytes: 0, keptBytes: 0, dropped: 0, protectedBytes: 0, capExceeded: false, stale: 0 };
   const rows = store.all<{ id: number; path: string; state: string; created_at: string; size: number | null }>(
     `SELECT v.id, v.path, v.state, v.created_at, v.size FROM videos v WHERE EXISTS (SELECT 1 FROM kv WHERE k='live:video:' || v.id) AND NOT EXISTS (SELECT 1 FROM kv WHERE k='live:discarded:' || v.id) ORDER BY v.id`);
-  const keep: { id: number; path: string; size: number; analysed: boolean }[] = [];
+  const keep: { id: number; path: string; size: number; deps: string[] }[] = [];
   for (const v of rows) {
     const age = now - Date.parse(v.created_at.replace(' ', 'T') + 'Z');
-    if (!existsSync(v.path)) { store.exec(`INSERT OR IGNORE INTO kv(k, v) VALUES (?, 'missing')`, `live:discarded:${v.id}`); continue; }
-    const pending = store.get<{ n: number }>(`SELECT COUNT(*) AS n FROM candidates c WHERE c.video_id=? AND c.status='candidate' AND NOT EXISTS (SELECT 1 FROM clips k WHERE k.candidate_id=c.id AND k.edited_path IS NOT NULL)`, v.id)!.n;
-    const unrendered = store.all<{ edited_path: string | null }>(`SELECT k.edited_path FROM candidates c JOIN clips k ON k.candidate_id=c.id WHERE c.video_id=? AND c.status IN ('rendered','candidate')`, v.id).some((k) => !k.edited_path || !existsSync(k.edited_path));
-    const analysed = v.state === 'ANALYZED' || v.state === 'FAILED' || v.state === 'PARKED';
-    const done = analysed && pending === 0 && !unrendered;
-    const old = age > lim.retainHours * 3_600_000;
-    if (done || (old && pending === 0)) { res.freedBytes += discard(store, v, done ? 'extracted' : 'expired'); res.discarded++; continue; }
-    keep.push({ id: v.id, path: v.path, size: v.size ?? statSync(v.path).size, analysed });
+    if (!existsSync(v.path)) { // a required chunk is gone: say exactly which one, never pretend
+      const deps = chunkDependencies(store, v).filter((d) => !/analysis not finished/.test(d));
+      if (deps.length || v.state !== 'ANALYZED') warn('live chunk file missing while still needed', { video: v.id, path: v.path, needed_by: deps.join('; ') || v.state });
+      store.exec(`INSERT OR IGNORE INTO kv(k, v) VALUES (?, ?)`, `live:discarded:${v.id}`, `missing@${new Date(now).toISOString()}`); continue;
+    }
+    const size = v.size ?? statSync(v.path).size; const deps = chunkDependencies(store, v);
+    if (!deps.length) { res.freedBytes += discard(store, v, 'extracted'); res.discarded++; continue; } // ALL highlights rendered + QC-passed + file verified, no job needs it
+    const staleAfter = lim.retainHours * 4 * 3_600_000; // a dependency that never completes (dead render) is released after 4x the age limit - loudly, with the reason
+    if (age > staleAfter && !deps.some((d) => /still active/.test(d))) { warn('live chunk released after age limit although highlights were never rendered', { video: v.id, hours: Math.round(age / 3_600_000), deps: deps.join('; ') }); res.freedBytes += discard(store, v, 'stale-unrendered'); res.discarded++; res.stale++; continue; }
+    const unprotected = deps.every((d) => /^analysis not finished/.test(d)) && v.state !== 'ANALYZING' && !store.get(`SELECT 1 FROM jobs WHERE key=? AND state IN ('PENDING','RETRY','RUNNING')`, `analyze:${v.id}`);
+    if (unprotected && age > lim.retainHours * 3_600_000) { res.freedBytes += discard(store, v, 'expired'); res.discarded++; continue; } // never analysed, no job, too old
+    keep.push({ id: v.id, path: v.path, size, deps });
   }
   let total = keep.reduce((a, b) => a + b.size, 0); const cap = lim.maxBufferMB * 1024 * 1024;
-  // over the cap: drop the OLDEST chunks first (a stale live moment is worth less than a fresh one); say so loudly
+  // over the cap: only chunks that NOTHING depends on (never analysed and no job queued - i.e. orphans) may go, oldest first. Chunks with selected highlights / active jobs are PROTECTED.
   for (const k of keep) {
     if (total <= cap) break;
-    warn('live buffer cap: oldest chunk dropped', { video: k.id, bytes: k.size, capMB: lim.maxBufferMB });
-    store.exec(`UPDATE videos SET state='PARKED', updated_at=datetime('now') WHERE id=? AND state IN ('NEW','ANALYZING')`, k.id);
-    store.exec(`UPDATE jobs SET state='DONE' WHERE key=? AND state IN ('PENDING','RETRY')`, `analyze:${k.id}`);
-    res.freedBytes += discard(store, k, 'cap'); total -= k.size; res.dropped++; res.discarded++;
+    if (k.deps.some((d) => !/^analysis not finished/.test(d)) || store.get(`SELECT 1 FROM jobs WHERE key=? AND state IN ('PENDING','RETRY','RUNNING')`, `analyze:${k.id}`) || store.get(`SELECT 1 FROM videos WHERE id=? AND state='ANALYZING'`, k.id)) continue;
+    warn('live buffer cap: unanalysed orphan chunk dropped', { video: k.id, bytes: k.size, capMB: lim.maxBufferMB });
+    res.freedBytes += discard(store, k, 'cap'); total -= k.size; res.dropped++; res.discarded++; k.size = 0;
   }
-  res.keptBytes = total;
+  res.protectedBytes = keep.filter((k) => k.size > 0).reduce((a, b) => a + b.size, 0); res.keptBytes = total; res.capExceeded = total > cap;
+  if (res.capExceeded) warn('live buffer over cap but every remaining chunk is still needed - nothing deleted, capture will back off', { keptMB: Math.round(total / 1048576), capMB: lim.maxBufferMB });
+  store.exec(`INSERT INTO kv(k, v) VALUES ('live:capexceeded', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, res.capExceeded ? '1' : '0');
   if (res.discarded) info('live retention', { ...res });
   return res;
 }

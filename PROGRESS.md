@@ -513,3 +513,10 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 - docs/FEATURE_STATUS.md = P6 classification.
 - UNVERIFIED: everything on a real stream / real phone. NOT_IMPLEMENTED: live chat signals, per-destination title/tag policy, horizontal->vertical auto-convert.
 - NEXT (owner): `git pull && npm start`, `npm run verify:device -- --capture` on the phone and send me data/device_verification.json. NEXT (code): Termux-observed fixes, live chat signal capture, per-destination metadata policy.
+
+## (26) Live-first hardening — retention dependency safety, chunk metadata, cap back-off
+- Changed: `src/watcher/live-retention.ts` (raw chunk + sidecars deleted ONLY when no analysis/candidate/render/QC/job dependency remains; missing file → warning with `needed_by`; stale release after 4× retainHours; cap never drops needed chunks → sets `live:capexceeded`), `src/watcher/live-monitor.ts` (probe returns stream id; per-chunk kv `live:chunk:<videoId>` {source, stream, seq, startedAt, endedAt, bytes}; `live:stream:<src>` restart detection; capture not started / stopped while cap full), `src/pipeline.ts` (`liveChunkGone`: exact error for a missing/discarded live chunk before analyze/render). Editing code NOT touched (captions/edit/editor tests 28/28).
+- Tests: live_retention (6), live_chunk (3), live/live_priority/live_probe/lanes/ui_live/queue_recovery/missing_file — 24/24 focused. MOCK-TESTED only.
+- UNVERIFIED: real Termux run, real YouTube live capture (@ishowspeed), ffmpeg reconnect on live HLS. Owner: `git pull && npm start`, then `npm run verify:device -- --capture` while a source is live, share data/device_verification.json.
+- NOT_IMPLEMENTED: live chat/engagement signals, sub-5-min chunk granularity.
+- Next: per-destination metadata policy, horizontal→vertical (needs permission), final full suite.

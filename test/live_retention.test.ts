@@ -46,3 +46,33 @@ test('crash recovery: partial chunks of a dead capture are removed at boot, fini
   mkdirSync(join(cfg.dirs.tmp, 'live_7'), { recursive: true }); writeFileSync(join(cfg.dirs.tmp, 'live_7', 'a.mp4'), 'partial'); mkdirSync(join(cfg.dirs.tmp, 'other'), { recursive: true });
   assert.equal(cleanLiveTemp(cfg), 1); assert.equal(existsSync(join(cfg.dirs.tmp, 'live_7')), false); assert.equal(existsSync(join(cfg.dirs.tmp, 'other')), true);
 });
+
+test('dependency safety: shared chunk stays until ALL highlights are rendered+QC-passed; active jobs, failed renders, empty/QC-failed clips all keep the raw chunk', () => {
+  const { cfg, st, mk, dataDir } = setup(); const good = join(dataDir, 'g.mp4'); writeFileSync(good, 'ok'); const empty = join(dataDir, 'e.mp4'); writeFileSync(empty, '');
+  const clip = (id: number, cid: number, path: string, qc: number) => st.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass) VALUES (?,?,?,?,?)`, id, cid, `o${id}`, path, qc);
+  const shared = mk(1, 'ANALYZED'); cand(st, 10, 1, 'rendered'); clip(10, 10, good, 1); cand(st, 11, 1, 'candidate'); // 2 highlights, only one rendered
+  const emptyOut = mk(2, 'ANALYZED'); cand(st, 20, 2, 'rendered'); clip(20, 20, empty, 1);
+  const qcFail = mk(3, 'ANALYZED'); cand(st, 30, 3, 'rendered'); clip(30, 30, good, 0);
+  const jobbed = mk(4, 'ANALYZED'); st.exec(`INSERT INTO jobs(kind, key, state, run_after) VALUES ('analyze','analyze:4','RETRY',0)`);
+  const renderJob = mk(5, 'ANALYZED'); cand(st, 50, 5, 'rendered'); clip(50, 50, good, 1); st.exec(`INSERT INTO jobs(kind, key, state, run_after) VALUES ('render','render:50','RUNNING',0)`);
+  const rerender = mk(6, 'ANALYZED'); cand(st, 60, 6, 'rendered'); clip(60, 60, good, 1); st.exec(`INSERT INTO jobs(kind, key, state, run_after) VALUES ('rerender','rerender:60:123','PENDING',0)`);
+  const failed = mk(7, 'FAILED'); // analysis failed: may be retried -> keep
+  liveRetention(st, cfg);
+  for (const [n, p] of Object.entries({ shared, emptyOut, qcFail, jobbed, renderJob, rerender, failed })) assert.equal(existsSync(p), true, `${n} must be kept`);
+  // once the second highlight is rendered and verified the shared chunk goes
+  const g2 = join(dataDir, 'g2.mp4'); writeFileSync(g2, 'ok'); st.exec(`UPDATE candidates SET status='rendered' WHERE id=11`); clip(11, 11, g2, 1);
+  liveRetention(st, cfg); assert.equal(existsSync(shared), false, 'all dependents done -> deleted'); assert.equal(existsSync(good), true);
+});
+
+test('storage cap never deletes a chunk with selected highlights; it reports capExceeded instead (and age expiry spares them too)', () => {
+  const { cfg, st, mk } = setup({ liveMaxBufferMB: 200 }); const big = 150 * 1024 * 1024;
+  const needed = mk(1, 'ANALYZED', 1000, 20); cand(st, 10, 1, 'candidate'); const needed2 = mk(2, 'ANALYZED', 1000, 1); cand(st, 20, 2, 'candidate');
+  st.exec(`UPDATE videos SET size=?`, big); const r = liveRetention(st, cfg);
+  assert.equal(existsSync(needed), true); assert.equal(existsSync(needed2), true); assert.equal(r.capExceeded, true); assert.equal(r.dropped, 0);
+  assert.equal(st.get<{ v: string }>(`SELECT v FROM kv WHERE k='live:capexceeded'`)!.v, '1');
+});
+
+test('a dead render never blocks storage forever: released after 4x the age limit with a warning, never earlier', () => {
+  const { cfg, st, mk } = setup(); const early = mk(1, 'ANALYZED', 1000, 12); cand(st, 10, 1, 'candidate'); const late = mk(2, 'ANALYZED', 1000, 30); cand(st, 20, 2, 'candidate');
+  const r = liveRetention(st, cfg); assert.equal(existsSync(early), true, '12h < 24h: kept'); assert.equal(existsSync(late), false, '30h > 24h: released'); assert.equal(r.stale, 1);
+});

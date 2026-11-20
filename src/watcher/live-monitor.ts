@@ -16,7 +16,7 @@ import { livePriorityOff } from '../db.ts';
  */
 export interface LiveDeps {
   /** is this URL live right now? returns { live, reason } (reason when not live or on error) */
-  probe(url: string): Promise<{ live: boolean; reason: string; error?: boolean }>;
+  probe(url: string): Promise<{ live: boolean; reason: string; error?: boolean; id?: string }>;
   /** record up to `seconds` of the stream into `out`; resolves bytes written (0 = nothing) */
   record(url: string, out: string, seconds: number): Promise<{ ok: boolean; reason: string }>;
   ingest(file: string, title: string, sourceId: number, channelId: number | null): Promise<number | null>;
@@ -44,7 +44,7 @@ export const realDeps = (cfg: Config): LiveDeps => ({
   now: () => Date.now(),
   async probe(url) {
     const r = await ytdlp(['--dump-json', '--no-warnings', '--playlist-items', '1', url], 60_000);
-    if (r.code === 0) { try { const j = JSON.parse(r.stdout.split('\n')[0]) as { is_live?: boolean; live_status?: string }; return j.is_live || j.live_status === 'is_live' ? { live: true, reason: 'live' } : { live: false, reason: 'channel abhi live nahi hai' }; } catch { return { live: false, reason: 'yt-dlp output samajh nahi aaya', error: true }; } }
+    if (r.code === 0) { try { const j = JSON.parse(r.stdout.split('\n')[0]) as { is_live?: boolean; live_status?: string; id?: string }; return j.is_live || j.live_status === 'is_live' ? { live: true, reason: 'live', ...(j.id ? { id: j.id } : {}) } : { live: false, reason: 'channel abhi live nahi hai' }; } catch { return { live: false, reason: 'yt-dlp output samajh nahi aaya', error: true }; } }
     const t = r.stderr.trim().slice(-200);
     if (/not currently live|does not have a live|no live|offline|not live|will begin|live event|premieres? in|scheduled|upcoming/i.test(t)) return { live: false, reason: 'channel abhi live nahi hai' };
     return { live: false, reason: `live check fail (internet/yt-dlp): ${t || 'timeout'}`, error: true };
@@ -83,21 +83,22 @@ export const liveLimits = (cfg: Config) => liveCfg(cfg);
 export interface LiveResult { checked: number; capturing: number; started: number; chunks: number; skipped: Record<string, number> }
 const liveCfg = (cfg: Config) => ({ check: Math.max(30, cfg.automation.liveCheckSeconds ?? 30), chunk: Math.min(1800, Math.max(60, cfg.automation.liveChunkSeconds ?? 300)), maxPerHour: cfg.automation.liveMaxUploadsPerHour ?? 2, maxBufferMB: Math.max(200, cfg.automation.liveMaxBufferMB ?? 3072), retainHours: Math.max(1, cfg.automation.liveRetainHours ?? 6) });
 
-async function captureLoop(store: Store, cfg: Config, deps: LiveDeps, src: { id: number; uri: string; channel_id: number | null }): Promise<void> {
+async function captureLoop(store: Store, cfg: Config, deps: LiveDeps, src: { id: number; uri: string; channel_id: number | null }, streamId = ''): Promise<void> {
   const lc = liveCfg(cfg); const dir = join(cfg.dirs.tmp, `live_${src.id}`); mkdirSync(dir, { recursive: true });
   let fails = 0; const ingests: Promise<void>[] = [];
   /** Rolling capture: the next chunk starts RECORDING immediately; analysing/ingesting the finished chunk runs in the background, and no "is it still live" probe sits between two chunks (each of those used to lose seconds of the stream). A probe only happens after a failed chunk, to tell "stream ended" from "network blip". */
-  const ingestChunk = (out: string, n: number, size: number): Promise<void> => (async () => {
-    try { const vid = await deps.ingest(out, `[LIVE] ${new Date(deps.now()).toISOString().slice(0, 16).replace('T', ' ')} #${n}`, src.id, src.channel_id); if (vid) { kvSet(store, `live:video:${vid}`, '1'); info('live: chunk analyze queue me gaya', { source: src.id, video: vid, bytes: size }); } }
+  const ingestChunk = (out: string, n: number, size: number, startMs: number): Promise<void> => (async () => {
+    try { const vid = await deps.ingest(out, `[LIVE] ${new Date(deps.now()).toISOString().slice(0, 16).replace('T', ' ')} #${n}`, src.id, src.channel_id); if (vid) { kvSet(store, `live:video:${vid}`, '1'); kvSet(store, `live:chunk:${vid}`, JSON.stringify({ source: src.id, stream: streamId || null, seq: n, startedAt: new Date(startMs).toISOString(), endedAt: new Date(deps.now()).toISOString(), bytes: size })); info('live: chunk analyze queue me gaya', { source: src.id, video: vid, bytes: size }); } }
     catch (e) { warn('live: chunk ingest fail', { source: src.id, err: (e as Error).message }); }
     finally { rmSync(out, { force: true }); }
   })();
   try {
     for (;;) {
-      const n = Number(kvGet(store, `live:seq:${src.id}`) ?? 0) + 1; const out = join(dir, `live_${src.id}_${deps.now()}_${n}.mp4`);
+      if (kvGet(store, 'live:capexceeded') === '1') { warn('live: storage cap full (needed chunks protected) - capture roka, naya chunk nahi liya; cap free hote hi dobara shuru', { source: src.id }); break; }
+      const startMs = deps.now(); const n = Number(kvGet(store, `live:seq:${src.id}`) ?? 0) + 1; const out = join(dir, `live_${src.id}_${deps.now()}_${n}.mp4`);
       const rec = await deps.record(liveUrl(src.uri), out, lc.chunk);
       const size = existsSync(out) ? statSync(out).size : 0;
-      if (rec.ok && size >= 200_000) { fails = 0; kvSet(store, `live:seq:${src.id}`, String(n)); kvSet(store, `live:lastchunk:${src.id}`, new Date(deps.now()).toISOString()); kvSet(store, `live:failcount:${src.id}`, '0'); ingests.push(ingestChunk(out, n, size)); continue; }
+      if (rec.ok && size >= 200_000) { fails = 0; kvSet(store, `live:seq:${src.id}`, String(n)); kvSet(store, `live:lastchunk:${src.id}`, new Date(deps.now()).toISOString()); kvSet(store, `live:failcount:${src.id}`, '0'); ingests.push(ingestChunk(out, n, size, startMs)); continue; }
       rmSync(out, { force: true });
       const p = await deps.probe(liveUrl(src.uri)); // failed chunk: ended, or just a blip?
       if (!p.live && !p.error) { info('live: stream khatam, capture band', { source: src.id }); break; }
@@ -127,8 +128,10 @@ export async function liveTick(store: Store, cfg: Config, deps: LiveDeps = realD
     lastCheck.set(s.id, deps.now()); r.checked++;
     const p = await deps.probe(liveUrl(s.uri)); kvSet(store, `live:check:${s.id}`, JSON.stringify({ at: new Date(deps.now()).toISOString(), live: p.live, error: !!p.error, reason: p.reason.slice(0, 160) }));
     if (!p.live) { skip(p.error ? 'check_error' : 'offline'); if (p.error) say(`probe:${s.id}`, 'warn', 'live: check nahi ho paya', { source: s.id, reason: p.reason }); continue; }
+    if (kvGet(store, 'live:capexceeded') === '1') { skip('cap_exceeded'); say(`cap:${s.id}`, 'warn', 'live: storage cap full, naya capture nahi (selected highlights ke chunks safe)', { source: s.id }); continue; }
+    const prevStream = kvGet(store, `live:stream:${s.id}`); if (p.id) { if (prevStream && prevStream !== p.id) info('live: naya stream/restart detect hua', { source: s.id, from: prevStream, to: p.id }); kvSet(store, `live:stream:${s.id}`, p.id); }
     busy.add(s.id); r.started++; info('live: stream mili, 5-min chunk capture shuru', { source: s.id, chunkSec: lc.chunk });
-    tasks.push(captureLoop(store, cfg, deps, s).catch((e) => { warn('live: capture crash', { source: s.id, err: (e as Error).message }); busy.delete(s.id); }));
+    tasks.push(captureLoop(store, cfg, deps, s, p.id ?? '').catch((e) => { warn('live: capture crash', { source: s.id, err: (e as Error).message }); busy.delete(s.id); }));
   }
   if (opts.awaitCaptures) await Promise.all(tasks);
   return r;
