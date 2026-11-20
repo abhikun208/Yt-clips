@@ -41,7 +41,7 @@ let jsRt: string[] | null = null;
 export async function prepareYtdlp(): Promise<void> { if (jsRt) return; jsRt = []; if (/--js-runtimes/.test(process.env.YT_DLP_EXTRA_ARGS ?? '')) return; const h = await run('yt-dlp', ['--help'], { timeoutMs: 20_000 }).catch(() => null); if (h && /--js-runtimes/.test(h.stdout)) jsRt = ['--js-runtimes', 'node']; }
 /** Cookies file: YT_DLP_COOKIES, else `<data dir>/cookies.txt` if the owner dropped one there (Netscape format, exported from a logged-in browser). */
 const cookiesFile = (): string | null => { const e = process.env.YT_DLP_COOKIES; if (e) return e; const f = join(process.env.YT_CLIPS_DATA_DIR ?? 'data', 'cookies.txt'); return existsSync(f) ? f : null; };
-const extra = (): string[] => { const ck = cookiesFile(); return [...(jsRt ?? []), ...(ck ? ['--cookies', ck] : []), ...(process.env.YT_DLP_EXTRA_ARGS ?? '').split(/\s+/).filter(Boolean)]; };
+export const extra = (): string[] => { const ck = cookiesFile(); return [...(jsRt ?? []), ...(ck ? ['--cookies', ck] : []), ...(process.env.YT_DLP_EXTRA_ARGS ?? '').split(/\s+/).filter(Boolean)]; };
 /** YouTube often answers "403 Forbidden" / "confirm you're not a bot" for one client type and not for another: after a failure the download is retried with other player clients before giving up. */
 export const YT_CLIENT_LADDER: string[][] = [[], ['--extractor-args', 'youtube:player_client=tv_simply,web_safari'], ['--extractor-args', 'youtube:player_client=android_vr'], ['--extractor-args', 'youtube:player_client=ios,mweb'], ['--force-ipv4', '--extractor-args', 'youtube:player_client=web_embedded']];
 export const RETRY_WITH_OTHER_CLIENT = /403|forbidden|not a bot|sign in|cookies|nsig|signature|player response|format is not available|requested format|unable to extract|po.?token/i;
@@ -113,6 +113,16 @@ export function addYoutubeSource(store: Store, rawUrl: string, authorized: boole
   return { id: r.lastId, kind: p.kind, duplicate: false };
 }
 
+/** Length of a video without downloading it (undefined = unknown / live / offline: the normal path then decides). */
+export async function probeDuration(url: string): Promise<number | null | undefined> {
+  try { const r = await run('yt-dlp', ['--skip-download', '--no-warnings', '--no-playlist', '--print', '%(duration)s', url], { timeoutMs: 45_000 }); if (r.code !== 0) return undefined; const n = Number(r.stdout.trim().split('\n')[0]); return Number.isFinite(n) && n > 0 ? n : null; } catch { return undefined; }
+}
+/** Long video (> sectionMin): the NEXT section to fetch instead of the whole file. null = fetch normally (short, unknown length = live, or an explicit range was chosen). */
+export function nextWindow(meta: { range?: unknown; duration?: number | null; nextStart?: number; part?: number }, sectionMin: number): { range: { start: number; end: number }; part: number; last: boolean } | null {
+  const dur = meta.duration; if (meta.range || !sectionMin || sectionMin <= 0 || typeof dur !== 'number' || !(dur > sectionMin * 60 * 1.1)) return null;
+  const start = meta.nextStart ?? 0; const end = Math.min(dur, start + sectionMin * 60);
+  return { range: { start, end }, part: (meta.part ?? 0) + 1, last: end >= dur - 1 };
+}
 export interface PollResult { discovered: number; downloaded: number; failed: number; skipped: number; error?: string; channels?: number; busy?: number }
 /** Friendly cause for the usual yt-dlp failures (shown in the UI instead of a silent log line). */
 /** DNS / no-route errors: the device is offline right now (phone WiFi/LTE switch, router restart). */
@@ -147,7 +157,7 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
       const add = (list: Entry[], fresh: boolean): number => { let n = 0; for (const e of list) {
         const url = `https://www.youtube.com/watch?v=${e.id}`;
         if (store.get('SELECT 1 FROM sources WHERE uri=?', url)) continue;
-        const tooLong = e.duration !== null && e.duration > set.maxDurationMin * 60;
+        const tooLong = set.maxDurationMin > 0 && e.duration !== null && e.duration > set.maxDurationMin * 60; // 0 = no limit (long streams are fetched in sections instead)
         store.exec('INSERT INTO sources(kind, uri, title, authorized, status, meta_json, channel_id) VALUES (?,?,?,?,?,?,?)', 'youtube_video', url, e.title, 1, tooLong ? 'skipped' : 'pending', JSON.stringify({ videoId: e.id, channelSource: ch.id, duration: e.duration, tries: 0, fresh, ...(tooLong ? { reason: 'longer than maxDurationMin' } : {}) }), ch.channel_id);
         if (tooLong) res.skipped++; else { res.discovered++; n++; }
       } return n; };
@@ -178,17 +188,19 @@ async function pollSourcesOnce(store: Store, cfg: Config): Promise<PollResult> {
       if (b) continue; }
     pending.push(x.v); }
   for (const v of pending) {
-    const meta = JSON.parse(v.meta_json || '{}') as { tries?: number; channelSource?: number; audioLang?: string; range?: { start: number; end: number } };
+    const meta = JSON.parse(v.meta_json || '{}') as { tries?: number; channelSource?: number; audioLang?: string; range?: { start: number; end: number }; duration?: number | null; nextStart?: number; part?: number };
+    if (meta.duration === undefined && !meta.range) { const d = await probeDuration(v.uri); if (d !== undefined) { meta.duration = d; store.exec('UPDATE sources SET meta_json=? WHERE id=?', JSON.stringify(meta), v.id); } }
+    const win = nextWindow(meta, cfg.youtube.sectionMin);
     const par = meta.channelSource ?? 0; const lim = par ? parentCfg(par).perPoll : cfg.youtube.maxPerPoll; if ((taken.get(par) ?? 0) >= lim) continue;
     let file: string | undefined;
     try {
       taken.set(par, (taken.get(par) ?? 0) + 1);
-      file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight, { ...(meta.audioLang ? { audioLang: meta.audioLang } : {}), ...(meta.range ? { range: meta.range } : {}) });
-      if (!meta.range) { // chat/heatmap/captions describe the WHOLE video: their timestamps would not match a cut-out time range
+      file = await downloadVideo(v.uri, join(cfg.dirs.tmp, 'dl'), cfg.youtube.maxHeight, { ...(meta.audioLang ? { audioLang: meta.audioLang } : {}), ...(meta.range ? { range: meta.range } : win ? { range: win.range } : {}) });
+      if (!meta.range && !win) { // chat/heatmap/captions describe the WHOLE video: their timestamps would not match a cut-out time range
       try { await fetchSignals(v.uri, file.replace(/\.[^.]+$/, '')); } catch { /* optional */ }
       if (cfg.stt.youtubeCaptions !== false && cfg.stt.mode === 'auto') { const lang = await fetchCaptions(v.uri, file.replace(/\.[^.]+$/, ''), extra()); if (lang) info('YouTube captions mil gaye - speech-to-text model chalane ki zaroorat nahi (key-free, instant)', { uri: v.uri, lang }); } }
-      await ingestLocal(store, cfg, file, { authorized: true, title: v.title, sourceId: v.id });
-      store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
+      await ingestLocal(store, cfg, file, { authorized: true, title: win ? `${v.title ?? ''} (part ${win.part})` : v.title, sourceId: v.id });
+      if (win && !win.last) store.exec(`UPDATE sources SET meta_json=?, status='pending' WHERE id=?`, JSON.stringify({ ...meta, nextStart: win.range.end, part: win.part, tries: 0 }), v.id); else store.exec(`UPDATE sources SET status='done' WHERE id=?`, v.id); res.downloaded++; info('downloaded source', { uri: v.uri });
     } catch (e) {
       const msg = (e as Error).message.replace(/\r/g, '\n');
       if (isOffline(msg)) { // no internet is not this video's fault: keep it pending, do not use up an attempt, do not hammer the other videos

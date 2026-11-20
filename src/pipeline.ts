@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { repairVideo, DECODE_ERR } from './ops/repair.ts';
 import { realHook } from './seo/hook.ts';
 import type { Store, Job } from './db.ts';
-import { enqueue, claim, completeJob, failJob } from './db.ts';
+import { enqueue, claim, completeJob, failJob, extendLease } from './db.ts';
 import type { Config } from './config.ts';
 import { analyzeVideo } from './analysis/analyzer.ts';
 import { renderCandidate } from './edit/render.ts';
@@ -86,7 +86,8 @@ export async function work(store: Store, cfg: Config, o: { maxJobs?: number; sho
       const job = claim(store);
       if (!job) break;
       started++; info('job start', { kind: job.kind, key: job.key });
-      try { await handle(store, cfg, job); completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); noteOutcome(store, cfg, true); }
+      const hb = setInterval(() => { try { extendLease(store, job.id); } catch { /* db closing */ } }, 60_000); hb.unref?.();
+      try { try { await handle(store, cfg, job); } finally { clearInterval(hb); } completeJob(store, job.id); done++; info('job done', { kind: job.kind, key: job.key }); noteOutcome(store, cfg, true); }
       catch (e) {
         const st = failJob(store, job, (e as Error).message, cfg.resources.jobMaxAttempts);
         failed++; if (noteOutcome(store, cfg, false)) halt = true; if (st === 'DEAD') { dead++; void notify(store, cfg, `dead:${job.key}`, `Job ${job.key} ${job.attempts} koshish ke baad ruk gaya: ${(e as Error).message.slice(0, 160)}`).catch(() => undefined); } // dead-letter: stays visible (UI/doctor) and the owner is told once

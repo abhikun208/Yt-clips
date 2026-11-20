@@ -95,3 +95,6 @@
 - [ ] Owner: Decider ke sources ko Decider channel par assign karo (ya source→destination mapping API) — default Main hai.
 - [ ] Dev: per-account schedule limits, parent batch/PARTIAL_SUCCESS, mapping UI, 8-tab dashboard, Meta/TikTok Test Connection.
 - [x] Test Connection Facebook/Instagram/TikTok (fake-server verified; real tokens UNVERIFIED)
+
+- [x] Auto-Pilot lanes / queue heartbeat + restart recovery / live probe+rolling capture / Live Priority Mode / unlimited duration + sectioned download / missing-file re-render (fake-verified; real streams UNVERIFIED)
+- [ ] Owner: run on phone `git pull && npm start`, enable "Live" on @ishowspeed source, check /api/live and Queue

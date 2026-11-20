@@ -7,8 +7,10 @@ import { metaForClip } from '../seo/clipmeta.ts';
 import { buildAccountKit, type AccountKit } from '../seo/account.ts';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
+import { livePriorityOff } from '../db.ts';
 import type { Config } from '../config.ts';
-import { advanceUpload, queueUpload, DryRunAdapter, type Adapter, type ClipFacts, type UploadState } from './machine.ts';
+import { advanceUpload, queueUpload, DryRunAdapter, missingClipFile, type Adapter, type ClipFacts, type UploadState } from './machine.ts';
+import { existsSync } from 'node:fs';
 import { SecretStore } from './secrets.ts';
 import { TokenProvider, clientCreds, startDeviceFlow, pollDeviceFlow, type DeviceStart } from './oauth.ts';
 import { YouTubeAdapter, quotaDay } from './youtube.ts';
@@ -36,6 +38,7 @@ export async function factsForClip(store: Store, clipId: number): Promise<ClipFa
   if (!c.metadata_json) throw new Error('NOT_READY: metadata not generated yet for this clip');
   if (!c.edited_path) throw new Error('NOT_READY: clip not rendered yet');
   const md = JSON.parse(c.metadata_json) as { title: string; description: string; tags?: string[]; language?: string };
+  if (!existsSync(c.edited_path)) throw missingClipFile(store, clipId, c.edited_path);
   const m = await probe(c.edited_path);
   const src = store.get<{ authorized: number | null }>('SELECT s.authorized FROM candidates c JOIN videos v ON v.id=c.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE c.id=?', c.candidate_id);
   return { width: m.width, height: m.height, duration: m.duration, title: md.title, description: md.description, tags: md.tags ?? [], language: md.language, risks: screenText(`${md.title} ${md.description} ${tx}`), qcPass: !!c.qc_pass, authorized: src?.authorized == null ? true : src.authorized === 1, thumbnailPath: c.thumbnail_path };
@@ -69,7 +72,7 @@ export async function advance(store: Store, cfg: Config, uploadId: number, o: { 
   const dch = channelByUpload(store, uploadId);
   try { stampUpload(store, cfg, uploadId, dch.slug, u.platform); } catch { /* history label only */ }
   const off = (() => { try { return destinationBlock(store, cfg, dch.slug, u.platform); } catch { return null; } })(); if (off) return { state: u.state, blocked: off };
-  const facts = await factsForClip(store, u.clip_id);
+  let facts: ClipFacts; try { facts = await factsForClip(store, u.clip_id); } catch (e) { if (/^NOT_READY/.test((e as Error).message)) store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, (e as Error).message.slice(0, 400), uploadId); throw e; } // visible in the Queue tab instead of silently looping
   try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId)), uploadId, { facts, ...o }) }; }
   catch (e) { const m = (e as Error).message; if (/^QUOTA_EXCEEDED/.test(m)) void notify(store, cfg, `quota-hit:${quotaDay(new Date())}`, '⏸ YouTube ka daily quota khatam. Uploads kal (midnight Pacific ke baad) apne aap resume honge; video banti rahegi.'); if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
 }
@@ -153,7 +156,8 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
     let liveLeft = liveBudget(store, cfg); // live-captured clips: at most N uploads per hour
     const allRows = store.all<{ id: number; sid: number; la: string | null; lv: number }>(`SELECT c.id, COALESCE(v.source_id, 0) AS sid, c.last_attempt_at AS la, CASE WHEN ${LIVE_VIDEO_SQL} THEN 1 ELSE 0 END AS lv FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND k.score*100 >= ? AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, ch.config.minViral ?? 0, platform);
     const rows = allRows.filter((x) => !x.lv || liveLeft-- > 0);
-    const fresh = cfg.automation.fairShare === false ? rows.slice(0, cfg.automation.maxAdvancePerCycle) : fairPick(store, ch.id, platform, rows.map((x) => ({ clipId: x.id, sourceId: x.sid, lastAttemptAt: x.la })), { limit: cfg.automation.maxAdvancePerCycle, retryHours: cfg.automation.fairRetryHours, maxQueuedPerSource: cfg.automation.fairMaxQueued }).map((id) => ({ id }));
+    const prio = !livePriorityOff(store); const liveRows = prio ? rows.filter((x) => x.lv) : []; // Live Priority Mode: live-captured clips skip the fair-share queue and go first
+    const fresh = liveRows.length ? [...liveRows.map((x) => ({ id: x.id })), ...fairPick(store, ch.id, platform, rows.filter((x) => !x.lv).map((x) => ({ clipId: x.id, sourceId: x.sid, lastAttemptAt: x.la })), { limit: Math.max(0, cfg.automation.maxAdvancePerCycle - liveRows.length), retryHours: cfg.automation.fairRetryHours, maxQueuedPerSource: cfg.automation.fairMaxQueued }).map((id) => ({ id }))] : cfg.automation.fairShare === false ? rows.slice(0, cfg.automation.maxAdvancePerCycle) : fairPick(store, ch.id, platform, rows.map((x) => ({ clipId: x.id, sourceId: x.sid, lastAttemptAt: x.la })), { limit: cfg.automation.maxAdvancePerCycle, retryHours: cfg.automation.fairRetryHours, maxQueuedPerSource: cfg.automation.fairMaxQueued }).map((id) => ({ id }));
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
   }
   // source -> extra destinations: clips of a mapped source are ALSO queued for the mapped channel (own job, own idempotency key; the account gates still apply per job)

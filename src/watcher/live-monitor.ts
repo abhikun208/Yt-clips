@@ -4,7 +4,9 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { run } from '../util/proc.ts';
 import { ingestLocal } from '../sources/local.ts';
+import { extra, YT_CLIENT_LADDER, RETRY_WITH_OTHER_CLIENT } from '../sources/youtube.ts';
 import { info, warn } from '../util/log.ts';
+import { livePriorityOff } from '../db.ts';
 
 /**
  * Live stream auto-capture (opt-in per source: sources.meta_json.watchLive = true).
@@ -25,24 +27,40 @@ const kvGet = (s: Store, k: string): string | null => s.get<{ v: string }>('SELE
 const kvSet = (s: Store, k: string, v: string): void => { s.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', k, v); };
 const kvDel = (s: Store, k: string): void => { s.exec('DELETE FROM kv WHERE k=?', k); };
 
-/** `https://youtube.com/@x/videos` -> `https://youtube.com/@x/live` */
-export const liveUrl = (uri: string): string => uri.replace(/\/(videos|shorts|streams|live)\/?$/, '').replace(/\/$/, '') + '/live';
+/** yt-dlp with the SAME cookies / JS runtime / extra args as the downloader (the live probe used to run bare and hit the bot-check the downloads already pass), and the player-client ladder when YouTube refuses one client. */
+async function ytdlp(args: string[], timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  let last = { code: 1 as number | null, stdout: '', stderr: '' };
+  for (const lad of YT_CLIENT_LADDER.slice(0, 3)) {
+    last = await run('yt-dlp', [...extra(), ...lad, ...args], { timeoutMs });
+    if (last.code === 0 || !RETRY_WITH_OTHER_CLIENT.test(last.stderr)) break;
+  }
+  return last;
+}
+/** `https://youtube.com/@x/videos` (any channel tab) -> `https://youtube.com/@x/live` */
+export const liveUrl = (uri: string): string => uri.replace(/\/(videos|shorts|streams|live|featured|playlists|community|about|podcasts|releases)\/?$/, '').replace(/\/$/, '') + '/live';
 
+const streamCache = new Map<string, { url: string; at: number }>();
 export const realDeps = (cfg: Config): LiveDeps => ({
   now: () => Date.now(),
   async probe(url) {
-    const r = await run('yt-dlp', ['--dump-json', '--no-warnings', '--playlist-items', '1', url], { timeoutMs: 60_000 });
+    const r = await ytdlp(['--dump-json', '--no-warnings', '--playlist-items', '1', url], 60_000);
     if (r.code === 0) { try { const j = JSON.parse(r.stdout.split('\n')[0]) as { is_live?: boolean; live_status?: string }; return j.is_live || j.live_status === 'is_live' ? { live: true, reason: 'live' } : { live: false, reason: 'channel abhi live nahi hai' }; } catch { return { live: false, reason: 'yt-dlp output samajh nahi aaya', error: true }; } }
     const t = r.stderr.trim().slice(-200);
-    if (/not currently live|does not have a live|no live|offline|not live/i.test(t)) return { live: false, reason: 'channel abhi live nahi hai' };
+    if (/not currently live|does not have a live|no live|offline|not live|will begin|live event|premieres? in|scheduled|upcoming/i.test(t)) return { live: false, reason: 'channel abhi live nahi hai' };
     return { live: false, reason: `live check fail (internet/yt-dlp): ${t || 'timeout'}`, error: true };
   },
   async record(url, out, seconds) {
-    const g = await run('yt-dlp', ['-g', '-f', 'b[height<=720]/b', '--no-warnings', url], { timeoutMs: 60_000 });
-    const stream = g.stdout.split('\n').map((x) => x.trim()).find((x) => /^https?:\/\//.test(x));
-    if (g.code !== 0 || !stream) return { ok: false, reason: `stream URL nahi mila: ${g.stderr.trim().slice(-160) || 'khali'}` };
-    const f = await run('ffmpeg', ['-y', '-loglevel', 'error', '-i', stream, '-t', String(seconds), '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-movflags', '+faststart', out], { timeoutMs: (seconds + 90) * 1000 });
+    // the resolved stream URL is reused for ~20 min: resolving it with yt-dlp before EVERY chunk left a 5-20 s hole between chunks (lost live content)
+    let hit = streamCache.get(url); let stream = hit && Date.now() - hit.at < 20 * 60_000 ? hit.url : undefined;
+    if (!stream) {
+      const g = await ytdlp(['-g', '-f', 'b[height<=720]/best[height<=720]/b', '--no-warnings', url], 60_000);
+      stream = g.stdout.split('\n').map((x) => x.trim()).find((x) => /^https?:\/\//.test(x));
+      if (g.code !== 0 || !stream) return { ok: false, reason: `stream URL nahi mila: ${g.stderr.trim().slice(-160) || 'khali'}` };
+      hit = { url: stream, at: Date.now() }; streamCache.set(url, hit);
+    }
+    const f = await run('ffmpeg', ['-y', '-loglevel', 'error', '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5', '-i', stream, '-t', String(seconds), '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-movflags', '+faststart', out], { timeoutMs: (seconds + 90) * 1000 });
     // a dropped connection ends ffmpeg early: whatever was written is still a usable chunk (judged by the caller via its size)
+    if (f.code !== 0) streamCache.delete(url); // a stale/expired manifest: resolve again next time
     return { ok: existsSync(out) && statSync(out).size > 0, reason: f.code === 0 ? 'ok' : `ffmpeg ruka (${f.timedOut ? 'timeout' : f.stderr.trim().slice(-120) || 'code ' + f.code})` };
   },
   async ingest(file, title, sourceId, channelId) { const r = await ingestLocal(store0(cfg), cfg, file, { authorized: true, title, sourceId, ...(channelId ? { channelId } : {}) }); return r.videoId; },
@@ -66,26 +84,27 @@ const liveCfg = (cfg: Config) => ({ check: Math.max(30, cfg.automation.liveCheck
 
 async function captureLoop(store: Store, cfg: Config, deps: LiveDeps, src: { id: number; uri: string; channel_id: number | null }): Promise<void> {
   const lc = liveCfg(cfg); const dir = join(cfg.dirs.tmp, `live_${src.id}`); mkdirSync(dir, { recursive: true });
-  let fails = 0;
+  let fails = 0; const ingests: Promise<void>[] = [];
+  /** Rolling capture: the next chunk starts RECORDING immediately; analysing/ingesting the finished chunk runs in the background, and no "is it still live" probe sits between two chunks (each of those used to lose seconds of the stream). A probe only happens after a failed chunk, to tell "stream ended" from "network blip". */
+  const ingestChunk = (out: string, n: number, size: number): Promise<void> => (async () => {
+    try { const vid = await deps.ingest(out, `[LIVE] ${new Date(deps.now()).toISOString().slice(0, 16).replace('T', ' ')} #${n}`, src.id, src.channel_id); if (vid) { kvSet(store, `live:video:${vid}`, '1'); info('live: chunk analyze queue me gaya', { source: src.id, video: vid, bytes: size }); } }
+    catch (e) { warn('live: chunk ingest fail', { source: src.id, err: (e as Error).message }); }
+    finally { rmSync(out, { force: true }); }
+  })();
   try {
     for (;;) {
-      const p = await deps.probe(liveUrl(src.uri));
-      if (!p.live) { // stream ended (or internet dropped: the state is kept and a later tick resumes)
-        if (p.error) { fails++; say(`lerr:${src.id}`, 'warn', 'live: check fail, dobara koshish', { source: src.id, reason: p.reason, fails }, 60_000); if (fails < 6) { await sleepMs(Math.min(60_000, 5_000 * fails)); continue; } }
-        else info('live: stream khatam, capture band', { source: src.id });
-        break;
-      }
-      fails = 0;
       const n = Number(kvGet(store, `live:seq:${src.id}`) ?? 0) + 1; const out = join(dir, `live_${src.id}_${deps.now()}_${n}.mp4`);
       const rec = await deps.record(liveUrl(src.uri), out, lc.chunk);
       const size = existsSync(out) ? statSync(out).size : 0;
-      if (!rec.ok || size < 200_000) { fails++; say(`rec:${src.id}`, 'warn', 'live: chunk record nahi hua', { source: src.id, reason: rec.reason, bytes: size, fails }, 60_000); rmSync(out, { force: true }); if (fails >= 6) break; await sleepMs(Math.min(60_000, 5_000 * fails)); continue; }
-      kvSet(store, `live:seq:${src.id}`, String(n));
-      try { const vid = await deps.ingest(out, `[LIVE] ${new Date(deps.now()).toISOString().slice(0, 16).replace('T', ' ')} #${n}`, src.id, src.channel_id); if (vid) { kvSet(store, `live:video:${vid}`, '1'); info('live: chunk analyze queue me gaya', { source: src.id, video: vid, bytes: size, partial: !rec.ok || rec.reason !== 'ok' }); } }
-      catch (e) { warn('live: chunk ingest fail', { source: src.id, err: (e as Error).message }); }
-      finally { rmSync(out, { force: true }); }
+      if (rec.ok && size >= 200_000) { fails = 0; kvSet(store, `live:seq:${src.id}`, String(n)); ingests.push(ingestChunk(out, n, size)); continue; }
+      rmSync(out, { force: true });
+      const p = await deps.probe(liveUrl(src.uri)); // failed chunk: ended, or just a blip?
+      if (!p.live && !p.error) { info('live: stream khatam, capture band', { source: src.id }); break; }
+      fails++; say(`rec:${src.id}`, 'warn', 'live: chunk record nahi hua, dobara koshish', { source: src.id, reason: rec.reason, bytes: size, fails }, 60_000);
+      if (fails >= 6) break; await sleepMs(Math.min(60_000, 5_000 * fails));
     }
-  } finally { // cleanup: leftover partial chunks of an ended / aborted capture
+  } finally { // cleanup: leftover partial chunks of an ended / aborted capture (after the in-flight ingests finished)
+    await Promise.allSettled(ingests);
     try { for (const f of readdirSync(dir)) rmSync(join(dir, f), { force: true }); rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
     busy.delete(src.id);
   }
@@ -121,5 +140,13 @@ export const LIVE_VIDEO_SQL = `EXISTS (SELECT 1 FROM kv WHERE k='live:video:'||v
 export function liveBudget(store: Store, cfg: Config): number {
   const used = store.get<{ n: number }>(`SELECT COUNT(*) AS n FROM uploads u JOIN clips c ON c.id=u.clip_id JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id WHERE ${LIVE_VIDEO_SQL} AND u.created_hint > datetime('now','-1 hour')`.replace('u.created_hint', 'u.updated_at'))?.n ?? 0;
   return Math.max(0, liveCfg(cfg).maxPerHour - used);
+}
+/** What the Live tab/API shows: which sources are watched, which are capturing right now, and the Live Priority switch. */
+export function liveStatus(store: Store): { priority: boolean; sources: { id: number; uri: string; title: string | null; watch: boolean; capturing: boolean; chunks: number }[] } {
+  const sources = store.all<{ id: number; uri: string; title: string | null; meta_json: string | null }>(`SELECT id, uri, title, meta_json FROM sources WHERE kind='youtube_channel' AND status='active'`).map((s) => {
+    let m: { watchLive?: boolean } = {}; try { m = JSON.parse(s.meta_json || '{}'); } catch { /* ignore */ }
+    return { id: s.id, uri: s.uri, title: s.title, watch: !!m.watchLive, capturing: busy.has(s.id), chunks: Number(kvGet(store, `live:seq:${s.id}`) ?? 0) };
+  });
+  return { priority: !livePriorityOff(store), sources };
 }
 export { kvDel as _kvDel };

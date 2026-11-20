@@ -20,7 +20,7 @@ import { setPaused, autopilotState, clipStatus } from '../autopilot/engine.ts';
 import { setSavedBase, getSavedBase, cleanBase, lastOAuth, handleOAuthCallback, checkRedirect, resolveBase, toApp, type OAuthPlatform } from '../publish/oauthguard.ts';
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
-import { liveTick } from '../watcher/live-monitor.ts';
+import { liveTick, liveStatus } from '../watcher/live-monitor.ts';
 import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable, prettySource } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
@@ -33,7 +33,7 @@ import { metaPages, assignMetaPage, setRelay, getRelay, DEFAULT_RELAY, startAuth
 import { aiStatus, saveAi, sttCreds, llmChain, llmSlot, SLOT_LIST } from '../ai/settings.ts';
 import { which } from '../util/proc.ts';
 import { reviewClip, editClipMeta, setThumbnailFrame, exportPackage } from '../review/review.ts';
-import { enqueue } from '../db.ts';
+import { enqueue, recoverOrphanJobs, setLivePriority, livePriorityOff } from '../db.ts';
 import { UI_HTML } from './ui.ts';
 import { STUDIO_HTML, MANIFEST, SW, iconPng } from '../studio/assets.ts';
 import { handleStudio } from '../studio/routes.ts';
@@ -62,7 +62,7 @@ import { titleTestTick, funnelTick, listTitleTests } from '../publish/titletest.
 import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPosted } from '../publish/direct.ts';
 import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ytSecretName, ALLOWED_PLATFORMS } from '../channels.ts';
 
-export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown>; studioDeps?: StudioDeps }
+export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown>; studioDeps?: StudioDeps; /** test seams for the background lanes */ hooks?: { work?: typeof work; automation?: typeof automationTick } }
 export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean; applyEnv?(force?: boolean): Promise<unknown>; bootstrap?(): Promise<unknown> }
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
@@ -122,25 +122,54 @@ export function createApp(o: AppOptions = {}): App {
   let chCache: { t: number; body: unknown } | null = null; let chPending: Promise<unknown[]> | null = null; let lastPoll = 0; let lastCare = 0; let lastEnvTry = Date.now(); let lastDoctor = 0; let lastAnalytics = 0; let lastComments = 0; let lastTt = 0; let running = false; let stopping = false; let timer: NodeJS.Timeout | null = null; let current: Promise<void> | null = null;
   const fails = new Map<string, { n: number; t: number }>();
 
+  /** One failing step must never stop the others (a crashed poll/automation step used to skip the worker for the whole cycle). */
+  const step = async (name: string, fn: () => Promise<void>): Promise<void> => { try { await fn(); } catch (e) { error(`${name} step crashed`, { err: (e as Error).message }); } };
+  // Three independent single-flight lanes: a long render/analyze (worker) or a slow yt-dlp poll (maintenance) can no longer freeze Auto-Pilot / live capture / queue advance (fast lane).
+  let maintBusy = false; let fastBusy = false; let workBusy = false;
+  const lane = (busy: () => boolean, set: (v: boolean) => void, fn: () => Promise<void>): Promise<void> => {
+    if (busy()) return Promise.resolve(); set(true); running = true;
+    return fn().catch((e) => error('worker cycle crashed', { err: (e as Error).message })).finally(() => { set(false); running = maintBusy || fastBusy || workBusy; });
+  };
+  const maintLane = () => lane(() => maintBusy, (v) => { maintBusy = v; }, async () => {
+        await step('source poll', async () => {
+          if (Date.now() - lastPoll >= cfg.youtube.pollMinutes * 60_000 && store.get(`SELECT 1 FROM sources WHERE kind IN ('youtube_channel','youtube_video') AND status IN ('active','pending')`)) { lastPoll = Date.now(); const pr = await pollSources(store, cfg); if (pr.discovered || pr.downloaded || pr.failed) info('source poll', pr as unknown as Record<string, unknown>); }
+        });
+        await step('analytics', async () => {
+          if (cfg.analytics.pollMinutes > 0 && Date.now() - lastAnalytics >= cfg.analytics.pollMinutes * 60_000) { lastAnalytics = Date.now(); const ar = await collectAnalytics(store, analyticsProviders(store, cfg)); await collectRetention(store, cfg).catch(() => null); if (ar.some((x) => x.recorded || x.error)) info('analytics collect', { results: ar } as unknown as Record<string, unknown>); }
+        });
+        await step('title test', async () => {
+          if (cfg.automation.titleTest || cfg.automation.funnelComment) { if (Date.now() - lastTt >= 15 * 60_000) { lastTt = Date.now(); await titleTestTick(store, cfg).catch(() => null); await funnelTick(store, cfg).catch(() => null); } }
+        });
+        await step('comments', async () => {
+          if (cfg.comments.pollMinutes > 0 && Date.now() - lastComments >= cfg.comments.pollMinutes * 60_000) { lastComments = Date.now(); const cr = await collectYoutubeComments(store, cfg); if (cr.newComments || cr.error) info('comments collect', cr as unknown as Record<string, unknown>); const { llmDraftReplies } = await import('../comments/comments.ts'); const { llmChain } = await import('../ai/settings.ts'); const ur = await llmDraftReplies(store, llmChain(cfg)).catch(() => null); if (ur?.upgraded) info('comment drafts written by the LLM (owner still approves)', ur); const { autoReplyTick } = await import('../publish/service.ts'); await autoReplyTick(store, cfg).catch(() => null); }
+        });
+        await step('env keys', async () => {
+          if (Date.now() - lastEnvTry >= 30 * 60_000) { lastEnvTry = Date.now(); void applyEnvKeys(cfg).catch(() => null); } // a key that failed its live test at start-up (network blip) is retried
+        });
+        await step('selfcare', async () => {
+          if (Date.now() - lastCare >= 30 * 60_000) { lastCare = Date.now(); await selfcareTick(store, cfg).catch(() => null); } // temp GC, disk watch, orphan processes, key sentinel
+        });
+        await step('doctor', async () => {
+          if (Date.now() - lastDoctor >= 10 * 60_000) { lastDoctor = Date.now(); const dr = await runDoctor(store, cfg).catch(() => null); if (dr && (dr.fixed || dr.manual)) info('doctor', { fixed: dr.fixed, manual: dr.manual, deferred: dr.deferred }); }
+        });
+  });
+  const fastLane = () => lane(() => fastBusy, (v) => { fastBusy = v; }, async () => {
+        await step('live', async () => {
+          { const lr = await liveTick(store, cfg).catch((e) => { error('live tick', { err: (e as Error).message }); return null; }); if (lr && (lr.started || lr.chunks)) info('live tick', lr as unknown as Record<string, unknown>); }
+        });
+        await step('automation', async () => {
+          { const tr = await (o.hooks?.automation ?? automationTick)(store, cfg); if (tr.queued || tr.advanced || tr.errors.length) info('automation tick', tr as unknown as Record<string, unknown>); }
+        });
+        await step('storage', async () => {
+          { const sr = await storageTick(store, cfg).catch(() => null); if (sr && (sr.archived || sr.purged)) info('storage tick', sr as unknown as Record<string, unknown>); }
+        });
+        await step('seed', async () => { seedJobs(store, cfg); });
+  });
+  const workLane = () => lane(() => workBusy, (v) => { workBusy = v; }, async () => {
+        seedJobs(store, cfg); const r = await (o.hooks?.work ?? work)(store, cfg, { shouldStop: () => stopping }); if (r.done || r.failed) info('worker cycle', r);
+  });
   async function runOnce(): Promise<void> {
-    if (running) return current ?? Promise.resolve();
-    running = true;
-    current = (async () => {
-      try {
-        if (Date.now() - lastPoll >= cfg.youtube.pollMinutes * 60_000 && store.get(`SELECT 1 FROM sources WHERE kind IN ('youtube_channel','youtube_video') AND status IN ('active','pending')`)) { lastPoll = Date.now(); const pr = await pollSources(store, cfg); if (pr.discovered || pr.downloaded || pr.failed) info('source poll', pr as unknown as Record<string, unknown>); }
-        if (cfg.analytics.pollMinutes > 0 && Date.now() - lastAnalytics >= cfg.analytics.pollMinutes * 60_000) { lastAnalytics = Date.now(); const ar = await collectAnalytics(store, analyticsProviders(store, cfg)); await collectRetention(store, cfg).catch(() => null); if (ar.some((x) => x.recorded || x.error)) info('analytics collect', { results: ar } as unknown as Record<string, unknown>); }
-        if (cfg.automation.titleTest || cfg.automation.funnelComment) { if (Date.now() - lastTt >= 15 * 60_000) { lastTt = Date.now(); await titleTestTick(store, cfg).catch(() => null); await funnelTick(store, cfg).catch(() => null); } }
-        if (cfg.comments.pollMinutes > 0 && Date.now() - lastComments >= cfg.comments.pollMinutes * 60_000) { lastComments = Date.now(); const cr = await collectYoutubeComments(store, cfg); if (cr.newComments || cr.error) info('comments collect', cr as unknown as Record<string, unknown>); const { llmDraftReplies } = await import('../comments/comments.ts'); const { llmChain } = await import('../ai/settings.ts'); const ur = await llmDraftReplies(store, llmChain(cfg)).catch(() => null); if (ur?.upgraded) info('comment drafts written by the LLM (owner still approves)', ur); const { autoReplyTick } = await import('../publish/service.ts'); await autoReplyTick(store, cfg).catch(() => null); }
-        if (Date.now() - lastEnvTry >= 30 * 60_000) { lastEnvTry = Date.now(); void applyEnvKeys(cfg).catch(() => null); } // a key that failed its live test at start-up (network blip) is retried
-        if (Date.now() - lastCare >= 30 * 60_000) { lastCare = Date.now(); await selfcareTick(store, cfg).catch(() => null); } // temp GC, disk watch, orphan processes, key sentinel
-        if (Date.now() - lastDoctor >= 10 * 60_000) { lastDoctor = Date.now(); const dr = await runDoctor(store, cfg).catch(() => null); if (dr && (dr.fixed || dr.manual)) info('doctor', { fixed: dr.fixed, manual: dr.manual, deferred: dr.deferred }); }
-        { const lr = await liveTick(store, cfg).catch((e) => { error('live tick', { err: (e as Error).message }); return null; }); if (lr && (lr.started || lr.chunks)) info('live tick', lr as unknown as Record<string, unknown>); }
-        { const tr = await automationTick(store, cfg); if (tr.queued || tr.advanced || tr.errors.length) info('automation tick', tr as unknown as Record<string, unknown>); }
-        { const sr = await storageTick(store, cfg).catch(() => null); if (sr && (sr.archived || sr.purged)) info('storage tick', sr as unknown as Record<string, unknown>); }
-        seedJobs(store, cfg); const r = await work(store, cfg, { shouldStop: () => stopping }); if (r.done || r.failed) info('worker cycle', r); }
-      catch (e) { error('worker cycle crashed', { err: (e as Error).message }); }
-      finally { running = false; }
-    })();
+    current = Promise.all([maintLane(), fastLane(), workLane()]).then(() => undefined);
     return current;
   }
 
@@ -393,7 +422,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/storage/run' && m === 'POST') return json(res, 200, await storageTick(store, cfg));
       if (p === '/api/youtube/settings' && m === 'GET') return json(res, 200, cfg.youtube);
       if (p === '/api/youtube/settings' && m === 'POST') {
-        const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as Record<string, unknown>; const lim: Record<string, [number, number]> = { pollMinutes: [5, 720], maxDurationMin: [10, 1440], maxPerPoll: [1, 10], maxHeight: [360, 1080] }; const patch: Record<string, number> = {};
+        const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as Record<string, unknown>; const lim: Record<string, [number, number]> = { pollMinutes: [5, 720], maxDurationMin: [0, 1440], sectionMin: [10, 240], maxPerPoll: [1, 10], maxHeight: [360, 1080] }; const patch: Record<string, number> = {};
         for (const [k, [lo, hi]] of Object.entries(lim)) if (b[k] !== undefined) { const n = Number(b[k]); if (!Number.isInteger(n) || n < lo || n > hi) return json(res, 400, { error: `invalid: ${k} must be ${lo}-${hi}` }); patch[k] = n; }
         updateOwnerConfig(cfg, { youtube: patch }); Object.assign(cfg.youtube, patch); return json(res, 200, cfg.youtube);
       }
@@ -543,6 +572,8 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
         mj = { ...mj, ...cleanSettings(b) }; store.exec('UPDATE sources SET meta_json=? WHERE id=?', JSON.stringify(mj), Number(srcSet[1]));
         if (b.backlog === true) store.exec(`DELETE FROM kv WHERE k=?`, `chend:${srcSet[1]}`); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, settings: sourceSettings(mj, cfg) });
       }
+      if (p === '/api/live' && m === 'GET') return json(res, 200, liveStatus(store));
+      if (p === '/api/live/priority' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { on?: boolean }; setLivePriority(store, b.on !== false); return json(res, 200, { ok: true, priority: !livePriorityOff(store) }); }
       const srcLive = /^\/api\/sources\/(\d+)\/live$/.exec(p);
       if (srcLive && m === 'POST') { // opt-in live-stream auto-capture for a watched channel
         const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { watch?: boolean };
@@ -651,6 +682,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
     server, cfg, store, runOnce, bootstrap: async () => { try { return await bootstrapTools(store, cfg); } catch { return null; } }, get running() { return running; }, applyEnv: async (force) => { try { const r = await runEnvApply(!!force); for (const x of r) info('env key', { provider: x.provider, var: x.var, ok: x.ok, model: x.model, detail: x.ok ? undefined : x.detail }); { const okK = r.filter((x) => x.ok), badK = r.filter((x) => !x.ok); info(okK.length ? `KEYS SUMMARY: ${okK.length}/${r.length} chal rahi hain (${okK.map((x) => x.provider).join(', ')}) - itni kaafi hain, baaki hata sakte ho` : 'KEYS SUMMARY: ek bhi AI key nahi chal rahi - Setup me free Gemini key (aistudio.google.com/apikey) daalo', { band: badK.map((x) => x.var).join(', ') || undefined }); } if (sttCreds(cfg)) { const t = await testConnection(store, cfg, 'stt').catch(() => null); if (t) info('stt key', { ok: t.ok, ...(t.ok ? {} : { detail: t.detail, fix: /pahunch nahi|fetch failed|timed out|timeout|network|ENOTFOUND|EAI_AGAIN/i.test(t.detail) ? 'Internet/server tak pahunch nahi paya - key ka koi dosh nahi, net aane par ye apne aap dobara check hoga. Tab tak local whisper / Gemini audio chalega' : 'Speech-to-text key reject hui: provider ke dashboard (Groq: console.groq.com/keys) se naya key banao aur .env me badlo. Tab tak local whisper / Gemini audio chalega' }) }); } try { const { pickLocal } = await import('../analysis/localStt.ts'); const pk = await pickLocal(cfg); info('local stt', { engine: pk?.id ?? 'none', ...(pk?.id === 'faster-whisper' ? {} : { tip: 'PC/server par `pip install faster-whisper` 4-6x tez local STT deta hai (Termux/Android par ye install nahi hota: whisper.cpp use hota hai)' }) }); } catch { /* informational */ } return r; } catch (e) { warn('env apply failed', { err: (e as Error).message }); return []; } },
     start: () => new Promise<number>((ok, bad) => {
       server.once('error', bad);
+      try { const n = recoverOrphanJobs(store); if (n) info('restart recovery: orphan jobs re-queued', { n }); } catch { /* best effort */ }
       try { resumeStudio(store, cfg, o.studioDeps); } catch { /* studio tables missing is impossible after migrate; never block start */ }
       server.listen(o.port ?? Number(process.env.PORT ?? 8080), host, () => {
         const port = (server.address() as { port: number }).port;

@@ -141,7 +141,7 @@ test('channel polling: new uploads discovered, result recorded for the UI, failu
   writeFileSync(join(bin, 'yt-dlp'), '#!/bin/sh\ncase "$*" in *--help*) echo "  --js-runtimes RUNTIME";; *--flat-playlist*) echo \'{"entries":[{"id":"abcdefghijk","title":"Old stream","duration":99999},{"id":"lmnopqrstuv","title":"Live 2","duration":99999}]}\';; esac\n'); chmodSync(join(bin, 'yt-dlp'), 0o755);
   const old = process.env.PATH; process.env.PATH = `${bin}:${old}`;
   try {
-    const cfg = testConfig(); const store = new Store(join(cfg.dataDir, 'x.db')); addYoutubeSource(store, 'https://www.youtube.com/@teamunknown', true);
+    const cfg = testConfig({ youtube: { maxDurationMin: 360 } }); const store = new Store(join(cfg.dataDir, 'x.db')); addYoutubeSource(store, 'https://www.youtube.com/@teamunknown', true); // owner-chosen limit still works (default is now 0 = unlimited, see longvideo.test)
     const r = await pollSources(store, cfg); assert.equal(r.channels, 1); assert.equal(r.skipped, 2); assert.equal(r.error, undefined);
     assert.equal(JSON.parse(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='poll:last'`)!.v).skipped, 2);
     assert.equal(store.all(`SELECT 1 FROM sources WHERE kind='youtube_video'`).length, 2);

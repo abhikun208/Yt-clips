@@ -30,7 +30,7 @@ export interface Config {
   capcut: { enabled: boolean; draftsDir?: string; seedDraft?: string; template?: string; preview?: boolean };
   resources: { ffmpegThreads: number; minFreeDiskMb: number; jobMaxAttempts: number; renderConcurrency: number };
   stt: { mode: 'auto' | 'off'; /** use the YouTube caption track (instant, no key, no model) when a YouTube source has one in the right language; default on */ youtubeCaptions?: boolean; model: string; language: string; prompt?: string; /** OpenWhispr-style custom dictionary: words/names (channel, brand, characters) every transcription should spell right */ dictionary?: string[]; engine: 'auto' | 'local' | 'api'; indiaFirst?: boolean; localEngine?: string; cppModel?: string; voiceStudioUrl?: string };
-  youtube: { pollMinutes: number; maxPerPoll: number; maxDurationMin: number; maxHeight: number };
+  youtube: { pollMinutes: number; maxPerPoll: number; /** 0 = no duration limit */ maxDurationMin: number; /** videos longer than this are fetched window-by-window (yt-dlp sections), never as one huge file */ sectionMin: number; maxHeight: number };
   analytics: { pollMinutes: number };
   storage: { /** delete our source copy right after its last clip is rendered (default off: re-render needs it) */ freeAfterRender?: boolean; /** delete our source copy after the video is fully published/finished (default: on for Termux/phone, off elsewhere); re-render re-downloads it */ autoCleanup?: boolean; sourceKeepDays?: number; remote: string; deleteLocal: boolean; purgeAfterDays: number; /** days after the LAST upload of a video was published, its local original + raw cuts are deleted (0 = keep forever); skipped when a cloud copy handles it */ localKeepDays: number };
   /** screen-description hint for titles; `enabled:false` (or env YT_CLIPS_VISION=0) turns it off, e.g. on a phone */
@@ -64,7 +64,7 @@ const DEFAULTS = (rootDir: string): Config => {
     capcut: { enabled: true, preview: false },
     resources: { ffmpegThreads: 2, minFreeDiskMb: 500, jobMaxAttempts: 4, renderConcurrency: 1 },
     stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'auto' },
-    youtube: { pollMinutes: 15, maxPerPoll: 3, maxDurationMin: 360, maxHeight: 720 },
+    youtube: { pollMinutes: 15, maxPerPoll: 3, maxDurationMin: 0, sectionMin: 60, maxHeight: 720 },
     analytics: { pollMinutes: 360 },
     storage: { remote: '', deleteLocal: false, purgeAfterDays: 0, localKeepDays: 3, autoCleanup: PHONE_LITE, sourceKeepDays: 7 },
     comments: { pollMinutes: 60, maxRepliesPerDay: 20 },

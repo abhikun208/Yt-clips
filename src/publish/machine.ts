@@ -1,9 +1,17 @@
-import { checkMedia } from './mediaCheck.ts';
+import { existsSync } from 'node:fs';
+import { enqueue } from '../db.ts';
+import { checkMedia, DEFAULT_LIMITS } from './mediaCheck.ts';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { assertPublishAllowed } from '../config.ts';
 import { channelOfClip } from '../channels.ts';
 
+/** The clip's output file vanished (cleanup, moved folder, restore): queue a re-render and block (never FAIL) the upload; it resumes when the file is back. */
+export function missingClipFile(store: Store, clipId: number, path: string): Error {
+  const cand = store.get<{ candidate_id: number }>('SELECT candidate_id FROM clips WHERE id=?', clipId)?.candidate_id;
+  if (cand) { const k = `render:${cand}`; if (!enqueue(store, 'render', k)) store.exec(`UPDATE jobs SET state='PENDING', attempts=0, run_after=0, lease_until=NULL, last_error=NULL, updated_at=datetime('now') WHERE key=? AND state IN ('DONE','DEAD','FAILED')`, k); }
+  return new Error(`NOT_READY: clip file missing (${path}) - dobara render queue kiya, ready hote hi upload resume hoga`);
+}
 export const STATES = ['READY_FOR_QC', 'QC_PASSED', 'UPLOAD_PENDING', 'UPLOADING', 'UPLOAD_VERIFYING', 'UNLISTED_VERIFIED', 'SCHEDULED_OR_APPROVED', 'PUBLISHED', 'ANALYTICS_WAIT', 'ANALYZING', 'LEARNING', 'NEXT_CYCLE'] as const;
 export type UploadState = (typeof STATES)[number] | 'FAILED' | 'QC_FAILED';
 
@@ -123,6 +131,7 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UPLOAD_PENDING': if (!adapter.local) assertPublishAllowed(cfg, 'unlisted'); setState(store, u.id, from, 'UPLOADING'); return 'UPLOADING';
       case 'UPLOADING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
+        if (!adapter.local && !adapter.skipMediaCheck && u.platform in DEFAULT_LIMITS && !existsSync(clip.edited_path)) throw missingClipFile(store, u.clip_id, clip.edited_path);
         if (!adapter.local && !adapter.skipMediaCheck) { // FFprobe the real output against this destination's limits BEFORE any byte is sent
           { const mc = await checkMedia(clip.edited_path, u.platform); if (!mc.ok) throw new Error(`MEDIA_INVALID: ${mc.problems.join('; ')}`); }
         }

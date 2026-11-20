@@ -18,14 +18,26 @@ test('live source: chunks are recorded until the stream ends, each ingested + ta
   const { cfg, store } = setup(); let probes = 0, rec = 0; const ingested: string[] = [];
   const deps: LiveDeps = {
     now: () => Date.now(),
-    probe: async () => { probes++; return probes <= 3 ? { live: true, reason: 'live' } : { live: false, reason: 'off' }; }, // initial tick + 2 loop checks live, then ended
-    record: async (_u, out) => { rec++; writeFileSync(out, Buffer.alloc(300_000)); return { ok: true, reason: 'ok' }; },
+    probe: async () => { probes++; return probes === 1 ? { live: true, reason: 'live' } : { live: false, reason: 'off' }; }, // tick sees it live; after the failed 3rd chunk the probe says: ended
+    record: async (_u, out) => { rec++; if (rec > 2) return { ok: false, reason: 'eof' }; writeFileSync(out, Buffer.alloc(300_000)); return { ok: true, reason: 'ok' }; },
     ingest: async (f, title) => { ingested.push(title); assert.ok(existsSync(f)); return 100 + ingested.length; },
   };
   const r = await liveTick(store, cfg, deps, { awaitCaptures: true });
-  assert.equal(r.started, 1); assert.equal(rec, 2); assert.equal(ingested.length, 2); assert.match(ingested[0], /^\[LIVE\]/);
+  assert.equal(r.started, 1); assert.equal(rec, 3); assert.equal(ingested.length, 2); assert.match(ingested[0], /^\[LIVE\]/);
+  assert.equal(probes, 2, 'NO probe between successful chunks (only the tick + one after the failed chunk)');
   assert.equal(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='live:video:101'`)?.v, '1');
   assert.deepEqual(readdirSync(cfg.dirs.tmp).filter((f) => f.startsWith('live_')), []); // cleanup after the stream ended
+});
+
+test('regression: rolling capture - chunk 2 starts recording while chunk 1 is still being ingested (no gap in the stream)', async () => {
+  const { cfg, store } = setup(); let rec = 0; let ingestRunning = false; let overlapped = false; const ingested: number[] = [];
+  const deps: LiveDeps = {
+    now: () => Date.now() + 5e8, probe: async () => ({ live: rec < 1, reason: '' }),
+    record: async (_u, out) => { rec++; if (rec === 2 && ingestRunning) overlapped = true; if (rec > 2) return { ok: false, reason: 'eof' }; writeFileSync(out, Buffer.alloc(300_000)); return { ok: true, reason: 'ok' }; },
+    ingest: async () => { ingestRunning = true; await new Promise((r) => setTimeout(r, 80)); ingestRunning = false; ingested.push(1); return 200 + ingested.length; },
+  };
+  await liveTick(store, cfg, deps, { awaitCaptures: true });
+  assert.equal(overlapped, true, 'next chunk recording began before the previous ingest finished'); assert.equal(ingested.length, 2, 'both chunks still ingested before the capture closed');
 });
 
 test('offline source: nothing recorded, reason counted (no silent skip)', async () => {
@@ -36,14 +48,14 @@ test('offline source: nothing recorded, reason counted (no silent skip)', async 
 });
 
 test('internet drop mid-stream: failed chunk is discarded and retried, stream continues afterwards', async () => {
-  const { cfg, store } = setup(); let n = 0, probes = 0; const got: number[] = [];
+  const { cfg, store } = setup(); _setSleep(async () => {}); let n = 0, probes = 0; const got: number[] = [];
   const deps: LiveDeps = {
-    now: () => Date.now() + 5e9, probe: async () => { probes++; return probes <= 3 ? { live: true, reason: 'live' } : { live: false, reason: 'off' }; },
-    record: async (_u, out) => { n++; if (n === 1) return { ok: false, reason: 'net down' }; writeFileSync(out, Buffer.alloc(300_000)); return { ok: true, reason: 'ok' }; },
+    now: () => Date.now() + 5e9, probe: async () => { probes++; return probes <= 2 ? { live: true, reason: 'live' } : { live: false, reason: 'off' }; },
+    record: async (_u, out) => { n++; if (n === 1) return { ok: false, reason: 'net down' }; if (n > 2) return { ok: false, reason: 'eof' }; writeFileSync(out, Buffer.alloc(300_000)); return { ok: true, reason: 'ok' }; },
     ingest: async () => { got.push(1); return 7; },
   };
   await liveTick(store, cfg, deps, { awaitCaptures: true });
-  assert.equal(got.length, 1); // chunk 1 dropped, chunk 2 ingested
+  assert.equal(got.length, 1); // chunk 1 dropped (probe: still live -> retry), chunk 2 ingested, then ended
 });
 
 test('only watchLive sources are polled', async () => {
