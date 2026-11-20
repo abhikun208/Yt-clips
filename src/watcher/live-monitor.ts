@@ -79,8 +79,9 @@ function say(key: string, level: 'info' | 'warn', msg: string, data: Record<stri
 const busy = new Set<number>(); // sources with a capture in flight (capture runs in the background so the worker loop never blocks 5 min)
 const lastCheck = new Map<number, number>();
 
+export const liveLimits = (cfg: Config) => liveCfg(cfg);
 export interface LiveResult { checked: number; capturing: number; started: number; chunks: number; skipped: Record<string, number> }
-const liveCfg = (cfg: Config) => ({ check: Math.max(30, cfg.automation.liveCheckSeconds ?? 30), chunk: Math.min(1800, Math.max(60, cfg.automation.liveChunkSeconds ?? 300)), maxPerHour: cfg.automation.liveMaxUploadsPerHour ?? 2 });
+const liveCfg = (cfg: Config) => ({ check: Math.max(30, cfg.automation.liveCheckSeconds ?? 30), chunk: Math.min(1800, Math.max(60, cfg.automation.liveChunkSeconds ?? 300)), maxPerHour: cfg.automation.liveMaxUploadsPerHour ?? 2, maxBufferMB: Math.max(200, cfg.automation.liveMaxBufferMB ?? 3072), retainHours: Math.max(1, cfg.automation.liveRetainHours ?? 6) });
 
 async function captureLoop(store: Store, cfg: Config, deps: LiveDeps, src: { id: number; uri: string; channel_id: number | null }): Promise<void> {
   const lc = liveCfg(cfg); const dir = join(cfg.dirs.tmp, `live_${src.id}`); mkdirSync(dir, { recursive: true });
@@ -96,11 +97,11 @@ async function captureLoop(store: Store, cfg: Config, deps: LiveDeps, src: { id:
       const n = Number(kvGet(store, `live:seq:${src.id}`) ?? 0) + 1; const out = join(dir, `live_${src.id}_${deps.now()}_${n}.mp4`);
       const rec = await deps.record(liveUrl(src.uri), out, lc.chunk);
       const size = existsSync(out) ? statSync(out).size : 0;
-      if (rec.ok && size >= 200_000) { fails = 0; kvSet(store, `live:seq:${src.id}`, String(n)); ingests.push(ingestChunk(out, n, size)); continue; }
+      if (rec.ok && size >= 200_000) { fails = 0; kvSet(store, `live:seq:${src.id}`, String(n)); kvSet(store, `live:lastchunk:${src.id}`, new Date(deps.now()).toISOString()); kvSet(store, `live:failcount:${src.id}`, '0'); ingests.push(ingestChunk(out, n, size)); continue; }
       rmSync(out, { force: true });
       const p = await deps.probe(liveUrl(src.uri)); // failed chunk: ended, or just a blip?
       if (!p.live && !p.error) { info('live: stream khatam, capture band', { source: src.id }); break; }
-      fails++; say(`rec:${src.id}`, 'warn', 'live: chunk record nahi hua, dobara koshish', { source: src.id, reason: rec.reason, bytes: size, fails }, 60_000);
+      fails++; kvSet(store, `live:failcount:${src.id}`, String(fails)); say(`rec:${src.id}`, 'warn', 'live: chunk record nahi hua, dobara koshish', { source: src.id, reason: rec.reason, bytes: size, fails }, 60_000);
       if (fails >= 6) break; await sleepMs(Math.min(60_000, 5_000 * fails));
     }
   } finally { // cleanup: leftover partial chunks of an ended / aborted capture (after the in-flight ingests finished)
@@ -124,7 +125,7 @@ export async function liveTick(store: Store, cfg: Config, deps: LiveDeps = realD
     if (busy.has(s.id)) { r.capturing++; continue; }
     if (deps.now() - (lastCheck.get(s.id) ?? 0) < lc.check * 1000) { skip('interval'); continue; }
     lastCheck.set(s.id, deps.now()); r.checked++;
-    const p = await deps.probe(liveUrl(s.uri));
+    const p = await deps.probe(liveUrl(s.uri)); kvSet(store, `live:check:${s.id}`, JSON.stringify({ at: new Date(deps.now()).toISOString(), live: p.live, error: !!p.error, reason: p.reason.slice(0, 160) }));
     if (!p.live) { skip(p.error ? 'check_error' : 'offline'); if (p.error) say(`probe:${s.id}`, 'warn', 'live: check nahi ho paya', { source: s.id, reason: p.reason }); continue; }
     busy.add(s.id); r.started++; info('live: stream mili, 5-min chunk capture shuru', { source: s.id, chunkSec: lc.chunk });
     tasks.push(captureLoop(store, cfg, deps, s).catch((e) => { warn('live: capture crash', { source: s.id, err: (e as Error).message }); busy.delete(s.id); }));
@@ -142,11 +143,15 @@ export function liveBudget(store: Store, cfg: Config): number {
   return Math.max(0, liveCfg(cfg).maxPerHour - used);
 }
 /** What the Live tab/API shows: which sources are watched, which are capturing right now, and the Live Priority switch. */
-export function liveStatus(store: Store): { priority: boolean; sources: { id: number; uri: string; title: string | null; watch: boolean; capturing: boolean; chunks: number }[] } {
-  const sources = store.all<{ id: number; uri: string; title: string | null; meta_json: string | null }>(`SELECT id, uri, title, meta_json FROM sources WHERE kind='youtube_channel' AND status='active'`).map((s) => {
+export interface LiveSourceStatus { id: number; uri: string; title: string | null; watch: boolean; capturing: boolean; chunks: number; lastChunkAt: string | null; consecutiveFailures: number; lastCheck: { at: string; live: boolean; error: boolean; reason: string } | null }
+export function liveStatus(store: Store): { priority: boolean; sources: LiveSourceStatus[]; buffer: { chunks: number; bytes: number; discarded: number }; capturingNow: number } {
+  const sources = store.all<{ id: number; uri: string; title: string | null; meta_json: string | null }>(`SELECT id, uri, title, meta_json FROM sources WHERE kind='youtube_channel' AND status='active'`).map((s): LiveSourceStatus => {
     let m: { watchLive?: boolean } = {}; try { m = JSON.parse(s.meta_json || '{}'); } catch { /* ignore */ }
-    return { id: s.id, uri: s.uri, title: s.title, watch: !!m.watchLive, capturing: busy.has(s.id), chunks: Number(kvGet(store, `live:seq:${s.id}`) ?? 0) };
+    let lc: LiveSourceStatus['lastCheck'] = null; try { lc = JSON.parse(kvGet(store, `live:check:${s.id}`) ?? 'null'); } catch { /* ignore */ }
+    return { id: s.id, uri: s.uri, title: s.title, watch: !!m.watchLive, capturing: busy.has(s.id), chunks: Number(kvGet(store, `live:seq:${s.id}`) ?? 0), lastChunkAt: kvGet(store, `live:lastchunk:${s.id}`), consecutiveFailures: Number(kvGet(store, `live:failcount:${s.id}`) ?? 0), lastCheck: lc };
   });
-  return { priority: !livePriorityOff(store), sources };
+  const b = store.get<{ n: number; bytes: number | null }>(`SELECT COUNT(*) AS n, SUM(v.size) AS bytes FROM videos v WHERE EXISTS (SELECT 1 FROM kv WHERE k='live:video:' || v.id) AND NOT EXISTS (SELECT 1 FROM kv WHERE k='live:discarded:' || v.id)`)!;
+  const d = store.get<{ n: number }>(`SELECT COUNT(*) AS n FROM kv WHERE k LIKE 'live:discarded:%'`)!.n;
+  return { priority: !livePriorityOff(store), sources, buffer: { chunks: b.n, bytes: b.bytes ?? 0, discarded: d }, capturingNow: sources.filter((x) => x.capturing).length };
 }
 export { kvDel as _kvDel };

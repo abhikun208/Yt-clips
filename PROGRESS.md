@@ -503,3 +503,13 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 7. Multi-destination routing / per-account schedule: covered by existing distribution/source_mapping/account_timezone/identity_guard tests (still green). The "UNLISTED_VERIFIED -> needs approval" wait is the owner's safety gate (autoApprove off), not a bug.
 - UNVERIFIED: real @ishowspeed live capture on the phone/VPS, real yt-dlp bot-check behaviour, 6-hour real section download.
 - NEXT: P6 feature classification doc, mapping per-destination enable/policy UI, bulk distribution UI, per-platform auto-transcode, click-through browser tests of dynamic actions.
+
+## (25) Live-to-Shorts rolling buffer + UI + routing policy + re-encode (owner request Nov 20, 2nd batch)
+- Rolling buffer: src/watcher/live-retention.ts (raw 5-min chunk kept only until its selected highlights are rendered; size cap `automation.liveMaxBufferMB` default 3072, age cap `liveRetainHours` 6, boot cleanup of partial chunks). Runs in the fast lane. NOT sub-chunk granular. Tests: test/live_retention.test.ts.
+- Live card (Sources tab): status per source, last chunk, failures, buffer MB, Live Priority toggle, Watch toggle. `GET /api/live` extended. Tests: ui_live (Chromium).
+- Mapping policy: per-destination enable + priority + `delayMin` (v16 migration, additive). Bulk clip distribution UI (select clips -> Distribute -> Preview -> Confirm). Tests: source_mapping, ui_bulk (Chromium).
+- Platform re-encode: `prepareForPlatform` (size/duration/codec -> derived `<clip>.<platform>.mp4`, FFprobe re-validated, master untouched). Test: derive.test.ts.
+- `npm run verify:device [-- --capture]`: REAL checks to run on Termux (ffmpeg/yt-dlp/encode/queue/live probe/20 s capture) -> data/device_verification.json. Sandbox run is labelled termux=false. Test: verify_device.test.ts.
+- docs/FEATURE_STATUS.md = P6 classification.
+- UNVERIFIED: everything on a real stream / real phone. NOT_IMPLEMENTED: live chat signals, per-destination title/tag policy, horizontal->vertical auto-convert.
+- NEXT (owner): `git pull && npm start`, `npm run verify:device -- --capture` on the phone and send me data/device_verification.json. NEXT (code): Termux-observed fixes, live chat signal capture, per-destination metadata policy.

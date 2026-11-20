@@ -98,3 +98,10 @@
 
 - [x] Auto-Pilot lanes / queue heartbeat + restart recovery / live probe+rolling capture / Live Priority Mode / unlimited duration + sectioned download / missing-file re-render (fake-verified; real streams UNVERIFIED)
 - [ ] Owner: run on phone `git pull && npm start`, enable "Live" on @ishowspeed source, check /api/live and Queue
+
+- [x] Rolling live buffer retention + caps + boot cleanup (local-verified)
+- [x] Live card/Priority UI, mapping enable/delay UI, bulk distribute UI (Chromium click-through)
+- [x] Platform re-encode with FFprobe re-validation
+- [x] docs/FEATURE_STATUS.md classification
+- [ ] OWNER: run `npm run verify:device -- --capture` on Termux while @ishowspeed is live; share data/device_verification.json
+- [ ] NOT_IMPLEMENTED: live chat/engagement signals, per-destination title/tag policy, horizontal->vertical conversion, AI upscale/2K 16:9

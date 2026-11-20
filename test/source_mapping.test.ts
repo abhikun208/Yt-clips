@@ -19,3 +19,18 @@ test('one source -> two channels: clip is queued for its own channel AND the map
   const ups = store.all<{ channel_id: number }>('SELECT channel_id FROM uploads ORDER BY id'); assert.deepEqual(ups.map((u) => u.channel_id).sort(), [a.id, b.id].sort(), 'one job per destination, no duplicates');
   setSourceMapping(store, { sourceId: 1, channelId: b.id, remove: true }); assert.equal(listSourceMappings(store, 1).length, 0);
 });
+
+test('mapping policy: per-destination delay holds ONLY that destination; editing one field keeps the others; disable stops new jobs', async () => {
+  const store = new Store(':memory:'); const a = createChannel(store, { name: 'Chan A' }, () => true); const b = createChannel(store, { name: 'Chan B' }, () => true);
+  store.exec(`INSERT INTO sources(id, kind, uri, channel_id, authorized) VALUES (1,'local','r1',?,1)`, a.id); store.exec(`INSERT INTO videos(id, source_id, path, fingerprint) VALUES (1,1,'/x','f1')`);
+  store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (1,1,0,6,.5,'c1')`);
+  store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass, metadata_json) VALUES (1,1,'o1','/x.mp4',1,?)`, JSON.stringify({ title: 'Real title one #Shorts', description: 'd', tags: ['x'] }));
+  setSourceMapping(store, { sourceId: 1, channelId: b.id, delayMin: 30, priority: 3 }); setSourceMapping(store, { sourceId: 1, channelId: b.id, enabled: true });
+  const mp = listSourceMappings(store, 1)[0]!; assert.deepEqual([mp.delayMin, mp.priority, mp.enabled], [30, 3, true], 'toggling enabled must not reset delay/priority');
+  const cfg = loadConfig(process.cwd(), { dataDir: tmpDir(), overrides: { automation: { autoQueue: true, maxAdvancePerCycle: 5, blockGenericMetadata: false, fairShare: false, platforms: ['youtube_shorts'] } } as never });
+  const t0 = new Date(); await automationTick(store, cfg, t0); await automationTick(store, cfg, t0);
+  const st = (ch: number) => store.get<{ error: string | null }>('SELECT error FROM uploads WHERE channel_id=?', ch)!.error ? 'TRIED' : 'QC_PASSED'; // (fake clip file -> a processed job records NOT_READY)
+  assert.equal(st(a.id), 'TRIED', 'own channel moves on at once'); assert.equal(st(b.id), 'QC_PASSED', 'mapped destination waits for its delay');
+  await automationTick(store, cfg, new Date(t0.getTime() + 31 * 60_000)); assert.equal(st(b.id), 'TRIED', 'after the delay it proceeds');
+  setSourceMapping(store, { sourceId: 1, channelId: b.id, enabled: false }); assert.equal(listSourceMappings(store, 1)[0]!.enabled, false);
+});

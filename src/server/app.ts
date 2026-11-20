@@ -21,6 +21,7 @@ import { setSavedBase, getSavedBase, cleanBase, lastOAuth, handleOAuthCallback, 
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick, liveStatus } from '../watcher/live-monitor.ts';
+import { liveRetention, cleanLiveTemp } from '../watcher/live-retention.ts';
 import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable, prettySource } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
 import { presetPreview } from '../edit/preview.ts';
@@ -163,6 +164,7 @@ export function createApp(o: AppOptions = {}): App {
         await step('storage', async () => {
           { const sr = await storageTick(store, cfg).catch(() => null); if (sr && (sr.archived || sr.purged)) info('storage tick', sr as unknown as Record<string, unknown>); }
         });
+        await step('live retention', async () => { liveRetention(store, cfg); });
         await step('seed', async () => { seedJobs(store, cfg); });
   });
   const workLane = () => lane(() => workBusy, (v) => { workBusy = v; }, async () => {
@@ -305,7 +307,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/doctor' && m === 'GET') return json(res, 200, { report: lastDoctor_(store) });
       { const sm = p.match(/^\/api\/sources\/(\d+)\/destinations$/); if (sm) { const sid = Number(sm[1]);
         if (m === 'GET') return json(res, 200, { mappings: listSourceMappings(store, sid) });
-        if (m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { channel?: string; platform?: string; enabled?: boolean; priority?: number; remove?: boolean }; try { setSourceMapping(store, { sourceId: sid, channelId: getChannel(store, String(b.channel)).id, platform: b.platform, enabled: b.enabled, priority: b.priority, remove: b.remove === true }); return json(res, 200, { ok: true, mappings: listSourceMappings(store, sid) }); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg.slice(0, 200) }); } } } }
+        if (m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { channel?: string; platform?: string; enabled?: boolean; priority?: number; delayMin?: number; remove?: boolean }; try { setSourceMapping(store, { sourceId: sid, channelId: getChannel(store, String(b.channel)).id, platform: b.platform, enabled: b.enabled, priority: b.priority, delayMin: b.delayMin, remove: b.remove === true }); return json(res, 200, { ok: true, mappings: listSourceMappings(store, sid) }); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg.slice(0, 200) }); } } } }
       if (p === '/api/distribution' && m === 'GET') return json(res, 200, { distributions: listDistributions(store, Math.min(200, Number(url.searchParams.get('limit')) || 100)) });
       if (p === '/api/doctor' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { fix?: boolean }; return json(res, 200, { report: await runDoctor(store, cfg, { fix: b.fix !== false }) }); }
       if (p === '/api/why' && m === 'GET') return json(res, 200, { items: whyReport(store, cfg, { running: running || !!timer, ytdlp: await ytdlpAvailable() }) });
@@ -682,6 +684,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
     server, cfg, store, runOnce, bootstrap: async () => { try { return await bootstrapTools(store, cfg); } catch { return null; } }, get running() { return running; }, applyEnv: async (force) => { try { const r = await runEnvApply(!!force); for (const x of r) info('env key', { provider: x.provider, var: x.var, ok: x.ok, model: x.model, detail: x.ok ? undefined : x.detail }); { const okK = r.filter((x) => x.ok), badK = r.filter((x) => !x.ok); info(okK.length ? `KEYS SUMMARY: ${okK.length}/${r.length} chal rahi hain (${okK.map((x) => x.provider).join(', ')}) - itni kaafi hain, baaki hata sakte ho` : 'KEYS SUMMARY: ek bhi AI key nahi chal rahi - Setup me free Gemini key (aistudio.google.com/apikey) daalo', { band: badK.map((x) => x.var).join(', ') || undefined }); } if (sttCreds(cfg)) { const t = await testConnection(store, cfg, 'stt').catch(() => null); if (t) info('stt key', { ok: t.ok, ...(t.ok ? {} : { detail: t.detail, fix: /pahunch nahi|fetch failed|timed out|timeout|network|ENOTFOUND|EAI_AGAIN/i.test(t.detail) ? 'Internet/server tak pahunch nahi paya - key ka koi dosh nahi, net aane par ye apne aap dobara check hoga. Tab tak local whisper / Gemini audio chalega' : 'Speech-to-text key reject hui: provider ke dashboard (Groq: console.groq.com/keys) se naya key banao aur .env me badlo. Tab tak local whisper / Gemini audio chalega' }) }); } try { const { pickLocal } = await import('../analysis/localStt.ts'); const pk = await pickLocal(cfg); info('local stt', { engine: pk?.id ?? 'none', ...(pk?.id === 'faster-whisper' ? {} : { tip: 'PC/server par `pip install faster-whisper` 4-6x tez local STT deta hai (Termux/Android par ye install nahi hota: whisper.cpp use hota hai)' }) }); } catch { /* informational */ } return r; } catch (e) { warn('env apply failed', { err: (e as Error).message }); return []; } },
     start: () => new Promise<number>((ok, bad) => {
       server.once('error', bad);
+      try { const c = cleanLiveTemp(cfg); if (c) info('restart recovery: partial live chunks removed', { dirs: c }); } catch { /* best effort */ }
       try { const n = recoverOrphanJobs(store); if (n) info('restart recovery: orphan jobs re-queued', { n }); } catch { /* best effort */ }
       try { resumeStudio(store, cfg, o.studioDeps); } catch { /* studio tables missing is impossible after migrate; never block start */ }
       server.listen(o.port ?? Number(process.env.PORT ?? 8080), host, () => {

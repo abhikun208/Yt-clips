@@ -10,6 +10,7 @@
   "scripts": {
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify:device": "node --disable-warning=ExperimentalWarning src/cli.ts verify-device",
     "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor",
     "cli": "node --disable-warning=ExperimentalWarning src/cli.ts",
     "start": "node --disable-warning=ExperimentalWarning src/server/main.ts",

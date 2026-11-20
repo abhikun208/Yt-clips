@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { enqueue } from '../db.ts';
-import { checkMedia, DEFAULT_LIMITS } from './mediaCheck.ts';
+import { prepareForPlatform, DEFAULT_LIMITS } from './mediaCheck.ts';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { assertPublishAllowed } from '../config.ts';
@@ -132,15 +132,16 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       case 'UPLOADING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
         if (!adapter.local && !adapter.skipMediaCheck && u.platform in DEFAULT_LIMITS && !existsSync(clip.edited_path)) throw missingClipFile(store, u.clip_id, clip.edited_path);
+        let uploadPath = clip.edited_path;
         if (!adapter.local && !adapter.skipMediaCheck) { // FFprobe the real output against this destination's limits BEFORE any byte is sent
-          { const mc = await checkMedia(clip.edited_path, u.platform); if (!mc.ok) throw new Error(`MEDIA_INVALID: ${mc.problems.join('; ')}`); }
+          { const mc = await prepareForPlatform(clip.edited_path, u.platform); if (!mc.ok) throw new Error(`MEDIA_INVALID: ${mc.problems.join('; ')}`); uploadPath = mc.path; if (mc.derived) store.logState('upload', u.id, null, 'DERIVED', mc.notes.join('; ')); }
         }
         if (adapter.whoami) { // never upload with credentials that belong to a different channel than the one this clip is routed to
           const slug = channelOfClip(store, u.clip_id).slug; let want: string | null = null;
           try { const v = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytinfo:${slug}`)?.v; want = v ? (JSON.parse(v) as { channelId?: string }).channelId ?? null : null; } catch { /* unknown identity: nothing to compare */ }
           if (want) { const me = await adapter.whoami(); if (me && me.id !== want) throw new Error(`AUTH_IDENTITY_MISMATCH: channel "${slug}" is registered as ${want} but its login belongs to ${me.id} ("${me.title}"). Upload blocked — Setup me us channel ko dobara connect karo.`); }
         }
-        const sandbox = channelOfClip(store, u.clip_id).config.sandbox === true; const r = await adapter.upload({ filePath: clip.edited_path, title: sandbox && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
+        const sandbox = channelOfClip(store, u.clip_id).config.sandbox === true; const r = await adapter.upload({ filePath: uploadPath, title: sandbox && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
         if (adapter.thumbnail && o.facts.thumbnailPath) { try { await adapter.thumbnail(r.remoteId, o.facts.thumbnailPath); } catch { /* thumbnails are optional */ } }
         setState(store, u.id, from, 'UPLOAD_VERIFYING', { remote: r.remoteId, vis: 'unlisted' }); return 'UPLOAD_VERIFYING';
       }

@@ -141,19 +141,21 @@ export function stampUpload(store: Store, cfg: Config, uploadId: number, channel
   const d = destinationFor(store, cfg, channelSlug, uploadPlatform); if (d) store.exec('UPDATE uploads SET destination_id=? WHERE id=? AND destination_id IS NULL', d.id, uploadId);
 }
 
-export interface SourceMapping { sourceId: number; channelId: number; platform: string; enabled: boolean; priority: number }
+export interface SourceMapping { sourceId: number; channelId: number; platform: string; enabled: boolean; priority: number; /** stagger: uploads for this destination wait this many minutes after the clip is ready */ delayMin: number }
 /** Extra destinations of a source (besides the channel the source belongs to). */
 export function listSourceMappings(store: Store, sourceId?: number): SourceMapping[] {
-  return store.all<{ source_id: number; channel_id: number; platform: string; enabled: number; priority: number }>(`SELECT * FROM source_destinations ${sourceId ? 'WHERE source_id=?' : ''} ORDER BY priority DESC, channel_id`, ...(sourceId ? [sourceId] : []))
-    .map((r) => ({ sourceId: r.source_id, channelId: r.channel_id, platform: r.platform, enabled: !!r.enabled, priority: r.priority }));
+  return store.all<{ source_id: number; channel_id: number; platform: string; enabled: number; priority: number; delay_min: number }>(`SELECT * FROM source_destinations ${sourceId ? 'WHERE source_id=?' : ''} ORDER BY priority DESC, channel_id`, ...(sourceId ? [sourceId] : []))
+    .map((r) => ({ sourceId: r.source_id, channelId: r.channel_id, platform: r.platform, enabled: !!r.enabled, priority: r.priority, delayMin: r.delay_min ?? 0 }));
 }
-export function setSourceMapping(store: Store, m: { sourceId: number; channelId: number; platform?: string; enabled?: boolean; priority?: number; remove?: boolean }): void {
+export function setSourceMapping(store: Store, m: { sourceId: number; channelId: number; platform?: string; enabled?: boolean; priority?: number; delayMin?: number; remove?: boolean }): void {
   const src = store.get<{ channel_id: number | null }>('SELECT channel_id FROM sources WHERE id=?', m.sourceId); if (!src) throw new Error('not found: source');
   if (!store.get('SELECT 1 FROM channels WHERE id=?', m.channelId)) throw new Error('not found: channel');
   const platform = m.platform ?? 'youtube_shorts';
   if (m.remove) { store.exec('DELETE FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform); return; }
   if (src.channel_id === m.channelId) throw new Error('invalid: ye source ka apna channel hai (wo already default destination hai)');
-  store.exec(`INSERT INTO source_destinations(source_id, channel_id, platform, enabled, priority) VALUES (?,?,?,?,?) ON CONFLICT(source_id, channel_id, platform) DO UPDATE SET enabled=excluded.enabled, priority=excluded.priority`, m.sourceId, m.channelId, platform, m.enabled === false ? 0 : 1, m.priority ?? 0);
+  const old = store.get<{ enabled: number; priority: number; delay_min: number }>('SELECT enabled, priority, delay_min FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform);
+  const delay = m.delayMin === undefined ? old?.delay_min ?? 0 : Math.max(0, Math.min(1440, Math.round(Number(m.delayMin)) || 0)); // editing ONE field never resets the others
+  store.exec(`INSERT INTO source_destinations(source_id, channel_id, platform, enabled, priority, delay_min) VALUES (?,?,?,?,?,?) ON CONFLICT(source_id, channel_id, platform) DO UPDATE SET enabled=excluded.enabled, priority=excluded.priority, delay_min=excluded.delay_min`, m.sourceId, m.channelId, platform, (m.enabled ?? (old ? !!old.enabled : true)) ? 1 : 0, m.priority ?? old?.priority ?? 0, delay);
 }
 
 /** Real "Test connection" for a YouTube account: refreshes the token and asks Google who it is, compares with the registered channel. Never fakes success. */
