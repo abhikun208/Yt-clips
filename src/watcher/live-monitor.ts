@@ -44,7 +44,7 @@ export const realDeps = (cfg: Config): LiveDeps => ({
   now: () => Date.now(),
   async probe(url) {
     const r = await ytdlp(['--dump-json', '--no-warnings', '--playlist-items', '1', url], 60_000);
-    if (r.code === 0) { try { const j = JSON.parse(r.stdout.split('\n')[0]) as { is_live?: boolean; live_status?: string; id?: string }; return j.is_live || j.live_status === 'is_live' ? { live: true, reason: 'live', ...(j.id ? { id: j.id } : {}) } : { live: false, reason: 'channel abhi live nahi hai' }; } catch { return { live: false, reason: 'yt-dlp output samajh nahi aaya', error: true }; } }
+    if (r.code === 0) { try { const j = JSON.parse(r.stdout.split('\n')[0] ?? '') as { is_live?: boolean; live_status?: string; id?: string }; return j.is_live || j.live_status === 'is_live' ? { live: true, reason: 'live', ...(j.id ? { id: j.id } : {}) } : { live: false, reason: 'channel abhi live nahi hai' }; } catch { return { live: false, reason: 'yt-dlp output samajh nahi aaya', error: true }; } }
     const t = r.stderr.trim().slice(-200);
     if (/not currently live|does not have a live|no live|offline|not live|will begin|live event|premieres? in|scheduled|upcoming/i.test(t)) return { live: false, reason: 'channel abhi live nahi hai' };
     return { live: false, reason: `live check fail (internet/yt-dlp): ${t || 'timeout'}`, error: true };

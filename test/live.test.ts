@@ -23,7 +23,7 @@ test('live source: chunks are recorded until the stream ends, each ingested + ta
     ingest: async (f, title) => { ingested.push(title); assert.ok(existsSync(f)); return 100 + ingested.length; },
   };
   const r = await liveTick(store, cfg, deps, { awaitCaptures: true });
-  assert.equal(r.started, 1); assert.equal(rec, 3); assert.equal(ingested.length, 2); assert.match(ingested[0], /^\[LIVE\]/);
+  assert.equal(r.started, 1); assert.equal(rec, 3); assert.equal(ingested.length, 2); assert.match(ingested[0]!, /^\[LIVE\]/);
   assert.equal(probes, 2, 'NO probe between successful chunks (only the tick + one after the failed chunk)');
   assert.equal(store.get<{ v: string }>(`SELECT v FROM kv WHERE k='live:video:101'`)?.v, '1');
   assert.deepEqual(readdirSync(cfg.dirs.tmp).filter((f) => f.startsWith('live_')), []); // cleanup after the stream ended
