@@ -33,7 +33,7 @@ export function isLengthBucket(x: unknown): x is LengthBucket { return typeof x 
 export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o: { force?: boolean; override?: { introEnd?: number; outroStart?: number }; length?: LengthBucket; whole?: boolean; maxClips?: number } = {}): Promise<{ candidates: number; analysisPath: string }> {
   { const cc = channelOfVideo(store, videoId).config; o = { ...o, length: o.length ?? cc.clipLength, maxClips: o.maxClips ?? cc.maxClips }; } // channel automation settings are the default; an explicit request wins
   if (o.length) cfg = { ...cfg, clip: { ...cfg.clip, ...LENGTHS[o.length] } };
-  if (o.maxClips && o.maxClips >= 1 && o.maxClips <= 12) cfg = { ...cfg, clip: { ...cfg.clip, maxClipsPerVideo: Math.floor(o.maxClips) } };
+  if (o.maxClips !== undefined && Number.isInteger(o.maxClips) && o.maxClips >= 0) cfg = { ...cfg, clip: { ...cfg.clip, maxClipsPerVideo: Math.floor(o.maxClips) } };
   const v = store.get<{ path: string; state: string; analysis_path: string | null }>('SELECT path, state, analysis_path FROM videos WHERE id=?', videoId);
   if (!v) throw new Error(`Unknown video ${videoId}`);
   const analysisPath = v.analysis_path ?? join(cfg.dirs.manifests, `analysis_${videoId}.json`);

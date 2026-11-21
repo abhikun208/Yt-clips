@@ -520,3 +520,8 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 - UNVERIFIED: real Termux run, real YouTube live capture (@ishowspeed), ffmpeg reconnect on live HLS. Owner: `git pull && npm start`, then `npm run verify:device -- --capture` while a source is live, share data/device_verification.json.
 - NOT_IMPLEMENTED: live chat/engagement signals, sub-5-min chunk granularity.
 - Next: per-destination metadata policy, horizontal→vertical (needs permission), final full suite.
+
+## (27) Prompt1 §6 unlimited clips + §17 learning loop
+- Changed: default `clip.maxClipsPerVideo` 12 -> 0 (unlimited; select.ts, analyzer reanalyze, channel config, API, UI accept 0 / values above 12; an explicit saved value is respected). New `src/analytics/learn.ts` (+ `/api/learning*`, CLI `learn`): measured metrics only (missing != 0), 48 h minimum age, small-sample guard, evidence+confidence, causes labelled hypotheses, proposals change nothing until applied, only the channel clip-length for FUTURE selection, versioned/revertible, evaluate = recommendation only. Editing code untouched.
+- Tests: unlimited_clips (2), learn (5), queueorder + channels (30) — MOCK/sandbox only. Typecheck: only sandbox-only facetrack TS6 diagnostic.
+- Not done: learning for hooks/pacing/metadata/schedule, comment system review, Termux real verification (UNVERIFIED).

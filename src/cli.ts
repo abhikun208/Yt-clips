@@ -147,6 +147,7 @@ async function main(): Promise<number> {
     if (cmd === 'retention-collect') { const { collectRetention } = await import('./publish/service.ts'); console.log(JSON.stringify(await collectRetention(s, cfg), null, 2)); return 0; }
     if (cmd === 'analytics-collect') { console.table(await collectAnalytics(s, analyticsProviders(s, cfg))); return 0; }
     if (cmd === 'set-token') { const t = readFileSync(0, 'utf8').trim(); saveTokenFor(cfg, String(rest[0]), t); console.log('token stored'); return 0; }
+    if (cmd === 'learn') { const L = await import('./analytics/learn.ts'); const sub = rest[0]; const id = Number(rest[1]); if (sub === 'propose') console.log(L.proposeChanges(s)); else if (sub === 'apply') console.log(L.applyChange(s, id)); else if (sub === 'revert') console.log(L.revertChange(s, id)); else if (sub === 'evaluate') console.log(L.evaluateChange(s, id)); else console.log(JSON.stringify(L.learningReport(s), null, 2)); return 0; }
     if (cmd === 'uploads') { console.table(listUploads(s)); return 0; }
     if (cmd === 'queue') { console.log('upload id', queueUpload(s, Number(rest[0]), String(rest[1] ?? 'youtube_shorts'))); return 0; }
     if (cmd === 'advance') { const ai = rest.indexOf('--at'); console.log(await advance(s, cfg, Number(rest[0]), { approve: rest.includes('--approve'), scheduledAt: ai >= 0 ? new Date(rest[ai + 1]!) : null })); return 0; }

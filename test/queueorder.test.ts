@@ -141,7 +141,7 @@ test('layout: Fit on a solid colour + Auto layout + rerender API validation; cli
 });
 test('channel automation options: validated, clip length + max clips apply on analysis', { timeout: 150_000 }, async () => {
   const { cleanConfig, createChannel } = await import('../src/channels.ts'); const ok0 = () => true;
-  assert.throws(() => cleanConfig({ clipLength: '5min' }, ok0), /clipLength/); assert.throws(() => cleanConfig({ maxClips: 99 }, ok0), /maxClips/); assert.throws(() => cleanConfig({ checkEveryHours: 5 }, ok0), /checkEveryHours/); assert.throws(() => cleanConfig({ minViral: 101 }, ok0), /minViral/);
+  assert.throws(() => cleanConfig({ clipLength: '5min' }, ok0), /clipLength/); assert.throws(() => cleanConfig({ maxClips: -1 }, ok0), /maxClips/); assert.throws(() => cleanConfig({ checkEveryHours: 5 }, ok0), /checkEveryHours/); assert.throws(() => cleanConfig({ minViral: 101 }, ok0), /minViral/);
   const ok = cleanConfig({ clipLength: 'u30', maxClips: 1, checkEveryHours: 12, minViral: 60 }, ok0) as Record<string, unknown>; assert.equal(ok.maxClips, 1); assert.equal(ok.checkEveryHours, 12);
   const { ingestLocal } = await import('../src/sources/local.ts'); const { analyzeVideo } = await import('../src/analysis/analyzer.ts'); const { testConfig, tmpDir, makeFixture } = await import('./helpers.ts'); const { join } = await import('node:path');
   const cfg = testConfig({ clip: { minSec: 5, maxSec: 8, targetSec: 6, maxClipsPerVideo: 8, minScore: 0.01 } } as never); const s = new Store(cfg.dbPath);
