@@ -34,6 +34,8 @@ Safety: publish, public visibility aur comment-posting teeno **default OFF** hai
 
 Chahiye: **Node ≥ 22.18** aur **ffmpeg** (libass wala, normal build mein hota hai). Optional: `yt-dlp` (YouTube se download), `faster-whisper` (transcript), python3+opencv (face tracking), Noto fonts (Hindi captions).
 
+**Windows (PowerShell):** project folder se `npm run setup:windows` chalao (ya `.\setup.ps1`). Ye WinGet se Git, FFmpeg aur Python 3.12 install karta hai (Node.js 22.18+ missing ho to woh bhi), npm dependencies aur optional Python tools including faster-whisper install karta hai. Faster-whisper ke saath compatible PyAV 18.x pin hota hai. Setup local-only `.env` banata hai. Phir dashboard ke liye `npm start` chalao aur `http://127.0.0.1:8080` kholo. Agli baar `npm run update:windows` dependencies/typecheck update karega; GitHub source update sirf clean Git clone mein configured `origin` ke saath hota hai. ZIP/extracted folder se source auto-update nahi ho sakta.
+
 **Sabse aasan (Termux / VPS / Mac): ek command sab install kar deta hai** — ffmpeg, yt-dlp, edge-tts, OpenCV, whisper.cpp + speech model, `.env` (login token). Baad mein sirf dashboard mein API key daalna hai.
 ```bash
 git clone https://github.com/abhikun208/Yt-clips && cd Yt-clips && sh setup.sh
@@ -58,7 +60,7 @@ Tabs: **Home** (live pipeline, setup checklist, video upload, channels auto-watc
 ### Captions/titles/AI — key ke saath ya bina key
 - **Bina kisi key ke:** local engine transcript se keyphrases, hook line, title, description, tags banata hai aur clip ke edges sentence par kaat-ta hai. Par captions ke liye speech-to-text chahiye (neeche).
 - **Free Groq key** (console.groq.com → API Keys → `gsk_...`): Setup tab → AI → provider "Groq" → key → "Save → speech-to-text" aur "Save → titles + ranking". Free limits Groq ke hain (docs 2026-10-23: whisper-turbo ~20 req/min, 7.2K audio-sec/ghanta; badal sakte hain).
-- **Bilkul key-free (local):** apni machine par Ollama/LM Studio chalao → Setup → AI → preset "Ollama" (base `http://127.0.0.1:11434/v1`, key khali) → titles + AI clip-ranking local model se. Local speech-to-text: `pip install faster-whisper` ya koi OpenAI-compatible local STT server (base URL localhost ho to key nahi lagti).
+- **Bilkul key-free (local):** apni machine par Ollama/LM Studio chalao → Setup → AI → preset "Ollama" (base `http://127.0.0.1:11434/v1`, key khali) → titles + AI clip-ranking local model se. Local speech-to-text: `pip install "av>=18,<19" faster-whisper` ya koi OpenAI-compatible local STT server (base URL localhost ho to key nahi lagti).
 - **Claude-quality titles, officially:** Setup → AI me provider **Anthropic Claude (paid, official API)** chuno aur `sk-ant-...` key paste karo (key: platform.claude.com/settings/keys). Model `claude-haiku-5-5` sasta hai (ek clip ka metadata ~2k tokens = paise), `claude-sonnet-5-5` behtar. Ise Primary slot me rakho, free providers fallback me; paid key fail/limit par `orderChain` khud agle par chala jata hai. Docs ke hisaab se ye OpenAI-compatible layer 'testing ke liye hai, long-term nahi' - isliye fallback chain rakhna zaroori hai. Vision (frames) bhi isi se chalta hai.
 - **Test channel (sandbox):** ek alag test YouTube channel banao, dashboard me use channel add karke config me `sandbox: true` do. Us channel par upload asli API se jata hai (`[TEST]` title, unlisted, verify hota hai) par kabhi public/schedule nahi hota — approve dabane par bhi `SANDBOX_HOLD`. Pehle ek asli clip yahan chala kar payload/Hindi caption/thumbnail dekh lo, phir sandbox hata do.
 - **Local vision (unlimited, free):** server par `ollama pull moondream` (chhota) ya `llava` / `qwen2-vl` (bada, ~8 GB RAM) → Setup → AI ek slot me Ollama preset + model ka naam. Naam vision wala ho to clip ke 3 frames isse describe hote hain (cloud vision ka roz 10 clip ka budget isme nahi lagta). Phone/Termux par ye RAM ke liye bhaari hai; wahan cloud vision hi rakho.
@@ -81,7 +83,7 @@ Worker har ~30 sec: channels poll → analyze → clips → edit (LUT, grain, pa
 `assets/music/` mein YouTube Audio Library / Pixabay / apne tracks daalo. Optional `assets/music/library.json`: `[{"file":"calm.mp3","mood":["comedy"],"license":"YT Audio Library","volume":0.15}]`. Mood se track chuna jaata hai, awaaz ke neeche auto-duck hota hai, licence manifest mein save hota hai.
 
 ### Optional installs (free)
-- Transcript (alternative to Groq): `pip install faster-whisper` (PC/VPS). Ya apna `.srt/.vtt/.json` video ke saath rakho.
+- Transcript (alternative to Groq): `pip install "av>=18,<19" faster-whisper` (PC/VPS). Ya apna `.srt/.vtt/.json` video ke saath rakho.
 - YouTube download: `pip install yt-dlp`.
 - Hindi fonts: `sudo apt install fonts-noto-core`.
 

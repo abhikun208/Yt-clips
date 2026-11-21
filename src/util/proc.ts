@@ -7,12 +7,16 @@ function killAllChildren(): void { for (const pid of liveChildren) { try { proce
 
 export interface RunResult { code: number; stdout: string; stderr: string; timedOut: boolean }
 
+function executableName(cmd: string): string {
+  return process.platform === 'win32' && cmd.toLowerCase() === 'python3' ? 'python' : cmd;
+}
+
 /** Run a command (no shell) with timeout. Never throws on non-zero exit; throws only if spawn fails. */
 export function run(cmd: string, args: string[], opts: { timeoutMs?: number; input?: string; maxBuffer?: number } = {}): Promise<RunResult> {
   const timeoutMs = opts.timeoutMs ?? 10 * 60_000;
   const maxBuffer = opts.maxBuffer ?? 64 * 1024 * 1024;
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(executableName(cmd), args, { stdio: ['pipe', 'pipe', 'pipe'] });
     if (child.pid) liveChildren.add(child.pid); if (!exitHook) { exitHook = true; process.on('exit', killAllChildren); } // parent dies -> its ffmpeg/python children die with it (no zombies)
     let stdout = '';
     let stderr = '';
@@ -28,7 +32,10 @@ export function run(cmd: string, args: string[], opts: { timeoutMs?: number; inp
 
 export async function which(cmd: string): Promise<boolean> {
   try {
-    const r = await run('sh', ['-c', `command -v ${JSON.stringify(cmd)}`], { timeoutMs: 5000 });
+    const target = executableName(cmd);
+    const r = process.platform === 'win32'
+      ? await run('where.exe', [target], { timeoutMs: 5000 })
+      : await run('sh', ['-c', `command -v ${JSON.stringify(target)}`], { timeoutMs: 5000 });
     return r.code === 0 && r.stdout.trim().length > 0;
   } catch { return false; }
 }

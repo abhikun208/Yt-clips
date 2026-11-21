@@ -4,6 +4,8 @@ import { textInRange, guessLanguage } from './transcript.ts';
 import { scoreText } from './keywords.ts';
 import { shortHash } from '../util/hash.ts';
 import { sentencesFromCues, snapToSentences, hookScore, payoffScore, sentencesIn } from './textsignals.ts';
+import type { ResolvedContentProfile } from '../content-profile.ts';
+import { hasStrongGamingEvidence } from './profiles.ts';
 
 export interface SelectParams { minSec: number; maxSec: number; targetSec: number; maxClips: number; minScore: number; maxOverlap: number }
 export interface Candidate {
@@ -13,8 +15,9 @@ export interface Candidate {
 export interface SelectInput {
   videoKey: string; duration: number; introEnd: number; outroStart: number;
   energy: number[]; energyStep: number; scenes: number[]; silence: Interval[]; cues: Cue[];
-  /** optional: live-chat / replay-heatmap series and the gaming profile (see external.ts) */
+  /** optional: live-chat / replay-heatmap series and gaming signals (see external.ts) */
   external?: Series[]; gaming?: boolean;
+  profile?: ResolvedContentProfile; vocabulary?: string[];
   /** category -> multiplier learned from this channel's own retention data (0.9..1.15) */
   categoryPrior?: Record<string, number>;
 }
@@ -34,6 +37,12 @@ export function overlapRatio(a: [number, number], b: [number, number]): number {
   const o = Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]));
   return o / Math.max(0.001, Math.min(a[1] - a[0], b[1] - b[0]));
 }
+function customVocabularyScore(text: string, terms: string[]): number {
+  if (!text || !terms.length) return 0;
+  const lower = text.toLocaleLowerCase();
+  const matches = terms.filter((term) => lower.includes(term)).length;
+  return matches / Math.min(3, terms.length);
+}
 
 /** Snap a boundary to the nearest natural pause (silence) within tol so clips don't cut mid-word. */
 function snap(t: number, sil: Interval[], tol: number, lo: number, hi: number): number {
@@ -52,6 +61,10 @@ function snap(t: number, sil: Interval[], tol: number, lo: number, hi: number): 
  * Then NMS picks distinct, non-overlapping top windows. Quality floor (minScore) prevents filler clips.
  */
 export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[] {
+  const profile = inp.profile ?? 'general';
+  const gaming = inp.gaming === true || profile === 'gaming' || profile === 'only_gaming';
+  const killfeedSeries = inp.external?.filter((x) => x.name === 'killfeed') ?? [];
+  const vocabulary = profile === 'custom' ? [...new Set((inp.vocabulary ?? []).map((x) => x.trim().toLocaleLowerCase()).filter(Boolean))] : [];
   const lo = inp.introEnd; const hi = inp.outroStart;
   if (hi - lo < p.minSec) return [];
   const hasText = inp.cues.length > 0; const sents = hasText ? sentencesFromCues(inp.cues) : [];
@@ -87,8 +100,18 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
 
       let score = 0.28 * clamp01(peak * 0.6 + energyMean * 0.4) + 0.12 * clamp01(variance * 2.5) + 0.12 * pace + 0.16 * speech
         + 0.16 * complete + 0.06 * lenFit + (hasText ? 0.1 * Math.max(ts.hook, ts.emotion ? 0.7 : 0) + 0.08 * hk + 0.04 * pay : 0.0);
-      const ext = inp.external?.length ? externalBoost(inp.external, a, b) : 0; const gm = inp.gaming && hasText ? gamingScore(txt) : 0;
+      const ext = inp.external?.length ? externalBoost(inp.external, a, b) : 0; const gm = gaming && hasText ? gamingScore(txt) : 0;
+      const killfeed = killfeedSeries.length ? externalBoost(killfeedSeries, a, b) : 0;
+      if (profile === 'only_gaming' && !hasStrongGamingEvidence(txt) && killfeed < 0.35) continue;
+      const custom = profile === 'custom' && hasText ? customVocabularyScore(txt, vocabulary) : 0;
       score += 0.22 * ext + 0.12 * gm; // audience reaction (chat/replays) is the strongest free signal; gaming callouts add on top
+      let profileSignal = 0;
+      if (profile === 'vlog') profileSignal = 0.06 * complete + 0.05 * hk + 0.05 * pay;
+      else if (profile === 'podcast') profileSignal = 0.1 * speech + 0.04 * hk + 0.03 * complete;
+      else if (profile === 'comedy' || profile === 'reaction') profileSignal = 0.1 * (ts.emotion ? 0.75 : 0) + 0.08 * ext + 0.04 * peak;
+      else if (profile === 'educational') profileSignal = 0.08 * speech + 0.07 * hk + 0.05 * pay;
+      else if (profile === 'custom') profileSignal = 0.12 * custom;
+      score += profileSignal;
       score *= 1 - 0.8 * clamp01(sil - 0.25) - 0.6 * ts.filler;
       score = clamp01(score);
 
@@ -102,7 +125,7 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
         start: +a.toFixed(2), end: +b.toFixed(2), duration: +dur.toFixed(2), score: +score.toFixed(4), category,
         reason: reasons.join('; ') || 'steady content', hook: (inS[0]?.text ?? txt.split(/(?<=[.!?।])\s+/)[0] ?? '').slice(0, 140),
         transcript: txt, language: guessLanguage(txt), confidence: +(hasText ? 0.7 : 0.5).toFixed(2),
-        signals: { peak: +peak.toFixed(3), energy: +energyMean.toFixed(3), variance: +variance.toFixed(3), pace: +pace.toFixed(3), silence: +sil.toFixed(3), external: +ext.toFixed(3), gaming: +gm.toFixed(3), speech: +speech.toFixed(3), complete, hookLine: +hk.toFixed(2), payoff: +pay.toFixed(2) },
+        signals: { peak: +peak.toFixed(3), energy: +energyMean.toFixed(3), variance: +variance.toFixed(3), pace: +pace.toFixed(3), silence: +sil.toFixed(3), external: +ext.toFixed(3), gaming: +gm.toFixed(3), speech: +speech.toFixed(3), complete, hookLine: +hk.toFixed(2), payoff: +pay.toFixed(2), profile: +profileSignal.toFixed(3) },
       });
     }
   }

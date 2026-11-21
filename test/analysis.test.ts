@@ -5,6 +5,7 @@ import { detectBoundaries } from '../src/analysis/boundaries.ts';
 import { selectCandidates, overlapRatio } from '../src/analysis/select.ts';
 import { parseSubtitles, guessLanguage } from '../src/analysis/transcript.ts';
 import { scoreText } from '../src/analysis/keywords.ts';
+import { resolveContentProfile } from '../src/analysis/profiles.ts';
 
 test('parsers handle ffmpeg output and empty/garbage', () => {
   assert.deepEqual(parseSilence('[silencedetect] silence_start: 1.5\n[silencedetect] silence_end: 3.25 | silence_duration: 1.75'), [{ start: 1.5, end: 3.25 }]);
@@ -37,6 +38,47 @@ test('selector: silent/flat content yields no filler clips; too-short window yie
   const flat = selectCandidates({ videoKey: 'v', duration: 100, introEnd: 0, outroStart: 100, energy: Array(200).fill(0), energyStep: 0.5, scenes: [], silence: [{ start: 0, end: 100 }], cues: [] }, P);
   assert.equal(flat.length, 0);
   assert.equal(selectCandidates({ videoKey: 'v', duration: 8, introEnd: 0, outroStart: 8, energy: [], energyStep: 0.5, scenes: [], silence: [], cues: [] }, P).length, 0);
+});
+
+test('content profiles: only-gaming rejects unrelated speech; specialist profiles affect selection', () => {
+  const base = {
+    videoKey: 'profiles', duration: 120, introEnd: 0, outroStart: 120, energy: Array(240).fill(0.9),
+    energyStep: 0.5, scenes: [], silence: [],
+  };
+  const unrelated = [{ start: 0, end: 120, text: 'This is a wonderful story and I cannot believe what happened next.' }];
+  assert.equal(selectCandidates({ ...base, cues: unrelated, profile: 'only_gaming' }, P).length, 0);
+  const genericWords = [{ start: 0, end: 120, text: 'I went down the road and gaya home.' }];
+  assert.equal(selectCandidates({ ...base, cues: genericWords, profile: 'only_gaming' }, P).length, 0, 'generic words in the gaming dictionary are insufficient evidence');
+  const gameplay = [{ start: 0, end: 120, text: 'Booyah headshot clutch squad wipe, that was a clean one tap.' }];
+  assert.ok(selectCandidates({ ...base, cues: gameplay, profile: 'only_gaming' }, P).length > 0);
+  assert.ok(selectCandidates({
+    ...base, cues: unrelated, profile: 'only_gaming',
+    external: [{ name: 'killfeed', step: 5, values: Array(24).fill(0.8) }],
+  }, P).length > 0, 'configured killfeed evidence can qualify gameplay without narrated callouts');
+  const general = selectCandidates({ ...base, cues: unrelated }, P);
+  const podcast = selectCandidates({ ...base, cues: unrelated, profile: 'podcast' }, P);
+  assert.ok(podcast[0]!.score > general[0]!.score, 'podcast profile gives speech-led moments a measurable preference');
+  const custom = selectCandidates({ ...base, cues: unrelated, profile: 'custom', vocabulary: ['wonderful story'] }, P);
+  assert.ok(custom[0]!.score > general[0]!.score, 'custom vocabulary contributes to selection');
+});
+
+test('auto content profile uses transcript evidence only and never overrides a manual profile', () => {
+  assert.equal(resolveContentProfile('auto', 'Booyah! Headshot, clutch, squad wipe!'), 'gaming');
+  assert.equal(resolveContentProfile('auto', 'A calm discussion about a new recipe.'), 'general');
+  assert.equal(resolveContentProfile('auto', 'I went down the road and gaya home.'), 'general', 'generic gaming vocabulary is not sufficient');
+  assert.equal(resolveContentProfile('educational', 'Booyah! Headshot, clutch!'), 'educational');
+});
+
+test('maxClips 0 means unlimited generation; quality, overlap and timeline gates still apply', () => {
+  const step = 0.5; const dur = 360;
+  const energy = Array.from({ length: dur / step }, (_, i) => {
+    const t = i * step;
+    return (t >= 20 && t < 70) || (t >= 100 && t < 150) || (t >= 180 && t < 230) || (t >= 260 && t < 310) ? 0.95 : 0.35;
+  });
+  const p = { ...P, minSec: 10, maxSec: 30, targetSec: 20, maxClips: 0 };
+  const c = selectCandidates({ videoKey: 'unlimited', duration: dur, introEnd: 0, outroStart: dur, energy, energyStep: step, scenes: [], silence: [], cues: [] }, p);
+  assert.ok(c.length > 12, `expected genuinely qualified candidates beyond 12, got ${c.length}`);
+  for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) assert.ok(overlapRatio([c[i]!.start, c[i]!.end], [c[j]!.start, c[j]!.end]) <= p.maxOverlap);
 });
 
 test('candidate fingerprints are stable across runs (dedup)', () => {

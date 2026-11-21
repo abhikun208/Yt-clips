@@ -22,6 +22,9 @@ test('YouTube URL validation: only https youtube hosts, safe ids, normalized', (
   assert.equal(parseYoutubeUrl('https://www.youtube.com/shorts/abcDEF12345').kind, 'video');
   assert.equal(parseYoutubeUrl('https://www.youtube.com/@owner').url, 'https://www.youtube.com/@owner/videos');
   assert.equal(parseYoutubeUrl('https://www.youtube.com/playlist?list=PLabcdefghijk').kind, 'channel');
+  const kickVod = parseYoutubeUrl('https://kick.com/video/1a2b3c4d-1234-5678-9876-123456789abc');
+  assert.deepEqual(kickVod, { kind: 'video', web: true, videoId: '1a2b3c4d-1234-5678-9876-123456789abc', url: 'https://kick.com/video/1a2b3c4d-1234-5678-9876-123456789abc' });
+  assert.throws(() => parseYoutubeUrl('https://kick.com/streamer-name'), /unsupported VOD URL/, 'Kick channel URLs are not treated as supported live sources');
   for (const bad of ['http://youtube.com/@x', 'https://evil.com/@x', 'https://youtube.com.evil.com/@x', 'file:///etc/passwd', 'not a url', 'https://www.youtube.com/watch?v=a;rm -rf', 'https://www.youtube.com/results?search_query=x', 'https://www.youtube.com/@x/../../etc']) assert.throws(() => parseYoutubeUrl(bad), /.+/, bad);
 });
 

@@ -19,7 +19,7 @@ test('many clips x many accounts: preview writes nothing; confirm creates one in
   const pv = distribute(store, cfg, req); assert.equal(store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n, 0, 'preview writes nothing');
   assert.equal(pv.items.filter((x) => x.status === 'new').length, 4); assert.equal(pv.items.filter((x) => x.status === 'blocked').length, 2); assert.ok(pv.items.find((x) => x.status === 'new')!.plannedAt, 'planned slot shown');
   const ok = distribute(store, cfg, { ...req, confirm: true }); assert.equal(ok.created, 4);
-  const rows = store.all<{ clip_id: number; channel_id: number }>('SELECT clip_id, channel_id FROM uploads ORDER BY clip_id, channel_id'); assert.deepEqual(rows.map((r) => `${r.clip_id}:${r.channel_id}`), [`1:${a.id}`, `1:${b.id}`, `2:${a.id}`, `2:${b.id}`]);
+  const rows = store.all<{ clip_id: number; channel_id: number; destination_id: string }>('SELECT clip_id, channel_id, destination_id FROM uploads ORDER BY clip_id, channel_id'); assert.deepEqual(rows.map((r) => `${r.clip_id}:${r.channel_id}:${r.destination_id}`), [`1:${a.id}:yt:UC_A`, `1:${b.id}:yt:UC_B`, `2:${a.id}:yt:UC_A`, `2:${b.id}:yt:UC_B`]);
   assert.equal(distribute(store, cfg, { ...req, confirm: true }).created, 0, 'no duplicate routes'); assert.ok(distribute(store, cfg, req).items.filter((x) => x.clipId < 3).every((x) => x.status === 'duplicate'));
   setDestinationEnabled(store, 'yt:UC_B', false); assert.equal(distribute(store, cfg, { clipIds: [1], destinations: ['yt:UC_B'] }).items[0]!.reason, 'account disabled');
 });
