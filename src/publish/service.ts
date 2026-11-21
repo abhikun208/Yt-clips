@@ -1,4 +1,5 @@
 import { listSourceMappings } from '../accounts/destinations.ts';
+import { applyMetaPolicy, getMetaPolicy } from '../accounts/metapolicy.ts';
 import { fairPick } from './router.ts';
 import { autopilotPass } from '../autopilot/engine.ts';
 import { sweepSources } from '../sources/sequential.ts';
@@ -73,6 +74,7 @@ export async function advance(store: Store, cfg: Config, uploadId: number, o: { 
   try { stampUpload(store, cfg, uploadId, dch.slug, u.platform); } catch { /* history label only */ }
   const off = (() => { try { return destinationBlock(store, cfg, dch.slug, u.platform); } catch { return null; } })(); if (off) return { state: u.state, blocked: off };
   let facts: ClipFacts; try { facts = await factsForClip(store, u.clip_id); } catch (e) { if (/^NOT_READY/.test((e as Error).message)) store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, (e as Error).message.slice(0, 400), uploadId); throw e; } // visible in the Queue tab instead of silently looping
+  { const sid = store.get<{ sid: number | null }>('SELECT v.source_id AS sid FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id WHERE c.id=?', u.clip_id)?.sid; if (sid) facts = applyMetaPolicy(facts, getMetaPolicy(store, sid, dch.id, u.platform), u.platform); } // this destination's own title/tag policy (stored clip metadata untouched)
   try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId)), uploadId, { facts, ...o }) }; }
   catch (e) { const m = (e as Error).message; if (/^QUOTA_EXCEEDED/.test(m)) void notify(store, cfg, `quota-hit:${quotaDay(new Date())}`, '⏸ YouTube ka daily quota khatam. Uploads kal (midnight Pacific ke baad) apne aap resume honge; video banti rahegi.'); if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
 }

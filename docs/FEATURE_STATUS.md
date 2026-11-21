@@ -16,7 +16,7 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | Runtime | Termux behaviour (Auto-Pilot, Queue, Live) | UNVERIFIED | `verify-device` produces the evidence |
 | Long video | No duration limit; 60-min section download | MOCK-TESTED + UNVERIFIED | test/longvideo.test.ts (window math); real yt-dlp `--download-sections` untested |
 | Routing | Multi-account/source→many, per-destination enable + delay, bulk distribute UI | VERIFIED-LOCAL (fake provider) | test/source_mapping, ui_bulk, distribute |
-| Routing | Per-destination title/tag policy | NOT_IMPLEMENTED | only enable/priority/delay |
+| Routing | Per-destination title/tag policy (prefix/suffix/extra tags/drop tags) | API_ONLY + MOCK-TESTED (unit/DB; wiring in `advance` not yet e2e-tested; no UI control yet) | `POST /api/sources/:id/destinations` `policy`; stored clip metadata untouched |
 | Scheduling | Per-account timezone / daily limits / missed-job reschedule | MOCK-TESTED | account_timezone, missed_job |
 | Media | Platform re-encode (size/duration/codec) + FFprobe re-validation, master untouched | VERIFIED-LOCAL | test/derive.test.ts. Horizontal→vertical conversion NOT done (blocked with clear error) |
 | Media | Missing output file → re-render + resume | VERIFIED-LOCAL | test/missing_file.test.ts |

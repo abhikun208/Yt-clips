@@ -1,4 +1,5 @@
 import type { Store } from '../db.ts';
+import { getMetaPolicy, setMetaPolicy, type MetaPolicy } from './metapolicy.ts';
 import type { Config } from '../config.ts';
 import { listChannels, ytSecretName, MAIN_SLUG } from '../channels.ts';
 import { secretsFor } from '../publish/service.ts';
@@ -141,17 +142,18 @@ export function stampUpload(store: Store, cfg: Config, uploadId: number, channel
   const d = destinationFor(store, cfg, channelSlug, uploadPlatform); if (d) store.exec('UPDATE uploads SET destination_id=? WHERE id=? AND destination_id IS NULL', d.id, uploadId);
 }
 
-export interface SourceMapping { sourceId: number; channelId: number; platform: string; enabled: boolean; priority: number; /** stagger: uploads for this destination wait this many minutes after the clip is ready */ delayMin: number }
+export interface SourceMapping { sourceId: number; channelId: number; platform: string; enabled: boolean; priority: number; /** stagger: uploads for this destination wait this many minutes after the clip is ready */ delayMin: number; /** this destination's own title/tag policy */ policy: MetaPolicy }
 /** Extra destinations of a source (besides the channel the source belongs to). */
 export function listSourceMappings(store: Store, sourceId?: number): SourceMapping[] {
   return store.all<{ source_id: number; channel_id: number; platform: string; enabled: number; priority: number; delay_min: number }>(`SELECT * FROM source_destinations ${sourceId ? 'WHERE source_id=?' : ''} ORDER BY priority DESC, channel_id`, ...(sourceId ? [sourceId] : []))
-    .map((r) => ({ sourceId: r.source_id, channelId: r.channel_id, platform: r.platform, enabled: !!r.enabled, priority: r.priority, delayMin: r.delay_min ?? 0 }));
+    .map((r) => ({ sourceId: r.source_id, channelId: r.channel_id, platform: r.platform, enabled: !!r.enabled, priority: r.priority, delayMin: r.delay_min ?? 0, policy: getMetaPolicy(store, r.source_id, r.channel_id, r.platform) }));
 }
-export function setSourceMapping(store: Store, m: { sourceId: number; channelId: number; platform?: string; enabled?: boolean; priority?: number; delayMin?: number; remove?: boolean }): void {
+export function setSourceMapping(store: Store, m: { sourceId: number; channelId: number; platform?: string; enabled?: boolean; priority?: number; delayMin?: number; remove?: boolean; policy?: unknown }): void {
   const src = store.get<{ channel_id: number | null }>('SELECT channel_id FROM sources WHERE id=?', m.sourceId); if (!src) throw new Error('not found: source');
   if (!store.get('SELECT 1 FROM channels WHERE id=?', m.channelId)) throw new Error('not found: channel');
   const platform = m.platform ?? 'youtube_shorts';
-  if (m.remove) { store.exec('DELETE FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform); return; }
+  if (m.remove) { store.exec('DELETE FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform); setMetaPolicy(store, m.sourceId, m.channelId, platform, {}); return; }
+  if (m.policy !== undefined) { setMetaPolicy(store, m.sourceId, m.channelId, platform, m.policy); if (src.channel_id === m.channelId && m.enabled === undefined && m.priority === undefined && m.delayMin === undefined) return; } // the source's own channel can carry a policy too (no mapping row needed)
   if (src.channel_id === m.channelId) throw new Error('invalid: ye source ka apna channel hai (wo already default destination hai)');
   const old = store.get<{ enabled: number; priority: number; delay_min: number }>('SELECT enabled, priority, delay_min FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform);
   const delay = m.delayMin === undefined ? old?.delay_min ?? 0 : Math.max(0, Math.min(1440, Math.round(Number(m.delayMin)) || 0)); // editing ONE field never resets the others

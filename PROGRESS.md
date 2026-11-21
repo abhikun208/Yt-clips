@@ -525,3 +525,7 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 - Changed: default `clip.maxClipsPerVideo` 12 -> 0 (unlimited; select.ts, analyzer reanalyze, channel config, API, UI accept 0 / values above 12; an explicit saved value is respected). New `src/analytics/learn.ts` (+ `/api/learning*`, CLI `learn`): measured metrics only (missing != 0), 48 h minimum age, small-sample guard, evidence+confidence, causes labelled hypotheses, proposals change nothing until applied, only the channel clip-length for FUTURE selection, versioned/revertible, evaluate = recommendation only. Editing code untouched.
 - Tests: unlimited_clips (2), learn (5), queueorder + channels (30) — MOCK/sandbox only. Typecheck: only sandbox-only facetrack TS6 diagnostic.
 - Not done: learning for hooks/pacing/metadata/schedule, comment system review, Termux real verification (UNVERIFIED).
+
+## (28) Per-destination title/tag policy
+- New `src/accounts/metapolicy.ts` (kv `destpolicy:<source>:<channel>:<platform>`, no migration): titlePrefix/titleSuffix/addTags/dropTags, sanitised, title clamped to platform limit (real title is cut, never the owner's prefix/suffix). Applied per upload in `advance()` (service.ts) to the facts only — stored clip metadata and video untouched; each account/platform child job independent. API: `policy` field on the source-destination POST; list returns it.
+- Tests: metapolicy (5) + source_mapping/destinations — pass (sandbox). NOT done: UI controls (API_ONLY), end-to-end upload test of the wiring, real-provider check.
