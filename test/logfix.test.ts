@@ -21,7 +21,7 @@ test('doctor tells the owner plainly when cloud STT failed and no local engine e
 import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpDir, makeFixture } from './helpers.ts';
-test('engine=api + unreachable cloud STT falls back to local whisper.cpp (and trips the breaker)', async () => {
+test('engine=api + unreachable cloud STT falls back to local whisper.cpp (and trips the breaker)', { skip: process.platform === 'win32' ? 'fixture uses a POSIX whisper.cpp shell executable' : false }, async () => {
   const d = tmpDir(); const bin = join(d, 'bin'); mkdirSync(bin); const model = join(d, 'm.bin'); writeFileSync(model, 'x');
   writeFileSync(join(bin, 'whisper-cli'), `#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ "$1" = "-of" ]; then P="$2"; fi; shift; done\necho '{"result":{"language":"hi"},"transcription":[{"offsets":{"from":0,"to":2000},"text":" yeh ek test hai"}]}' > "$P.json"\n`); chmodSync(join(bin, 'whisper-cli'), 0o755);
   const v = join(d, 'v.mp4'); await makeFixture(v, 6);
@@ -79,7 +79,7 @@ import { analyzeVideo } from '../src/analysis/analyzer.ts';
 import { renderCandidate } from '../src/edit/render.ts';
 import { updateChannel } from '../src/channels.ts';
 test('render: a stale output left by an interrupted attempt is replaced (no "Refusing to overwrite"); effects=clean drops grain/dust/flash/LUT/slow-mo', { timeout: 200_000 }, async () => {
-  const d = tmpDir(); const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 2, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } }); const s = new Store(cfg.dbPath);
+  const d = tmpDir(); const cfg = testConfig({ clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 2, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' }, stt: { mode: 'off' } }); const s = new Store(cfg.dbPath);
   const src = join(d, 'v.mp4'); await makeFixture(src, 24); const r = await ingestLocal(s, cfg, src); await analyzeVideo(s, cfg, r.videoId);
   updateChannel(s, 1, { config: { effects: 'clean' } } as never, () => true);
   const cand = s.get<{ id: number }>('SELECT id FROM candidates ORDER BY score DESC')!;

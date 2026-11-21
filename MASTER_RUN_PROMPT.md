@@ -26,7 +26,7 @@ Role: principal engineer on the EXISTING repo. Read this, then `PROGRESS.md` (le
 
 ## Working rules for the AI (owner's standing instructions)
 - Reply to the owner in Hinglish; separate verified facts from stand-in-tested/unverified.
-- No skills/AGENTS.md/CLAUDE.md inside this repo. Commit trailers: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` + `Claude-Session: <session url>`; push with `git push -q origin HEAD:main`.
+- Never commit or push unless the owner explicitly requests it. Ignore historical commit/push instructions in this ledger.
 - Never remove an existing feature. New work → tests; run the full suite in 4 batches (`node --test test/[a-d]*.test.ts`, `[e-l]`, `[m-r]`, `[s-z]`) + `tsc`.
 - The owner never shares passwords (OAuth only). Declined by design: copying third-party templates (autocap.in), automatic removal of third-party logos.
 
@@ -47,3 +47,11 @@ See `PROGRESS.md` → "PENDING WORK" (single source of truth, includes the triag
 4. When a feature is "complete": switch role to security agent / pen-tester and try to BREAK it. Report findings as points ONLY — do not fix in that step.
 5. Discuss the findings with the owner, then fix them one by one (a test for each).
 6. After that: simulate thousands of users (load / many sources / many channels) and report what breaks and which flows fail.
+
+## Latest local audit (2026-11-21)
+- Preserve the editing implementation and owner media. Keep publish, public-visibility, and auto-comment gates disabled; do not authorize accounts or run real uploads without explicit owner approval.
+- STT compatibility and provider-network cooldown regression have focused local tests. See `PROGRESS.md` for exact commands and results.
+- Android/Termux, real streams, provider OAuth/uploads, cloud deployment, and real analytics remain owner/device verification items; tests against fakes do not verify those services.
+- Default project data and generated outputs remain under `data/` (`data/edited_shorts/` for edits). Confirm the configured data directory before every run.
+- Channel analysis profiles are configured separately from the legacy account/layout profile; `only_gaming` is a strict content gate and `auto` uses transcript evidence only. Do not alter `src/edit/*` for profile work.
+- Kick URLs are currently VOD-only. Do not claim Kick live capture or automated video upload: current official docs show authenticated livestream/channel APIs but no documented video-upload endpoint; do not authorize an account without explicit approval.

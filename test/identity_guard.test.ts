@@ -9,6 +9,7 @@ import { createChannel, ytSecretName } from '../src/channels.ts';
 import { run } from '../src/util/proc.ts';
 import { startFake } from './fakeGoogle.ts';
 import { tmpDir } from './helpers.ts';
+import { queueUpload } from '../src/publish/machine.ts';
 
 async function vertical(out: string) { const r = await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=270x480:r=15:d=6', '-f', 'lavfi', '-i', 'sine=f=220:d=6', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', out]); assert.equal(r.code, 0, r.stderr); }
 
@@ -45,4 +46,21 @@ test('upload is blocked when the channel login belongs to a DIFFERENT channel th
     assert.equal(f.by['Mismatch clip #Shorts'], undefined, 'nothing was uploaded');
     const u = store.get<{ state: string; last_error: string | null }>('SELECT state, error AS last_error FROM uploads WHERE id=1'); assert.notEqual(u?.state, 'FAILED'); assert.match(u?.last_error ?? '', /AUTH_IDENTITY_MISMATCH/);
   } finally { await f.close(); for (const k of Object.keys(process.env)) if (!(k in old)) delete process.env[k]; Object.assign(process.env, old); }
+});
+
+test('queue stores the exact YouTube destination and never reuses a destination job for another account', () => {
+  const store = new Store(':memory:');
+  const a = createChannel(store, { name: 'Main' }, () => true);
+  const b = createChannel(store, { name: 'Decider' }, () => true);
+  store.exec(`INSERT INTO sources(id, kind, uri, channel_id, authorized) VALUES (1,'local','r1',?,1)`, a.id);
+  store.exec(`INSERT INTO videos(id, source_id, path, fingerprint) VALUES (1,1,'/x','f1')`);
+  store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (1,1,0,6,.5,'c1')`);
+  store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass, metadata_json) VALUES (1,1,'o1','/x.mp4',1,?)`, JSON.stringify({ title: 'T' }));
+  store.exec(`INSERT INTO destinations(id, platform, external_id, name, secret_ref, status) VALUES ('yt:UC_A','youtube','UC_A','Main','youtube-main','connected'), ('yt:UC_B','youtube','UC_B','Decider','youtube-decider','connected')`);
+
+  const idA = queueUpload(store, 1, 'youtube_shorts', a.id, 'yt:UC_A');
+  const idB = queueUpload(store, 1, 'youtube_shorts', b.id, 'yt:UC_B');
+  assert.notEqual(idA, idB);
+  assert.equal(store.get<{ destination_id: string }>('SELECT destination_id FROM uploads WHERE id=?', idA)!.destination_id, 'yt:UC_A');
+  assert.equal(store.get<{ destination_id: string }>('SELECT destination_id FROM uploads WHERE id=?', idB)!.destination_id, 'yt:UC_B');
 });

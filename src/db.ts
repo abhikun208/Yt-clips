@@ -108,6 +108,8 @@ const MIGRATIONS: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (source_id, channel_id, platform));`,
   // v16 (additive): per-destination policy (stagger delay in minutes)
   `ALTER TABLE source_destinations ADD COLUMN delay_min INTEGER NOT NULL DEFAULT 0;`,
+  // v17 (additive): per-destination metadata policy, stored as JSON only
+  `ALTER TABLE source_destinations ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';`,
 ];
 
 export type Row = Record<string, unknown>;

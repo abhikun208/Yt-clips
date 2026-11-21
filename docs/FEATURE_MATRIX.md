@@ -18,8 +18,8 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 |---|---|---|---|---|
 | AI clipping of full timeline | Ssemble/Opus | Heuristic: FFmpeg audio energy+scene+silence (+optional transcript) | DONE (heuristic, not learned) | test/analysis.test.ts, e2e |
 | Intro/outro exclusion (detected, overridable) | Ssemble | FFmpeg black/silence/scene | DONE | boundaries test, real fixture |
-| Auto captions + word-by-word styles (72 presets, 5 modes, Indian scripts) | all / autocap | libass (FFmpeg) + STT adapter | DONE (rendering, verified visually + tests). STT: adapter DONE & tested with a fake engine; real faster-whisper model NOT tested here | test/captions.test.ts, test/adapters.test.ts |
-| Caption translation 30+ langs | Ssemble | Needs MT model/API | NOT IMPLEMENTED | — |
+| Auto captions + word-by-word styles (72 presets, 5 modes, Indian scripts) | all / autocap | libass (FFmpeg) + STT adapter | Rendering and adapter tests pass. PyAV 18 + faster-whisper decoded synthetic audio in isolated Python; real speech/Hindi accuracy remains UNVERIFIED | test/captions.test.ts, test/adapters.test.ts, test/hardening.test.ts |
+| Caption translation 30+ langs | Ssemble | Needs MT model/API | PARTIAL (Hinglish/hi/en channel translation; 30+ provider-specific MT not guaranteed) | test/translate.test.ts |
 | Face tracking reframe | Ssemble | OpenCV Haar | PARTIAL (basic; centered fallback recorded in manifest) | tools/face_center.py |
 | Sports/ball tracking | Ssemble | heavy CV | NOT IMPLEMENTED | — |
 | Hook title overlay | Ssemble | ASS animated title | DONE | real frame inspected |
@@ -69,7 +69,8 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Password/ID login automation | NOT built on purpose (ToS, bans, 2FA, plaintext passwords) | — |
 | Encrypted credential vault, auto key | DONE | test/direct.test.ts |
 | Hardware encoding + parallel lanes | DONE (probe + fallback; GPU paths untested) | test/encoder.test.ts |
-| Chat/heatmap highlight signals, gaming profile, gamer-stack layout | DONE; real download untested | test/signals.test.ts |
+| Chat/heatmap highlight signals, configurable content profiles, gaming profile and gamer-stack layout | DONE; local profile behavior tested; real downloads/content accuracy unverified | test/signals.test.ts, test/analysis.test.ts, test/e2e.test.ts |
+| Kick/Twitch VOD URL acceptance (single-video only) | URL validation supported; real downloads untested. Kick live monitoring/upload are not implemented | test/adapters.test.ts |
 | Real-world smoke command | DONE (owner runs) | test/smoke.test.ts |
 | Retention from YouTube Analytics API + learned category prior | DONE; stub tested (CTR not exposed by Google) | test/youtube2.test.ts |
 | Title A/B by rotation, funnel comment (pin = manual) | DONE; weak statistics, stub tested | test/youtube2.test.ts |

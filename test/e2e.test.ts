@@ -12,6 +12,7 @@ import { sha256File } from '../src/util/hash.ts';
 import { probe } from '../src/media/probe.ts';
 import { checkDisk } from '../src/util/disk.ts';
 import { makeThumbnail } from '../src/seo/thumbnail.ts';
+import { updateChannel, mainChannel } from '../src/channels.ts';
 import { testConfig, makeFixture, tmpDir } from './helpers.ts';
 
 const small = { clip: { minSec: 5, maxSec: 12, targetSec: 8, maxClipsPerVideo: 3, minScore: 0.2 }, edit: { width: 270, height: 480, preset: 'ultrafast' } };
@@ -80,6 +81,17 @@ test('bad inputs: missing, unsupported, corrupt, no-video', async () => {
   writeFileSync(join(d, 'a.txt'), 'x'); await assert.rejects(ingestLocal(s, cfg, join(d, 'a.txt')), /Unsupported/);
   writeFileSync(join(d, 'bad.mp4'), Buffer.from('not a video at all')); await assert.rejects(ingestLocal(s, cfg, join(d, 'bad.mp4')), /ffprobe failed/);
   assert.equal(s.get<{ n: number }>('SELECT count(*) n FROM videos')!.n, 0, 'nothing registered for bad input');
+  s.close();
+});
+
+test('only-gaming profile cannot bypass its content gate through the short-source whole-clip fallback', { timeout: 200_000 }, async () => {
+  const cfg = testConfig(small); const s = new Store(cfg.dbPath);
+  const src = join(tmpDir(), 'unrelated.mp4'); await makeFixture(src, 24);
+  writeFileSync(src.replace(/\.[^.]+$/, '.srt'), '1\n00:00:00,000 --> 00:00:24,000\nA calm discussion about a recipe and a family story.\n');
+  updateChannel(s, mainChannel(s).id, { config: { contentProfile: 'only_gaming' } }, () => true);
+  const r = await ingestLocal(s, cfg, src); const result = await analyzeVideo(s, cfg, r.videoId);
+  assert.equal(result.candidates, 0, 'unrelated short content must not get a whole-video fallback clip');
+  assert.equal(s.get<{ n: number }>('SELECT count(*) n FROM candidates WHERE video_id=?', r.videoId)!.n, 0);
   s.close();
 });
 

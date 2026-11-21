@@ -1,5 +1,4 @@
 import type { Store } from '../db.ts';
-import { getMetaPolicy, setMetaPolicy, type MetaPolicy } from './metapolicy.ts';
 import type { Config } from '../config.ts';
 import { listChannels, ytSecretName, MAIN_SLUG } from '../channels.ts';
 import { secretsFor } from '../publish/service.ts';
@@ -81,6 +80,20 @@ export function listDestinations(store: Store, cfg: Config): Destination[] {
   });
 }
 
+export function getDestination(store: Store, cfg: Config, id: string): Destination | null {
+  return listDestinations(store, cfg).find((d) => d.id === id) ?? null;
+}
+
+export function destinationBlockById(store: Store, cfg: Config, id: string | null): string | null {
+  if (!id) return null;
+  const d = getDestination(store, cfg, id);
+  if (!d) return `DESTINATION_NOT_FOUND: ${id} — reconnect or re-create this destination`;
+  if (d.status === 'disconnected') return `AUTH_NOT_CONNECTED: ${d.name} (${d.platform}) is disconnected`;
+  if (d.status === 'expired') return `AUTH_REVOKED: ${d.name} (${d.platform}) login expired — Reconnect`;
+  if (!d.enabled) return `DESTINATION_DISABLED: ${d.name} (${d.platform}) band hai — Connected Accounts me Enable karo`;
+  return null;
+}
+
 export function setDestinationEnabled(store: Store, id: string, enabled: boolean): void {
   if (!store.get('SELECT 1 FROM destinations WHERE id=?', id)) throw new Error('invalid: unknown account');
   store.exec(`UPDATE destinations SET enabled=?, updated_at=datetime('now') WHERE id=?`, enabled ? 1 : 0, id); store.logState('destination', 0, null, enabled ? 'enabled' : 'disabled', id);
@@ -142,22 +155,32 @@ export function stampUpload(store: Store, cfg: Config, uploadId: number, channel
   const d = destinationFor(store, cfg, channelSlug, uploadPlatform); if (d) store.exec('UPDATE uploads SET destination_id=? WHERE id=? AND destination_id IS NULL', d.id, uploadId);
 }
 
-export interface SourceMapping { sourceId: number; channelId: number; platform: string; enabled: boolean; priority: number; /** stagger: uploads for this destination wait this many minutes after the clip is ready */ delayMin: number; /** this destination's own title/tag policy */ policy: MetaPolicy }
+export interface DestinationMetadataPolicy { titlePrefix?: string; titleSuffix?: string; tags?: string[] }
+export interface SourceMapping { sourceId: number; channelId: number; platform: string; enabled: boolean; priority: number; /** stagger: uploads for this destination wait this many minutes after the clip is ready */ delayMin: number; metadata: DestinationMetadataPolicy }
 /** Extra destinations of a source (besides the channel the source belongs to). */
 export function listSourceMappings(store: Store, sourceId?: number): SourceMapping[] {
-  return store.all<{ source_id: number; channel_id: number; platform: string; enabled: number; priority: number; delay_min: number }>(`SELECT * FROM source_destinations ${sourceId ? 'WHERE source_id=?' : ''} ORDER BY priority DESC, channel_id`, ...(sourceId ? [sourceId] : []))
-    .map((r) => ({ sourceId: r.source_id, channelId: r.channel_id, platform: r.platform, enabled: !!r.enabled, priority: r.priority, delayMin: r.delay_min ?? 0, policy: getMetaPolicy(store, r.source_id, r.channel_id, r.platform) }));
+  return store.all<{ source_id: number; channel_id: number; platform: string; enabled: number; priority: number; delay_min: number; metadata_json: string }>(`SELECT * FROM source_destinations ${sourceId ? 'WHERE source_id=?' : ''} ORDER BY priority DESC, channel_id`, ...(sourceId ? [sourceId] : []))
+    .map((r) => {
+      let metadata: DestinationMetadataPolicy = {};
+      try { metadata = JSON.parse(r.metadata_json || '{}') as DestinationMetadataPolicy; } catch { /* ignore bad legacy data */ }
+      return { sourceId: r.source_id, channelId: r.channel_id, platform: r.platform, enabled: !!r.enabled, priority: r.priority, delayMin: r.delay_min ?? 0, metadata };
+    });
 }
-export function setSourceMapping(store: Store, m: { sourceId: number; channelId: number; platform?: string; enabled?: boolean; priority?: number; delayMin?: number; remove?: boolean; policy?: unknown }): void {
+export function setSourceMapping(store: Store, m: { sourceId: number; channelId: number; platform?: string; enabled?: boolean; priority?: number; delayMin?: number; metadata?: DestinationMetadataPolicy; remove?: boolean }): void {
   const src = store.get<{ channel_id: number | null }>('SELECT channel_id FROM sources WHERE id=?', m.sourceId); if (!src) throw new Error('not found: source');
   if (!store.get('SELECT 1 FROM channels WHERE id=?', m.channelId)) throw new Error('not found: channel');
   const platform = m.platform ?? 'youtube_shorts';
-  if (m.remove) { store.exec('DELETE FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform); setMetaPolicy(store, m.sourceId, m.channelId, platform, {}); return; }
-  if (m.policy !== undefined) { setMetaPolicy(store, m.sourceId, m.channelId, platform, m.policy); if (src.channel_id === m.channelId && m.enabled === undefined && m.priority === undefined && m.delayMin === undefined) return; } // the source's own channel can carry a policy too (no mapping row needed)
+  if (m.remove) { store.exec('DELETE FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform); return; }
   if (src.channel_id === m.channelId) throw new Error('invalid: ye source ka apna channel hai (wo already default destination hai)');
-  const old = store.get<{ enabled: number; priority: number; delay_min: number }>('SELECT enabled, priority, delay_min FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform);
+  const old = store.get<{ enabled: number; priority: number; delay_min: number; metadata_json: string }>('SELECT enabled, priority, delay_min, metadata_json FROM source_destinations WHERE source_id=? AND channel_id=? AND platform=?', m.sourceId, m.channelId, platform);
   const delay = m.delayMin === undefined ? old?.delay_min ?? 0 : Math.max(0, Math.min(1440, Math.round(Number(m.delayMin)) || 0)); // editing ONE field never resets the others
-  store.exec(`INSERT INTO source_destinations(source_id, channel_id, platform, enabled, priority, delay_min) VALUES (?,?,?,?,?,?) ON CONFLICT(source_id, channel_id, platform) DO UPDATE SET enabled=excluded.enabled, priority=excluded.priority, delay_min=excluded.delay_min`, m.sourceId, m.channelId, platform, (m.enabled ?? (old ? !!old.enabled : true)) ? 1 : 0, m.priority ?? old?.priority ?? 0, delay);
+  let oldMeta: DestinationMetadataPolicy = {}; try { oldMeta = JSON.parse(old?.metadata_json || '{}') as DestinationMetadataPolicy; } catch { /* ignore */ }
+  const metadata: DestinationMetadataPolicy = m.metadata ? {
+    titlePrefix: typeof m.metadata.titlePrefix === 'string' ? m.metadata.titlePrefix.slice(0, 40) : oldMeta.titlePrefix,
+    titleSuffix: typeof m.metadata.titleSuffix === 'string' ? m.metadata.titleSuffix.slice(0, 40) : oldMeta.titleSuffix,
+    tags: Array.isArray(m.metadata.tags) ? m.metadata.tags.filter((x) => typeof x === 'string').map((x) => x.slice(0, 30)).filter(Boolean).slice(0, 20) : oldMeta.tags,
+  } : oldMeta;
+  store.exec(`INSERT INTO source_destinations(source_id, channel_id, platform, enabled, priority, delay_min, metadata_json) VALUES (?,?,?,?,?,?,?) ON CONFLICT(source_id, channel_id, platform) DO UPDATE SET enabled=excluded.enabled, priority=excluded.priority, delay_min=excluded.delay_min, metadata_json=excluded.metadata_json`, m.sourceId, m.channelId, platform, (m.enabled ?? (old ? !!old.enabled : true)) ? 1 : 0, m.priority ?? old?.priority ?? 0, delay, JSON.stringify(metadata));
 }
 
 /** Real "Test connection" for a YouTube account: refreshes the token and asks Google who it is, compares with the registered channel. Never fakes success. */

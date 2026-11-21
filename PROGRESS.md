@@ -1,12 +1,12 @@
 # PROGRESS.md — persistent ledger (kisi bhi AI/session ko yahin se resume karna hai)
 
 > Rule: sirf wahi "DONE" jo code + test/verify ho chuka hai. Baaki sab PARTIAL / TODO / BLOCKED.
-> Last updated: 2026-10-24 (session 5, 129/129 tests). Audit: fresh `git clone` of main -> `npm test` 80/80.
+> Last updated: 2026-11-21 (final local audit; historical entries below are retained as history). Historical baseline: fresh clone of main -> `npm test` 80/80 on 2026-10-24.
 
 ## Resume kaise karein
 1. `Prompt` file = original owner requirements (Hinglish). `BRAIN.md` = architecture + decisions.
 2. `npm run typecheck && npm test` chalao, phir neeche "NEXT STEP" se aage badho.
-3. Har NEXT STEP item: implement -> test -> `npm test` (fail 0) -> PROGRESS.md update -> commit+push `main`. Item tabhi DONE jab test pass ho; fake server se hua to "fake-tested" likho. Ant mein `git status -sb` = `main...origin/main`.
+3. Har NEXT STEP item: implement -> test -> PROGRESS.md update -> review `git diff` and `git status -sb`. Commit/push sirf owner ke explicit request par. Item tabhi DONE jab test pass ho; fake server se hua to "fake-tested" likho.
 4. Guardrails: gates (`publishEnabled`, `publicVisibilityAllowed`, `commentsAutoPost`) sirf owner `data/config.json` mein badle (API/env se kabhi nahi); migrations additive; secrets logs/API mein nahi; owner ko Hinglish mein reply.
 5. Runtime dependencies ZERO (Node >=22.18, `node:sqlite`, `node:test`). Dev: typescript, @types/node (is sandbox mein npm registry blocked tha, typecheck global `tsc` se hota hai).
 
@@ -171,6 +171,25 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Real process verified: `npm start` boots from env, /healthz, SIGTERM exit 0, refuses public bind without token.
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.
 - No upload/comment code path was ever exercised against a real platform.
+
+## 2026-11-21 — Prompt1 P0 exact YouTube destination routing (local fix)
+- Fixed upload jobs to persist `destination_id` at creation and include that exact destination in the idempotency key.
+- Distribution and direct upload APIs now pass the selected destination through to the queue.
+- YouTube adapter selection now resolves the exact destination secret ref; no cross-account fallback is added.
+- Pre-upload identity guard now reads the exact destination's external channel ID, while preserving `AUTH_IDENTITY_MISMATCH` blocking.
+- Added/strengthened regressions: exact destination IDs are stored independently, two accounts on one clip create separate jobs, and preview/confirm duplicate handling stays destination-specific.
+- Verified locally: `test/distribute.test.ts` passes; exact queue/destination regression passes; `test/destinations.test.ts` + `test/distribution.test.ts` = 11/11 pass.
+- BLOCKED in this environment: ffmpeg/ffprobe/tsc are not on `PATH`, so FFmpeg-dependent/full tests and baseline typecheck could not run. Real YouTube two-account upload and Android Termux remain owner/device-verification work.
+- Next: run a real authenticated unlisted upload on Main and Decider separately, then verify remote channel IDs/video IDs and update this ledger.
+
+## 2026-11-21 — Prompt1 unlimited generation + routing metadata pass
+- Removed the 12-candidate ceiling in selector/API/channel configuration; `maxClips: 0` means unlimited and positive values remain an explicit optional limit.
+- Added an additive `source_destinations.metadata_json` migration for per-destination title prefix/suffix and extra tags.
+- Source mapping API now accepts and persists per-destination metadata without resetting enable/delay/priority.
+- Upload jobs apply mapped title/tag policy immediately before provider upload; each destination remains independent.
+- Implemented horizontal→vertical platform derivation as a master-safe FFmpeg derived copy: blurred background + original fit, 1080x1920, then FFprobe re-validated.
+- Reconciled live chat: `live_chat.json` / `.chat.json` replay and heatmap sidecars already feed candidate selection; direct live chat capture remains a real-stream external blocker.
+- Focused tests passed: analysis 7/7, routing/distribution 4/4, destinations/distribution 11/11, exact destination queue 2/2.
 
 ## PENDING WORK (single source of truth; update every session; features that already exist are NOT listed)
 1. Real-world verification (nothing below ran against real services): real YouTube upload incl. the INVALID_REQUEST_METADATA fix, account-optimizer apply, real LLM SEO output, real whisper.cpp Hinglish captions on real footage, real speaker-follow (needs OpenCV with the Haar cascade; OpenCV 5 builds lack it → static/centre crop), real rclone/cloud, edge-tts/piper voices. → owner is running these now.
@@ -529,3 +548,28 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 ## (28) Per-destination title/tag policy
 - New `src/accounts/metapolicy.ts` (kv `destpolicy:<source>:<channel>:<platform>`, no migration): titlePrefix/titleSuffix/addTags/dropTags, sanitised, title clamped to platform limit (real title is cut, never the owner's prefix/suffix). Applied per upload in `advance()` (service.ts) to the facts only — stored clip metadata and video untouched; each account/platform child job independent. API: `policy` field on the source-destination POST; list returns it.
 - Tests: metapolicy (5) + source_mapping/destinations — pass (sandbox). NOT done: UI controls (API_ONLY), end-to-end upload test of the wiring, real-provider check.
+## (27) Final local audit — 2026-11-21
+- Scope: audited Prompt1 and the existing ledgers without changing `src/edit/*`, presets, fonts, effects, transitions, caption behavior, or render settings. Owner media/database were not reset or deleted. No commit/push was made.
+- STT root cause: faster-whisper's PyAV 19 path failed on `metadata_errors`; PC/VPS setup now pins `av>=18,<19`. Isolated Python confirmed PyAV 18 and faster-whisper imports; a synthetic 16 kHz audio decoder smoke test passed. Real Hindi/voice transcription quality is still UNVERIFIED.
+- STT recovery bug: `engine=api` incorrectly returned a fast failure while the cloud network circuit-breaker was active, preventing subsequent local fallback. Fixed and covered by `test/hardening.test.ts` with a mocked provider outage + local VoiceStudio endpoint.
+- Verification in this pass: `npm run typecheck` passed; focused STT health/cooldown tests passed; `test/orchestrator.test.ts` + `test/secfix.test.ts` passed 21/21; isolated stale-output render recovery passed 1/1. The broader `test/logfix.test.ts` invocation timed out before a complete TAP summary; it is NOT recorded as a full pass.
+- Read-only DB check: sources, jobs, videos, clips, uploads, and studio generations each have 0 rows. The configured default data path is this project’s `data/`; no synthetic demo job was inserted, so there is no real editing activity/preview until an authorized source is added.
+- Local dashboard is open at `http://127.0.0.1:8080` with `AUTO_RUN=0`; Chromium confirmed the 8-tab navigation and an empty Clips inbox. Project output remains in `data/edited_shorts/`.
+- Publish, public visibility, and auto-comment gates remain OFF. No account authorization, external upload, commit, or push was performed.
+- BLOCKED/UNVERIFIED: real Termux/device behavior, real live capture, YouTube/Meta/TikTok OAuth and upload, cloud deployment, real provider analytics, Hindi STT quality, Windows ACL protections, and owner-selected LICENSE. These require the owner's device, accounts, provider setup, real source, or licensing decision.
+- Next: owner-side device/provider checks remain listed in `PENDING_CHECKLIST.md`; no commit or push without explicit permission.
+
+## (28) Content-profile continuation and Kick capability check — 2026-11-21
+- Added validated `ChannelConfig.contentProfile` choices and schedule-card controls, separate from the legacy `Channel.profile` so existing gamer layout/face-detection and account behavior are unchanged. Profiles: general, auto, gaming, only-gaming, vlog, mixed, podcast, comedy, reaction, educational, custom vocabulary.
+- Selection now gives specialist profiles modest speech/story/reaction/custom-term bonuses. `only_gaming` requires two gaming callouts or a killfeed signal and does not fall back to a whole-short clip when unrelated speech is detected. `auto` never uses channel names: it picks gaming only from multiple transcript callouts; otherwise it stays general.
+- Tests: `npm.cmd run typecheck` passed. The complete targeted analysis/channel/E2E run passed 19/19, including ingest→analysis→render→QC→metadata and restart/no-duplicate coverage. After tightening auto/strict gaming evidence, the profile + short-source rejection rerun passed 3/3; analysis/channel rerun passed 12/12. Dashboard/server/UI/orchestrator/hardening regressions passed 42/42 with FFmpeg on PATH; final dashboard/UI route rerun passed 4/4. `git diff --check` passed.
+- `test/adapters.test.ts`: focused source URL validation passed for Kick VOD and rejects Kick channel URLs. The full file is not green on Windows: three unrelated fake-yt-dlp/STT adapter cases fail (`0 !== 2`, `spawn EFTYPE`, and missing offline result); do not claim that suite passed.
+- Official Kick docs reviewed: the public API documents authenticated livestream/channel metadata and scopes, but no video-upload endpoint. Existing Kick support remains URL validation for individual VODs only; live monitoring, capture, and account upload are NOT_IMPLEMENTED. No credentials, account authorization, or external upload were used.
+- Local dashboard check: `http://127.0.0.1:8080` returns HTTP 200, but its process serves the UI snapshot loaded before these edits (`chcontent` absent). Left the listener untouched; restart via the requested `npm start` to load the new UI. No source/job/clip exists for an editing preview.
+- `src/edit/*` was not changed. Public upload, auto-approval, comments, and account authorization remain disabled; no commit or push was made.
+- Still UNVERIFIED/BLOCKED: real Termux/device run, real Kick/YouTube live capture/download, provider OAuth/upload, deployment, analytics, Hindi STT accuracy, and complete adapter fake-process suite on Windows.
+
+## (29) Merge of the owner's Copilot work (zip based on 4f2d3b0)
+- Merged (branch copilot-merge -> main): destination-id routing + identity guard per exact destination, content profiles (selection scoring only), STT failure guard, platform horizontal->vertical `fit_blur` derive (upload copy only, master untouched), Windows setup/update scripts, per-destination metadata (`source_destinations.metadata_json`, migration v17), Copilot tests/docs.
+- Resolved overlaps: unlimited clips (identical), per-destination policy -> Copilot storage kept, application goes through my pure `applyMetaPolicy` (platform title clamp, dedupe) — my kv-based storage removed. `src/edit/*` untouched by Copilot.
+- Tests: 129/129 focused (analysis, channels, hardening, logfix, secfix, adapters, derive, distribute, identity_guard, proc, source_mapping, metapolicy, unlimited_clips, learn, orchestrator, live*, queueorder) in the sandbox. Not run: full suite, Windows, Termux.

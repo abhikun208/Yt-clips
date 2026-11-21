@@ -20,6 +20,16 @@ test('one source -> two channels: clip is queued for its own channel AND the map
   setSourceMapping(store, { sourceId: 1, channelId: b.id, remove: true }); assert.equal(listSourceMappings(store, 1).length, 0);
 });
 
+test('per-destination title/tag policy is additive and editing it preserves delay/priority', () => {
+  const store = new Store(':memory:'); const a = createChannel(store, { name: 'Main' }, () => true); const b = createChannel(store, { name: 'Decider' }, () => true);
+  store.exec(`INSERT INTO sources(id, kind, uri, channel_id, authorized) VALUES (1,'local','r1',?,1)`, a.id);
+  setSourceMapping(store, { sourceId: 1, channelId: b.id, delayMin: 25, priority: 4, metadata: { titlePrefix: 'Gaming', titleSuffix: '| Decider', tags: ['freefire', 'clutch'] } });
+  setSourceMapping(store, { sourceId: 1, channelId: b.id, enabled: false });
+  const m = listSourceMappings(store, 1)[0]!;
+  assert.deepEqual([m.delayMin, m.priority, m.enabled], [25, 4, false]);
+  assert.deepEqual(m.metadata, { titlePrefix: 'Gaming', titleSuffix: '| Decider', tags: ['freefire', 'clutch'] });
+});
+
 test('mapping policy: per-destination delay holds ONLY that destination; editing one field keeps the others; disable stops new jobs', async () => {
   const store = new Store(':memory:'); const a = createChannel(store, { name: 'Chan A' }, () => true); const b = createChannel(store, { name: 'Chan B' }, () => true);
   store.exec(`INSERT INTO sources(id, kind, uri, channel_id, authorized) VALUES (1,'local','r1',?,1)`, a.id); store.exec(`INSERT INTO videos(id, source_id, path, fingerprint) VALUES (1,1,'/x','f1')`);

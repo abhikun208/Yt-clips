@@ -1,6 +1,7 @@
 import type { Store } from './db.ts';
 import type { Config } from './config.ts';
 import type { SchedConfig } from './schedule/scheduler.ts';
+import { isContentProfile, type ContentProfile } from './content-profile.ts';
 
 /** A channel = one brand/account you publish for (e.g. "Team Unknown", "Decider Gaming"). Each has its own schedule policy, caption style, links and platforms. */
 export interface ChannelConfig {
@@ -10,6 +11,7 @@ export interface ChannelConfig {
   aspect?: '9:16' | '1:1' | '16:9';
   /** channel automation: preferred clip length bucket, clips per video (0 = unlimited), how often to look for new uploads, and the 0-100 viral score an auto-queued clip needs */ clipLength?: 'u30' | '30-60' | '60-90' | '90-180'; maxClips?: number; checkEveryHours?: 6 | 12 | 24 | 168; minViral?: number;
   facecam?: { x: number; y: number; w: number; h: number }; killfeed?: true | { x: number; y: number; w: number; h: number }; translateTo?: 'en' | 'hi' | 'hinglish' | 'auto' | 'original'; cta?: string; disclaimer?: string; narration?: boolean; vocabulary?: string[]; effects?: 'clean' | 'full'; layout?: 'auto' | 'gamer_stack' | 'facecam_top' | 'split_gameplay';
+  contentProfile?: ContentProfile;
 }
 export interface Channel { id: number; slug: string; name: string; profile: 'general' | 'gaming'; config: ChannelConfig; archived: boolean }
 export const MAIN_SLUG = 'main';
@@ -31,7 +33,8 @@ const slugify = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\w\s
 export function cleanConfig(c: unknown, presetOk: (id: string) => boolean): ChannelConfig {
   if (c === undefined || c === null) return {}; if (typeof c !== 'object' || Array.isArray(c)) throw new Error('invalid: config must be an object');
   const i = c as Record<string, unknown>; const o: ChannelConfig = {};
-  const known = new Set(['clipLength', 'maxClips', 'checkEveryHours', 'minViral', 'aspect', 'captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer', 'narration', 'effects', 'vocabulary', 'sandbox']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
+  const known = new Set(['clipLength', 'maxClips', 'checkEveryHours', 'minViral', 'aspect', 'captionPreset', 'schedule', 'platforms', 'links', 'hashtags', 'liveUrl', 'language', 'facecam', 'killfeed', 'translateTo', 'layout', 'cta', 'disclaimer', 'narration', 'effects', 'vocabulary', 'sandbox', 'contentProfile']); for (const k of Object.keys(i)) if (!known.has(k)) throw new Error(`invalid: unknown channel setting ${k}`);
+  if (i.contentProfile !== undefined) { if (!isContentProfile(i.contentProfile)) throw new Error(`invalid: contentProfile must be one of ${['general', 'auto', 'gaming', 'only_gaming', 'vlog', 'mixed', 'podcast', 'comedy', 'reaction', 'educational', 'custom'].join(', ')}`); o.contentProfile = i.contentProfile; }
   if (i.aspect !== undefined) { if (i.aspect !== '9:16' && i.aspect !== '1:1' && i.aspect !== '16:9') throw new Error('invalid: aspect must be 9:16, 1:1 or 16:9'); o.aspect = i.aspect; }
   if (i.captionPreset !== undefined) { if (typeof i.captionPreset !== 'string' || (i.captionPreset !== 'none' && !presetOk(i.captionPreset))) throw new Error('invalid: unknown caption preset'); o.captionPreset = i.captionPreset; }
   if (i.platforms !== undefined) { const ok = ALLOWED_PLATFORMS as readonly string[]; if (!Array.isArray(i.platforms) || i.platforms.some((p) => !ok.includes(String(p)))) throw new Error('invalid: platforms'); o.platforms = i.platforms.map(String); }

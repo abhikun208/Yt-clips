@@ -1,7 +1,9 @@
+import { applyMetaPolicy } from '../accounts/metapolicy.ts';
 import { existsSync } from 'node:fs';
 import { enqueue } from '../db.ts';
 import { prepareForPlatform, DEFAULT_LIMITS } from './mediaCheck.ts';
 import type { Store } from '../db.ts';
+import { listSourceMappings } from '../accounts/destinations.ts';
 import type { Config } from '../config.ts';
 import { assertPublishAllowed } from '../config.ts';
 import { channelOfClip } from '../channels.ts';
@@ -96,14 +98,15 @@ function channelIdOfClip(store: Store, clipId: number): number | null {
   return r?.cid ?? store.get<{ id: number }>(`SELECT id FROM channels WHERE slug='main'`)?.id ?? null;
 }
 
-export function queueUpload(store: Store, clipId: number, platform: string, channelId?: number): number {
+export function queueUpload(store: Store, clipId: number, platform: string, channelId?: number, destinationId?: string): number {
   const clip = store.get<{ output_id: string; qc_pass: number | null }>('SELECT output_id, qc_pass FROM clips WHERE id=?', clipId);
   if (!clip) throw new Error(`Unknown clip ${clipId}`);
-  const own = channelIdOfClip(store, clipId); const key = `${platform}:${clip.output_id}${channelId && channelId !== own ? `@ch${channelId}` : ''}`; // same clip to ANOTHER destination = its own job
+  const own = channelIdOfClip(store, clipId);
+  const key = `${platform}:${clip.output_id}${destinationId ? `@dest:${destinationId}` : channelId && channelId !== own ? `@ch${channelId}` : ''}`; // exact account is part of the idempotency key
   const ex = store.get<{ id: number }>('SELECT id FROM uploads WHERE idempotency_key=?', key);
   if (ex) return ex.id; // never queue duplicates
   const chId = channelId ?? own;
-  const r = store.exec('INSERT INTO uploads(clip_id, platform, state, idempotency_key, channel_id) VALUES (?,?,?,?,?)', clipId, platform, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', key, chId);
+  const r = store.exec('INSERT INTO uploads(clip_id, platform, state, idempotency_key, channel_id, destination_id) VALUES (?,?,?,?,?,?)', clipId, platform, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', key, chId, destinationId ?? null);
   store.logState('upload', r.lastId, null, clip.qc_pass ? 'QC_PASSED' : 'QC_FAILED', 'queued');
   return r.lastId;
 }
@@ -118,7 +121,7 @@ function setState(store: Store, id: number, from: string, to: string, extra: { r
  * calls assertPublishAllowed first. Remote state is verified before moving on. Failures are recorded and retryable.
  */
 export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter, uploadId: number, o: { facts: ClipFacts; scheduledAt?: Date | null; approve?: boolean }): Promise<UploadState> {
-  const u = store.get<{ id: number; clip_id: number; platform: string; state: UploadState; idempotency_key: string; remote_id: string | null; scheduled_at: string | null }>('SELECT id, clip_id, platform, state, idempotency_key, remote_id, scheduled_at FROM uploads WHERE id=?', uploadId);
+  const u = store.get<{ id: number; clip_id: number; platform: string; state: UploadState; idempotency_key: string; remote_id: string | null; scheduled_at: string | null; destination_id: string | null; channel_id: number | null }>('SELECT id, clip_id, platform, state, idempotency_key, remote_id, scheduled_at, destination_id, channel_id FROM uploads WHERE id=?', uploadId);
   if (!u) throw new Error(`Unknown upload ${uploadId}`);
   const clip = store.get<{ edited_path: string }>('SELECT edited_path FROM clips WHERE id=?', u.clip_id)!;
   const from = u.state;
@@ -135,12 +138,33 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
         if (!adapter.local && !adapter.skipMediaCheck) { // FFprobe the real output against this destination's limits BEFORE any byte is sent
           { const mc = await prepareForPlatform(clip.edited_path, u.platform); if (!mc.ok) throw new Error(`MEDIA_INVALID: ${mc.problems.join('; ')}`); uploadPath = mc.path; if (mc.derived) store.logState('upload', u.id, null, 'DERIVED', mc.notes.join('; ')); }
         }
-        if (adapter.whoami) { // never upload with credentials that belong to a different channel than the one this clip is routed to
-          const slug = channelOfClip(store, u.clip_id).slug; let want: string | null = null;
-          try { const v = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytinfo:${slug}`)?.v; want = v ? (JSON.parse(v) as { channelId?: string }).channelId ?? null : null; } catch { /* unknown identity: nothing to compare */ }
-          if (want) { const me = await adapter.whoami(); if (me && me.id !== want) throw new Error(`AUTH_IDENTITY_MISMATCH: channel "${slug}" is registered as ${want} but its login belongs to ${me.id} ("${me.title}"). Upload blocked — Setup me us channel ko dobara connect karo.`); }
+        if (adapter.whoami) { // never upload with credentials that belong to a different channel than the exact destination job
+          let want: string | null = null;
+          let boundName = '';
+          if (u.destination_id) {
+            const d = store.get<{ external_id: string; status: string; enabled: number; name: string }>('SELECT external_id,status,enabled,name FROM destinations WHERE id=?', u.destination_id);
+            if (!d) throw new Error(`DESTINATION_NOT_FOUND: ${u.destination_id}`);
+            if (!d.enabled) throw new Error(`DESTINATION_DISABLED: ${d.name} band hai`);
+            if (d.status === 'disconnected') throw new Error(`AUTH_NOT_CONNECTED: ${d.name} is disconnected`);
+            if (d.status === 'expired') throw new Error(`AUTH_REVOKED: ${d.name} login expired`);
+            want = d.external_id.startsWith('slug:') ? null : d.external_id;
+            boundName = d.name;
+          } else {
+            const slug = channelOfClip(store, u.clip_id).slug;
+            try { const v = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytinfo:${slug}`)?.v; want = v ? (JSON.parse(v) as { channelId?: string }).channelId ?? null : null; } catch { /* legacy job without a destination id */ }
+            boundName = slug;
+          }
+          if (want) { const me = await adapter.whoami(); if (me && me.id !== want) throw new Error(`AUTH_IDENTITY_MISMATCH: destination "${boundName}" is registered as ${want} but its login belongs to ${me.id} ("${me.title}"). Upload blocked — Setup me us destination ko dobara connect karo.`); }
         }
-        const sandbox = channelOfClip(store, u.clip_id).config.sandbox === true; const r = await adapter.upload({ filePath: uploadPath, title: sandbox && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, description: o.facts.description, tags: o.facts.tags ?? [], visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
+        let title = o.facts.title; let tags = o.facts.tags ?? [];
+        if (u.channel_id) {
+          const src = store.get<{ source_id: number }>('SELECT v.source_id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id WHERE c.id=?', u.clip_id);
+          if (src) {
+            const mapping = listSourceMappings(store, src.source_id).find((m) => m.channelId === u.channel_id && m.platform === u.platform);
+            if (mapping) { const pm = applyMetaPolicy({ ...o.facts, title, tags }, { titlePrefix: mapping.metadata.titlePrefix, titleSuffix: mapping.metadata.titleSuffix, addTags: mapping.metadata.tags }, u.platform); title = pm.title; tags = (pm.tags ?? []).slice(0, 500); } // clamps the title to the platform limit (real title cut, never the owner's prefix/suffix)
+          }
+        }
+        const sandbox = channelOfClip(store, u.clip_id).config.sandbox === true; const r = await adapter.upload({ filePath: uploadPath, title: sandbox && !title.startsWith('[TEST]') ? `[TEST] ${title}`.slice(0, 100) : title, description: o.facts.description, tags, visibility: 'unlisted', idempotencyKey: u.idempotency_key, categoryId: o.facts.categoryId, language: o.facts.language });
         if (adapter.thumbnail && o.facts.thumbnailPath) { try { await adapter.thumbnail(r.remoteId, o.facts.thumbnailPath); } catch { /* thumbnails are optional */ } }
         setState(store, u.id, from, 'UPLOAD_VERIFYING', { remote: r.remoteId, vis: 'unlisted' }); return 'UPLOAD_VERIFYING';
       }
