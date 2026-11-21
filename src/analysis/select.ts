@@ -111,7 +111,7 @@ export function selectCandidates(inp: SelectInput, p: SelectParams): Candidate[]
   const picked: Candidate[] = [];
   for (const c of all) {
     if (c.score < p.minScore) break;
-    if (picked.length >= p.maxClips) break;
+    if (p.maxClips > 0 && picked.length >= p.maxClips) break;
     if (picked.every((q) => overlapRatio([c.start, c.end], [q.start, q.end]) <= p.maxOverlap)) {
       c.fingerprint = shortHash(`${inp.videoKey}:${Math.round(c.start)}:${Math.round(c.end)}`, 16);
       picked.push(c);

@@ -31,18 +31,22 @@ export async function checkMedia(path: string, platform: string, limits: Record<
  *   too big (MB)      -> H.264/AAC re-encode at the bitrate that fits ~90% of the limit
  *   duration > limit  -> trimmed to the limit (clip stays a valid Short/Reel; the note says so)
  *   unsupported codec -> H.264/AAC yuv420p
- * Not fixable (e.g. horizontal video for a vertical-only platform) stays a MEDIA_INVALID block.
+ * Horizontal masters for vertical platforms use a fit_blur conversion; the master remains untouched.
  */
 export async function prepareForPlatform(path: string, platform: string, limits: Record<string, MediaLimit> = DEFAULT_LIMITS): Promise<{ ok: boolean; path: string; derived: boolean; notes: string[]; problems: string[] }> {
   const first = await checkMedia(path, platform, limits);
   if (first.ok) return { ok: true, path, derived: false, notes: [], problems: [] };
-  const lim = limits[platform]!; const info = first.info; const horizontal = first.problems.some((p) => /horizontal/.test(p));
-  if (!info || horizontal || first.problems.some((p) => /file nahi mili|ffprobe/.test(p))) return { ok: false, path, derived: false, notes: [], problems: first.problems };
+  const lim = limits[platform]!; const info = first.info; const horizontal = lim.vertical && !!info && info.width > info.height;
+  if (!info || first.problems.some((p) => /file nahi mili|ffprobe/.test(p))) return { ok: false, path, derived: false, notes: [], problems: first.problems };
   const out = path.replace(/\.[^.]+$/, '') + `.${platform}.mp4`; const notes: string[] = [];
   const secs = Math.min(info.seconds, lim.maxSeconds - 0.3); if (info.seconds > lim.maxSeconds) notes.push(`trimmed ${info.seconds.toFixed(1)}s -> ${secs.toFixed(1)}s (${platform} limit ${lim.maxSeconds}s)`);
-  const targetKbps = Math.max(300, Math.floor((lim.maxMB * 0.9 * 8192) / Math.max(1, secs)) - 128); const needRate = info.mb > lim.maxMB; if (needRate) notes.push(`re-encoded ${info.mb.toFixed(0)}MB -> <=${lim.maxMB}MB`);
+  const targetKbps = Math.max(300, Math.floor((lim.maxMB * 0.75 * 8192) / Math.max(1, secs)) - 128); const needRate = info.mb > lim.maxMB || horizontal; if (needRate) notes.push(`re-encoded ${info.mb.toFixed(0)}MB -> <=${lim.maxMB}MB`);
   if (!['h264'].includes(info.codec)) notes.push(`codec ${info.codec} -> h264`);
-  const args = ['-y', '-hide_banner', '-loglevel', 'error', '-i', path, '-t', secs.toFixed(2), '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', ...(needRate ? ['-b:v', `${Math.min(targetKbps, 20000)}k`, '-maxrate', `${Math.min(targetKbps, 20000)}k`, '-bufsize', `${Math.min(targetKbps, 20000) * 2}k`] : ['-crf', '20']), '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out];
+  if (horizontal) notes.push(`horizontal ${info.width}x${info.height} -> 1080x1920 fit_blur conversion (${platform})`);
+  const conversion = horizontal
+    ? ['-filter_complex', '[0:v]split=2[bg][fg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bgout];[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fgout];[bgout][fgout]overlay=(W-w)/2:(H-h)/2[v]', '-map', '[v]', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']
+    : ['-vf', 'scale=iw*sar:ih,setsar=1', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p'];
+  const args = ['-y', '-hide_banner', '-loglevel', 'error', '-i', path, '-t', secs.toFixed(2), ...conversion, ...(needRate ? ['-b:v', `${Math.min(targetKbps, 20000)}k`, '-maxrate', `${Math.min(targetKbps, 20000)}k`, '-bufsize', `${Math.min(targetKbps, 20000) * 2}k`] : ['-crf', '20']), '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out];
   if (!existsSync(out)) { const r = await run('ffmpeg', args, { timeoutMs: 20 * 60_000 }); if (r.code !== 0) return { ok: false, path, derived: false, notes, problems: [...first.problems, `re-encode fail: ${r.stderr.trim().slice(-160)}`] }; }
   const again = await checkMedia(out, platform, limits); // the derived file is FFprobe-validated too
   return again.ok ? { ok: true, path: out, derived: true, notes, problems: [] } : { ok: false, path, derived: false, notes, problems: again.problems.map((x) => `derived: ${x}`) };

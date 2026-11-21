@@ -9,16 +9,16 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | Live | Rolling capture (chunks, reconnect, resume after blip, stop when ended) | MOCK-TESTED + UNVERIFIED | test/live.test.ts (fake recorder); ffmpeg `-reconnect` flags real only on device |
 | Live | Rolling buffer retention (raw chunk deleted after highlights rendered, size cap, age cap, boot cleanup) | VERIFIED-LOCAL | test/live_retention.test.ts. Granularity = one 5-min chunk, not sub-chunk |
 | Live | Clips while live (analyze→render→QC→metadata→queue per chunk) | VERIFIED-LOCAL (pipeline) / UNVERIFIED (real stream) | chunk latency = chunk length (default 300 s) |
-| Live | Moment detection signals: speech (STT), audio energy, scene change, kill-feed/gameplay, face mood | VERIFIED-LOCAL on files | live **chat/engagement** signals are NOT captured from live streams (NOT_IMPLEMENTED) |
+| Live | Moment detection signals: speech (STT), audio energy, scene change, kill-feed/gameplay, face mood, live-chat replay/heatmap sidecars | VERIFIED-LOCAL on files | live-chat capture itself is source/YT-DLP sidecar-dependent; real stream UNVERIFIED |
 | Live | Live Priority Mode (claim order + fair-share bypass; per-source UI; API) | VERIFIED-LOCAL | test/live_priority.test.ts, test/ui_live.test.ts |
 | Live | Live monitoring card (status, last chunk, failures, buffer MB) | VERIFIED-LOCAL (Chromium) | |
 | Runtime | 3-lane loop, queue heartbeat, restart recovery | VERIFIED-LOCAL | test/lanes, queue_recovery |
 | Runtime | Termux behaviour (Auto-Pilot, Queue, Live) | UNVERIFIED | `verify-device` produces the evidence |
 | Long video | No duration limit; 60-min section download | MOCK-TESTED + UNVERIFIED | test/longvideo.test.ts (window math); real yt-dlp `--download-sections` untested |
 | Routing | Multi-account/source→many, per-destination enable + delay, bulk distribute UI | VERIFIED-LOCAL (fake provider) | test/source_mapping, ui_bulk, distribute |
-| Routing | Per-destination title/tag policy | NOT_IMPLEMENTED | only enable/priority/delay |
+| Routing | Per-destination title/tag policy | VERIFIED-LOCAL (mapping DB/API) | title prefix/suffix + extra tags are applied per mapped source/destination at upload |
 | Scheduling | Per-account timezone / daily limits / missed-job reschedule | MOCK-TESTED | account_timezone, missed_job |
-| Media | Platform re-encode (size/duration/codec) + FFprobe re-validation, master untouched | VERIFIED-LOCAL | test/derive.test.ts. Horizontal→vertical conversion NOT done (blocked with clear error) |
+| Media | Platform re-encode (size/duration/codec) + FFprobe re-validation, master untouched | VERIFIED-LOCAL | test/derive.test.ts. Horizontal→vertical uses fit_blur-derived 1080x1920 copy |
 | Media | Missing output file → re-render + resume | VERIFIED-LOCAL | test/missing_file.test.ts |
 | YouTube | Upload (resumable), identity guard, reconnect, token health | MOCK-TESTED | fakeGoogle; real upload needs owner login; **Main account needs reconnect** |
 | Meta (FB/IG) | Login/upload/Test Connection | MOCK-TESTED (Test Connection) / BLOCKED_EXTERNAL (login) | needs public HTTPS callback domain |

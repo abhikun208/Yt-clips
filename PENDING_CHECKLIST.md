@@ -1,5 +1,12 @@
 # Pending checklist (from the owner files: Features yt-clips, Prompt, Yt-copyright, improvement)
 
+## 2026-11-21 local completion pass
+- [x] YouTube upload jobs bind the exact destination and use destination-specific idempotency.
+- [x] Unlimited qualified candidate generation (0 = no clip-count ceiling); quality/overlap gates remain.
+- [x] Per-destination mapping metadata: title prefix/suffix and extra tags; delay/priority/enable remain independent.
+- [x] Horizontal→vertical platform derivation uses a fit_blur 1080x1920 derived copy; master stays untouched.
+- [x] Live chat replay/heatmap sidecar parsing was already implemented and is retained; live chat capture against a real stream remains owner/device verified.
+
 `[x]` done and covered by a test, `[ ]` pending, `[-]` deliberately NOT built (reason given).
 
 ## Features file (50 items) -> see docs/FEATURES_STATUS.md

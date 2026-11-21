@@ -19,7 +19,7 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | AI clipping of full timeline | Ssemble/Opus | Heuristic: FFmpeg audio energy+scene+silence (+optional transcript) | DONE (heuristic, not learned) | test/analysis.test.ts, e2e |
 | Intro/outro exclusion (detected, overridable) | Ssemble | FFmpeg black/silence/scene | DONE | boundaries test, real fixture |
 | Auto captions + word-by-word styles (72 presets, 5 modes, Indian scripts) | all / autocap | libass (FFmpeg) + STT adapter | DONE (rendering, verified visually + tests). STT: adapter DONE & tested with a fake engine; real faster-whisper model NOT tested here | test/captions.test.ts, test/adapters.test.ts |
-| Caption translation 30+ langs | Ssemble | Needs MT model/API | NOT IMPLEMENTED | — |
+| Caption translation 30+ langs | Ssemble | Needs MT model/API | PARTIAL (Hinglish/hi/en channel translation; 30+ provider-specific MT not guaranteed) | test/translate.test.ts |
 | Face tracking reframe | Ssemble | OpenCV Haar | PARTIAL (basic; centered fallback recorded in manifest) | tools/face_center.py |
 | Sports/ball tracking | Ssemble | heavy CV | NOT IMPLEMENTED | — |
 | Hook title overlay | Ssemble | ASS animated title | DONE | real frame inspected |

@@ -39,6 +39,18 @@ test('selector: silent/flat content yields no filler clips; too-short window yie
   assert.equal(selectCandidates({ videoKey: 'v', duration: 8, introEnd: 0, outroStart: 8, energy: [], energyStep: 0.5, scenes: [], silence: [], cues: [] }, P).length, 0);
 });
 
+test('maxClips 0 means unlimited generation; quality, overlap and timeline gates still apply', () => {
+  const step = 0.5; const dur = 360;
+  const energy = Array.from({ length: dur / step }, (_, i) => {
+    const t = i * step;
+    return (t >= 20 && t < 70) || (t >= 100 && t < 150) || (t >= 180 && t < 230) || (t >= 260 && t < 310) ? 0.95 : 0.35;
+  });
+  const p = { ...P, minSec: 10, maxSec: 30, targetSec: 20, maxClips: 0 };
+  const c = selectCandidates({ videoKey: 'unlimited', duration: dur, introEnd: 0, outroStart: dur, energy, energyStep: step, scenes: [], silence: [], cues: [] }, p);
+  assert.ok(c.length > 12, `expected genuinely qualified candidates beyond 12, got ${c.length}`);
+  for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) assert.ok(overlapRatio([c[i]!.start, c[i]!.end], [c[j]!.start, c[j]!.end]) <= p.maxOverlap);
+});
+
 test('candidate fingerprints are stable across runs (dedup)', () => {
   const inp = { videoKey: 'v9', duration: 120, introEnd: 0, outroStart: 120, energy: Array.from({ length: 240 }, (_, i) => (i % 40 < 20 ? 0.9 : 0.3)), energyStep: 0.5, scenes: [], silence: [], cues: [] };
   const a = selectCandidates(inp, P), b = selectCandidates(inp, P);

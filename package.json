@@ -16,7 +16,9 @@
     "start": "node --disable-warning=ExperimentalWarning src/server/main.ts",
     "test:real": "node --disable-warning=ExperimentalWarning --test \"test/real/*.test.ts\"",
     "setup": "sh setup.sh",
-    "update": "sh update.sh"
+    "update": "sh update.sh",
+    "setup:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\setup.ps1",
+    "update:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\update.ps1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

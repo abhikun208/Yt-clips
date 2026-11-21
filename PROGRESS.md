@@ -172,6 +172,25 @@ Known: render is slow on 2 vCPU (2 clips of the 90s fixture ~9.5 min incl. zoomp
 - Live full-flow run (real `npm start` process, default 1080x1920, fake STT engine): upload -> transcript (4 cues) -> 2 clips, QC pass, manifest `wordTiming: measured`, SRT/VTT exported, frames inspected (build-coral preset; Latin + Devanagari rendered). Found+fixed a real bug there: multi-line JSON from an STT engine was rejected.
 - No upload/comment code path was ever exercised against a real platform.
 
+## 2026-11-21 — Prompt1 P0 exact YouTube destination routing (local fix)
+- Fixed upload jobs to persist `destination_id` at creation and include that exact destination in the idempotency key.
+- Distribution and direct upload APIs now pass the selected destination through to the queue.
+- YouTube adapter selection now resolves the exact destination secret ref; no cross-account fallback is added.
+- Pre-upload identity guard now reads the exact destination's external channel ID, while preserving `AUTH_IDENTITY_MISMATCH` blocking.
+- Added/strengthened regressions: exact destination IDs are stored independently, two accounts on one clip create separate jobs, and preview/confirm duplicate handling stays destination-specific.
+- Verified locally: `test/distribute.test.ts` passes; exact queue/destination regression passes; `test/destinations.test.ts` + `test/distribution.test.ts` = 11/11 pass.
+- BLOCKED in this environment: ffmpeg/ffprobe/tsc are not on `PATH`, so FFmpeg-dependent/full tests and baseline typecheck could not run. Real YouTube two-account upload and Android Termux remain owner/device-verification work.
+- Next: run a real authenticated unlisted upload on Main and Decider separately, then verify remote channel IDs/video IDs and update this ledger.
+
+## 2026-11-21 — Prompt1 unlimited generation + routing metadata pass
+- Removed the 12-candidate ceiling in selector/API/channel configuration; `maxClips: 0` means unlimited and positive values remain an explicit optional limit.
+- Added an additive `source_destinations.metadata_json` migration for per-destination title prefix/suffix and extra tags.
+- Source mapping API now accepts and persists per-destination metadata without resetting enable/delay/priority.
+- Upload jobs apply mapped title/tag policy immediately before provider upload; each destination remains independent.
+- Implemented horizontal→vertical platform derivation as a master-safe FFmpeg derived copy: blurred background + original fit, 1080x1920, then FFprobe re-validated.
+- Reconciled live chat: `live_chat.json` / `.chat.json` replay and heatmap sidecars already feed candidate selection; direct live chat capture remains a real-stream external blocker.
+- Focused tests passed: analysis 7/7, routing/distribution 4/4, destinations/distribution 11/11, exact destination queue 2/2.
+
 ## PENDING WORK (single source of truth; update every session; features that already exist are NOT listed)
 1. Real-world verification (nothing below ran against real services): real YouTube upload incl. the INVALID_REQUEST_METADATA fix, account-optimizer apply, real LLM SEO output, real whisper.cpp Hinglish captions on real footage, real speaker-follow (needs OpenCV with the Haar cascade; OpenCV 5 builds lack it → static/centre crop), real rclone/cloud, edge-tts/piper voices. → owner is running these now.
 2. Caption studio: drag-and-drop HTML overlay preview — NOT built on purpose (the existing previews are rendered by the same ASS engine as the real output, an HTML overlay would not match). Live node updates use the existing 6 s polling, not WebSockets (no dependency).

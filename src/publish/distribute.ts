@@ -25,10 +25,10 @@ export function distribute(store: Store, cfg: Config, req: { clipIds: number[]; 
       const ch = d.channelSlug ? chans.find((c) => c.slug === d.channelSlug) : undefined; const sched = ch ? scheduleFor(cfg, ch) : undefined; const tz = sched?.timezone ?? cfg.timezone;
       let plannedAt: string | null = null; try { if (ch && sched) plannedAt = planFromStore(store, { n: 1, tz, cfg: sched, from: now, platform, channelId: ch.id }).slots[0]?.at.toISOString() ?? null; } catch { /* preview only */ }
       const own = store.get<{ channel_id: number | null }>(`SELECT s.channel_id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id JOIN sources s ON s.id=v.source_id WHERE c.id=?`, clipId)?.channel_id ?? null;
-      const channelId = ch?.id ?? own ?? undefined; const key = `${platform}:${clip.output_id}${channelId && channelId !== (own ?? channelId) ? `@ch${channelId}` : ''}`;
+      const channelId = ch?.id ?? own ?? undefined; const key = `${platform}:${clip.output_id}@dest:${did}`;
       const dup = store.get('SELECT 1 FROM uploads WHERE idempotency_key=?', key);
       const item: DistItem = { ...base, timezone: tz, plannedAt, status: dup ? 'duplicate' : 'new', ...(dup ? { reason: 'is account par pehle se queue hai' } : {}) }; items.push(item);
-      if (req.confirm && !dup) { queueUpload(store, clipId, platform, channelId); created++; }
+      if (req.confirm && !dup) { queueUpload(store, clipId, platform, channelId, did); created++; }
     }
   }
   return { items, created };

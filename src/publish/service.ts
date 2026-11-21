@@ -25,7 +25,7 @@ import { TelegramAdapter, DiscordAdapter, MastodonAdapter, BlueskyAdapter, Manua
 import { notify } from '../notify.ts';
 import { planFromStore } from '../schedule/analytics.ts';
 import { publicAtFor } from '../autopilot/engine.ts';
-import { destinationBlock, stampUpload } from '../accounts/destinations.ts';
+import { destinationBlock, destinationBlockById, stampUpload } from '../accounts/destinations.ts';
 import { getChannel, listChannels, scheduleFor, ytSecretName, mainChannel, type Channel } from '../channels.ts';
 
 export const secretsFor = (cfg: Config) => SecretStore.forData(cfg.dataDir);
@@ -48,9 +48,16 @@ export async function factsForClip(store: Store, clipId: number): Promise<ClipFa
 export function tokenFor(cfg: Config, ch: Channel): TokenProvider { return new TokenProvider(secretsFor(cfg), ytSecretName(ch)); }
 const channelByUpload = (store: Store, uploadId: number): Channel => { const r = store.get<{ channel_id: number | null }>('SELECT channel_id FROM uploads WHERE id=?', uploadId); return (r?.channel_id ? getChannel(store, r.channel_id) : null) ?? mainChannel(store); };
 
-export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Channel): Adapter {
+export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Channel, destinationId?: string | null): Adapter {
   if (platform === 'dryrun') return new DryRunAdapter();
-  if (platform === 'youtube_shorts' || platform === 'youtube') return new YouTubeAdapter(store, ch ? tokenFor(cfg, ch) : new TokenProvider(secretsFor(cfg)));
+  if (platform === 'youtube_shorts' || platform === 'youtube') {
+    if (destinationId) {
+      const d = store.get<{ secret_ref: string; channel_slug: string | null }>('SELECT secret_ref, channel_slug FROM destinations WHERE id=?', destinationId);
+      if (!d) throw new Error(`DESTINATION_NOT_FOUND: ${destinationId}`);
+      return new YouTubeAdapter(store, new TokenProvider(secretsFor(cfg), d.secret_ref));
+    }
+    return new YouTubeAdapter(store, ch ? tokenFor(cfg, ch) : new TokenProvider(secretsFor(cfg)));
+  }
   if ((platform === 'facebook_reels' || platform === 'instagram_reels') && metaCanPublish(secretsFor(cfg), platform)) { const nm = platform === 'facebook_reels' ? 'facebook' : 'instagram'; const own = ch && ch.slug !== 'main' ? secretsFor(cfg).read<Record<string, string>>(`${nm}-${ch.slug}`) : null; const cred = own && own.access_token ? own : secretsFor(cfg).read<Record<string, string>>(nm); if (cred) return platform === 'facebook_reels' ? new FacebookReelsAdapter(store, cred) : new InstagramReelsAdapter(store, cred); }
   if (isManual(platform)) return new ManualAdapter(platform);
   const info = platformInfo(platform);
@@ -67,13 +74,13 @@ export function listUploads(store: Store) {
 }
 
 export async function advance(store: Store, cfg: Config, uploadId: number, o: { approve?: boolean; scheduledAt?: Date | null } = {}): Promise<{ state: UploadState } | { state: string; blocked: string }> {
-  const u = store.get<{ clip_id: number; platform: string; state: string }>('SELECT clip_id, platform, state FROM uploads WHERE id=?', uploadId);
+  const u = store.get<{ clip_id: number; platform: string; state: string; destination_id: string | null }>('SELECT clip_id, platform, state, destination_id FROM uploads WHERE id=?', uploadId);
   if (!u) throw new Error(`Unknown upload ${uploadId}`);
   const dch = channelByUpload(store, uploadId);
   try { stampUpload(store, cfg, uploadId, dch.slug, u.platform); } catch { /* history label only */ }
-  const off = (() => { try { return destinationBlock(store, cfg, dch.slug, u.platform); } catch { return null; } })(); if (off) return { state: u.state, blocked: off };
+  const off = (() => { try { return u.destination_id ? destinationBlockById(store, cfg, u.destination_id) : destinationBlock(store, cfg, dch.slug, u.platform); } catch { return null; } })(); if (off) return { state: u.state, blocked: off };
   let facts: ClipFacts; try { facts = await factsForClip(store, u.clip_id); } catch (e) { if (/^NOT_READY/.test((e as Error).message)) store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, (e as Error).message.slice(0, 400), uploadId); throw e; } // visible in the Queue tab instead of silently looping
-  try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId)), uploadId, { facts, ...o }) }; }
+  try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId), u.destination_id), uploadId, { facts, ...o }) }; }
   catch (e) { const m = (e as Error).message; if (/^QUOTA_EXCEEDED/.test(m)) void notify(store, cfg, `quota-hit:${quotaDay(new Date())}`, '⏸ YouTube ka daily quota khatam. Uploads kal (midnight Pacific ke baad) apne aap resume honge; video banti rahegi.'); if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
 }
 

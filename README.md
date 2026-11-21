@@ -34,6 +34,8 @@ Safety: publish, public visibility aur comment-posting teeno **default OFF** hai
 
 Chahiye: **Node ≥ 22.18** aur **ffmpeg** (libass wala, normal build mein hota hai). Optional: `yt-dlp` (YouTube se download), `faster-whisper` (transcript), python3+opencv (face tracking), Noto fonts (Hindi captions).
 
+**Windows (PowerShell):** project folder se `npm run setup:windows` chalao (ya `.\setup.ps1`). Ye WinGet se Git, FFmpeg aur Python 3.12 install karta hai (Node.js 22.18+ missing ho to woh bhi), npm dependencies aur optional Python tools including faster-whisper install karta hai, aur local-only `.env` banata hai. Phir dashboard ke liye `npm start` chalao aur `http://127.0.0.1:8080` kholo. Agli baar `npm run update:windows` dependencies/typecheck update karega; GitHub source update sirf clean Git clone mein configured `origin` ke saath hota hai. ZIP/extracted folder se source auto-update nahi ho sakta.
+
 **Sabse aasan (Termux / VPS / Mac): ek command sab install kar deta hai** — ffmpeg, yt-dlp, edge-tts, OpenCV, whisper.cpp + speech model, `.env` (login token). Baad mein sirf dashboard mein API key daalna hai.
 ```bash
 git clone https://github.com/abhikun208/Yt-clips && cd Yt-clips && sh setup.sh
