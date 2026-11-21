@@ -23,7 +23,7 @@ export function screenTitle(title: string | null | undefined, max = 44): string 
  * (frames + speech), writes the title, and this pass prints it as the top strip (whole clip) in ONE light re-encode (audio copied).
  * Optional B-roll cutaways (Pexels, needs key + edit.broll=true) are laid in the same pass. Any failure keeps the untouched clip.
  */
-export async function finishClip(store: Store, cfg: Config, clipId: number, aiTitle: string | null, broll: string[] = [], fetchFn: typeof fetch = fetch): Promise<{ ok: boolean; why?: string; title?: string; broll?: number }> {
+export async function finishClip(store: Store, cfg: Config, clipId: number, aiTitle: string | null, broll: string[] = [], fetchFn: typeof fetch = fetch): Promise<{ ok: boolean; why?: string; title?: string | null; broll?: number }> {
   const row = store.get<{ edited_path: string | null; manifest_path: string | null; output_id: string }>('SELECT edited_path, manifest_path, output_id FROM clips WHERE id=?', clipId);
   if (!row?.edited_path || !row.manifest_path || !existsSync(row.edited_path) || !existsSync(row.manifest_path)) return { ok: false, why: 'files missing' };
   const man = JSON.parse(readFileSync(row.manifest_path, 'utf8')) as { render?: Record<string, any> }; const d = man.render?.titleDeferred as { title: string | null; label: string | null } | null | undefined;

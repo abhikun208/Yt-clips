@@ -40,7 +40,7 @@ export const escFilterPath = (p: string) => p.replace(/\\/g, '/').replace(/:/g, 
 /** Reframe to 9:16 producing label [base]. Exported so the change-measurement baseline uses the identical crop. */
 /** Look-ahead: the whole face track is known offline, so the virtual camera starts moving this many seconds BEFORE the speaker does (anticipation, like a human operator) instead of lagging behind. */
 export const CROP_LEAD_SEC = 0.15;
-export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'cropTrack' | 'facecam' | 'fillIdx' | 'fitZoom' | 'topReserve'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
+export function reframeParts(o: Pick<VideoGraphOpts, 'inW' | 'inH' | 'outW' | 'outH' | 'reframe' | 'cropXFrac' | 'cropTrack' | 'facecam' | 'fillIdx' | 'fitZoom' | 'topReserve' | 'bgColor'>, inLabel = '0:v'): { parts: string[]; treatments: Treatment[] } {
   const parts: string[] = []; const t: Treatment[] = [];
   const aspectIn = o.inW / o.inH; const aspectOut = o.outW / o.outH;
   const alreadyVertical = Math.abs(aspectIn - aspectOut) < 0.02;

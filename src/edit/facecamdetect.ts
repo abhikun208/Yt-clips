@@ -44,7 +44,7 @@ export function findFacecam(frames: Uint8Array[], minConfidence = 0.7): FacecamG
       let bx = left ? zb.x1 : zb.x0; let bcs = colS(bx); for (let d = -14; d <= 2; d++) { const xx = left ? zb.x1 + d : zb.x0 - d; if (left ? xx - zb.x0 < 22 : zb.x1 - xx < 22) continue; const v = colS(xx); if (v > bcs * 1.15) { bcs = v; bx = xx; } }
       zb = { ...zb, ...(top ? { y1: by } : { y0: by }), ...(left ? { x1: bx } : { x0: bx }) };
     }
-    scores[z] = Math.round(Math.min(1, zb.s / 0.10) * 100) / 100; if (!best || zb.s > best.s) best = { z, s: zb.s, ...zb };
+    scores[z] = Math.round(Math.min(1, zb.s / 0.10) * 100) / 100; if (!best || zb.s > best.s) best = { z, ...zb };
   }
   const conf = best ? Math.min(1, best.s / 0.10) : 0; const second = Object.entries(scores).filter(([k]) => k !== best?.z).reduce((a, [, v]) => Math.max(a, v), 0);
   const rectOf = (b: NonNullable<typeof best>) => ({ x: b.x0 / W, y: b.y0 / H, w: (b.x1 - b.x0) / W, h: (b.y1 - b.y0) / H });
