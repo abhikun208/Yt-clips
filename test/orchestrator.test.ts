@@ -150,9 +150,13 @@ test('Anthropic official endpoint: temperature/top_p are not sent there (newer C
 
 test('CI guard: under the test runner the default installers (doctor whisper.cpp, bootstrap setup.sh) never spawn the real script', async () => {
   const { runDoctor } = await import('../src/ops/doctor.ts'); const { testConfig } = await import('./helpers.ts'); assert.ok(process.env.NODE_TEST_CONTEXT, 'node --test sets NODE_TEST_CONTEXT');
-  const before = (await import('node:fs')).readdirSync('/proc').filter((x) => /^\d+$/.test(x)).length; const store = new Store(':memory:');
+  const store = new Store(':memory:');
   await runDoctor(store, testConfig(), { fix: true } as never).catch(() => undefined);
-  const { execSync } = await import('node:child_process'); assert.equal(execSync('pgrep -fc "[i]nstall-whisper-cpp\\.sh" || true').toString().trim(), '0', 'no real installer is running'); void before;
+  const { execFileSync, execSync } = await import('node:child_process');
+  const running = process.platform === 'win32'
+    ? execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'install-whisper-cpp\\.sh' }).Count"]).toString().trim()
+    : execSync('pgrep -fc "[i]nstall-whisper-cpp\\.sh" || true').toString().trim();
+  assert.equal(running, '0', 'no real installer is running');
 });
 
 test('local retention: original + raw cut of a fully published video are deleted after localKeepDays; recent / unfinished videos are kept; edited short stays', async () => {

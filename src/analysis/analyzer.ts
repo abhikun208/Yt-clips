@@ -19,6 +19,7 @@ import { info, warn } from '../util/log.ts';
 import { transcribeVideo } from './stt.ts';
 import { rerankCandidates } from '../ai/rerank.ts';
 import { llmChain } from '../ai/settings.ts';
+import { resolveContentProfile } from './profiles.ts';
 
 export interface AnalysisFile {
   videoId: number; duration: number; introEnd: number; outroStart: number; boundaryReasons: string[];
@@ -51,7 +52,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       const m = await probe(v.path);
       // Speech-to-text only when no transcript sidecar exists and an engine is available. Failure is non-fatal (clips just lack captions).
       if (cfg.stt.mode === 'auto' && m.hasAudio && loadTranscript(v.path.replace(/\.[^.]+$/, '')).length === 0) {
-        const sc = channelOfVideo(store, videoId); const t = await transcribeVideo(cfg, v.path, { language: sc.config.language, prompt: sttPrompt(cfg, sc.config.vocabulary) ?? (sc.profile === 'gaming' ? 'Free Fire gameplay commentary in Hinglish: booyah, headshot, clutch, squad, zone, knocked, rush, 1v4.' : undefined) });
+        const sc = channelOfVideo(store, videoId); const isGaming = sc.profile === 'gaming' || sc.config.contentProfile === 'gaming' || sc.config.contentProfile === 'only_gaming'; const t = await transcribeVideo(cfg, v.path, { language: sc.config.language, prompt: sttPrompt(cfg, sc.config.vocabulary) ?? (isGaming ? 'Free Fire gameplay commentary in Hinglish: booyah, headshot, clutch, squad, zone, knocked, rush, 1v4.' : undefined) });
         if (t.status === 'failed') warn('transcription failed; continuing without captions', { videoId, error: t.error });
       }
       const [silence, scenes, black, en] = await Promise.all([
@@ -68,12 +69,14 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     const chan = channelOfVideo(store, videoId); const external = loadExternalSeries(v.path.replace(/\.[^.]+$/, ''), a.duration);
     if (chan.config.killfeed) { try { const kf = await scanKillfeed(v.path, a.duration, cfg.dirs.tmp, { region: chan.config.killfeed === true ? undefined : chan.config.killfeed }); if (kf) external.push(kf); } catch (e) { warn('killfeed scan failed', { err: (e as Error).message.slice(0, 80) }); } }
     if (external.length) info('external signals used', { videoId, series: external.map((x) => x.name) });
-    let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming', categoryPrior: learnedCategoryPrior(store, chan.id) },
+    const contentProfile = resolveContentProfile(chan.config.contentProfile, cues.map((c) => c.text).join(' '));
+    if (chan.config.contentProfile === 'auto') info('content profile inferred from transcript', { videoId, profile: contentProfile });
+    let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming' || contentProfile === 'gaming' || contentProfile === 'only_gaming', profile: contentProfile, vocabulary: chan.config.vocabulary, categoryPrior: learnedCategoryPrior(store, chan.id) },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
     // A SHORT source (<= clip.shortSourceSec, default 75 s) is already a Short: it becomes exactly ONE final clip (captions, effects, metadata added), never cut into several. An explicit length bucket / whole:false still wins.
     const whole = o.whole === true || (o.whole !== false && !o.length && a.duration > 0 && a.duration <= (cfg.clip.shortSourceSec ?? 75));
     if (whole && !cands[0] && o.whole) throw new Error('whole-range clip needs at least one scored moment in the range; analyse a longer range');
-    if (whole && (cands[0] || !o.whole)) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip. A short source needs no scored moment: even a 10 s upload (shorter than clip.minSec) is one clip
+    if (whole && (cands[0] || (!o.whole && contentProfile !== 'only_gaming'))) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip. Strict gaming profiles never bypass their content gate.
       const t = cands[0] ?? { start: 0, end: a.duration, duration: a.duration, score: 0.5, category: 'general', reason: 'whole range as one clip', hook: '', transcript: '', language: 'hi', confidence: 0.5, signals: {} };
       const st = o.whole ? a.introEnd : 0, en = o.whole ? a.outroStart : a.duration; const txt = textInRange(cues, st, en); const fp = shortHash(`${videoId}:whole:${Math.round(st)}:${Math.round(en)}`, 16);
       cands = [{ ...t, start: st, end: en, duration: +(en - st).toFixed(2), transcript: txt, language: guessLanguage(txt), fingerprint: fp, reason: 'whole range as one clip', hook: sentencesFromCues(cues).find((s) => s.start >= st)?.text.slice(0, 140) ?? t.hook }];

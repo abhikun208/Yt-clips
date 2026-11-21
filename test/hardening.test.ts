@@ -31,6 +31,39 @@ test('STT health check: a provider that rejects the key is skipped in ~no time a
   finally { globalThis.fetch = realFetch; resetDeadSttKeys(); resetHealth(); for (const [k, e] of [['STT_API_KEY', keep.K], ['STT_API_BASE', keep.B], ['GROQ_API_KEY', keep.G]] as const) { if (e === undefined) delete process.env[k]; else process.env[k] = e; } }
 });
 
+test('STT network cooldown still falls through to local-engine discovery on later clips', async () => {
+  const { transcribeVideo, resetApiBreaker, resetDeadSttKeys, resetHealth } = await import('../src/analysis/stt.ts');
+  const { makeFixture } = await import('./helpers.ts'); const d = tmpDir(); const v = join(d, 'v.mp4'); await makeFixture(v, 3);
+  const keep = { K: process.env.STT_API_KEY, B: process.env.STT_API_BASE, G: process.env.GROQ_API_KEY, C: process.env.YT_CLIPS_STT_CMD, L: process.env.YT_CLIPS_STT_LOCAL, V: process.env.YT_CLIPS_VOICESTUDIO_URL };
+  const realFetch = globalThis.fetch; let providerProbes = 0, localRequests = 0;
+  process.env.STT_API_KEY = 'gsk_networktest_12345'; process.env.STT_API_BASE = 'https://api.groq.com/openai/v1';
+  delete process.env.GROQ_API_KEY; delete process.env.YT_CLIPS_STT_CMD; delete process.env.YT_CLIPS_STT_LOCAL; delete process.env.YT_CLIPS_VOICESTUDIO_URL;
+  resetApiBreaker(); resetDeadSttKeys(); resetHealth();
+  globalThis.fetch = (async (u: string | URL | Request) => {
+    if (/\/models$/.test(String(u))) { providerProbes++; throw new TypeError('fetch failed'); }
+    if (String(u).startsWith('http://127.0.0.1:3900/')) {
+      if (String(u).endsWith('/audio/transcriptions')) { localRequests++; return Response.json({ language: 'en', segments: [{ start: 0, end: 1, text: 'test audio' }] }); }
+      return new Response('', { status: 200 });
+    }
+    throw new Error(`Unexpected network request: ${String(u)}`);
+  }) as typeof fetch;
+  try {
+    const cfg = loadConfig(process.cwd(), { dataDir: d, overrides: { stt: { mode: 'auto', model: 'small', language: 'auto', engine: 'api', localEngine: 'voicestudio', voiceStudioUrl: 'http://127.0.0.1:3900' } } });
+    assert.equal((await transcribeVideo(cfg, v)).engine, 'voicestudio');
+    assert.equal((await transcribeVideo(cfg, v)).engine, 'voicestudio');
+    assert.equal(providerProbes, 1, 'network-down provider is skipped during the cooldown');
+    assert.equal(localRequests, 2, 'both clips fall through to the local engine');
+  } finally {
+    globalThis.fetch = realFetch; resetApiBreaker(); resetDeadSttKeys(); resetHealth();
+    for (const [k, e] of [
+      ['STT_API_KEY', keep.K], ['STT_API_BASE', keep.B], ['GROQ_API_KEY', keep.G],
+      ['YT_CLIPS_STT_CMD', keep.C], ['YT_CLIPS_STT_LOCAL', keep.L], ['YT_CLIPS_VOICESTUDIO_URL', keep.V],
+    ] as const) {
+      if (e === undefined) delete process.env[k]; else process.env[k] = e;
+    }
+  }
+});
+
 test('LLM caption fix: brand/proper-noun fixes are applied (timing kept); rewrites, word-count changes and wild edits are refused', async () => {
   const { llmFixCaptions, acceptLine } = await import('../src/ai/captionfix.ts');
   assert.equal(acceptLine('somato se order kiya', 'Zomato se order kiya'), true); assert.equal(acceptLine('yeh baat hai', 'yeh baat bahut zaroori hai'), false); assert.equal(acceptLine('yeh baat hai', 'is topic ke baare'), false);

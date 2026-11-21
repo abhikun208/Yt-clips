@@ -116,8 +116,16 @@ export async function transcribeVideo(cfg: Config, videoPath: string, hint: { la
 }
 async function transcribeCore(cfg: Config, videoPath: string, hint: { language?: string; prompt?: string } = {}): Promise<SttResult> {
   if (!process.env.YT_CLIPS_STT_CMD && cfg.stt.engine !== 'local') {
-    const cands = Date.now() - apiDownAt < 10 * 60_000 ? [] : sttCandidates(cfg).filter((c) => (deadKeys.get(keyId(c))?.until ?? 0) < Date.now()); // circuit breaker: after a network failure the cloud engine is skipped for 10 min (no 1-minute wait per clip)
-    const alive: typeof cands = []; for (const c of cands) { const h = await providerHealth(c); if (h === 'net') { apiDownAt = Date.now(); break; } if (h === 'ok') alive.push(c); else { const n = deadKeys.get(keyId(c))?.n ?? 0; deadKeys.set(keyId(c), { until: Date.now() + BACKOFF_MS[Math.min(n, BACKOFF_MS.length - 1)]!, n: n + 1 }); warn('STT provider skipped (health check)', { host: (() => { try { return new URL(c.baseUrl).host; } catch { return '?'; } })(), fix: fixHint((() => { try { return new URL(c.baseUrl).host; } catch { return ''; } })()) }); } }
+    const networkCooling = Date.now() - apiDownAt < 10 * 60_000;
+    const cands = networkCooling ? [] : sttCandidates(cfg).filter((c) => (deadKeys.get(keyId(c))?.until ?? 0) < Date.now()); // circuit breaker: after a network failure the cloud engine is skipped for 10 min (no 1-minute wait per clip)
+    const alive: typeof cands = []; let networkDown = false;
+    for (const c of cands) {
+      const h = await providerHealth(c);
+      if (h === 'net') { apiDownAt = Date.now(); networkDown = true; break; }
+      if (h === 'ok') alive.push(c);
+      else { const n = deadKeys.get(keyId(c))?.n ?? 0; deadKeys.set(keyId(c), { until: Date.now() + BACKOFF_MS[Math.min(n, BACKOFF_MS.length - 1)]!, n: n + 1 }); warn('STT provider skipped (health check)', { host: (() => { try { return new URL(c.baseUrl).host; } catch { return '?'; } })(), fix: fixHint((() => { try { return new URL(c.baseUrl).host; } catch { return ''; } })()) }); }
+    }
+    if (cfg.stt.engine === 'api' && !networkDown && !networkCooling && alive.length === 0 && (cands.length > 0 || sttCreds(cfg))) return { status: 'failed', cues: [], engine: 'api', error: 'STT provider rejected the key or is cooling down' };
     for (const api of alive) { // saved STT key first, then any other Groq/OpenAI key this install knows: one rejected / out-of-credit key must not silence captions while another works
       try {
         let r = await transcribeViaApi(videoPath, cfg.dirs.tmp, api, { language: sttLang(cfg, hint.language), prompt: hint.prompt ?? cfg.stt.prompt });

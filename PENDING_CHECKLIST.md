@@ -6,27 +6,28 @@
 - [x] Per-destination mapping metadata: title prefix/suffix and extra tags; delay/priority/enable remain independent.
 - [x] Horizontal→vertical platform derivation uses a fit_blur 1080x1920 derived copy; master stays untouched.
 - [x] Live chat replay/heatmap sidecar parsing was already implemented and is retained; live chat capture against a real stream remains owner/device verified.
+- [x] Channel content profiles now tune clip selection (including strict only-gaming and transcript-only auto inference); the legacy account profile and editing behavior are unchanged.
 
 `[x]` done and covered by a test, `[ ]` pending, `[-]` deliberately NOT built (reason given).
 
-## Features file (50 items) -> see docs/FEATURES_STATUS.md
-- [x] 49 of 50 built. 
+## Feature ledger
+- Use `docs/FEATURE_STATUS.md` for current evidence-based classifications; the historical “49 of 50” count is not a current completion claim.
 - [x] 31 B-roll: built (Pexels, opt-in; live download UNVERIFIED)
 
-## Real-world verification (sandbox has no phone / YouTube / cloud) - UNVERIFIED
+## Real-world verification - UNVERIFIED / owner-side
 - [ ] Asli YouTube upload after reconnect (OAuth app must be in Production, tokens die in 7 days in Testing)
-- [ ] Phone: face tracking needs opencv (missing on Termux), render speed
+- [ ] Termux: face tracking/OpenCV availability, local STT accuracy, render speed, and capture behavior
 - [ ] Deploy on Render / Railway / Replit / Fly with the new files (owner must paste the first error line if it fails)
 - [ ] Bluesky adapter against the real service (fake-server tested)
 - [ ] Hindi STT accuracy with Groq whisper-large-v3 on his audio
 
 ## From `improvement`
-- [ ] Hardware encoding / parallel render (render is slow on phone)
-- [ ] Chat-replay based highlight detection (live streams)
-- [ ] Analytics API -> learn which clips work
-- [ ] A/B title test by CTR
-- [x] Gameplay + facecam layout, killfeed, Telegram notifications, multi-channel, Kick/Twitch/YouTube sources
-- [ ] Token encryption mandatory (YT_CLIPS_SECRET_KEY missing -> plaintext 0600 file today)
+- [x] Hardware encoder selection/fallback and parallel render lanes are implemented and locally tested; real GPU/device speed is UNVERIFIED.
+- [x] Chat-replay/heatmap sidecar parsing and highlight signals are implemented; live-stream sidecar availability is UNVERIFIED.
+- [x] Analytics import/learning logic is implemented and stub-tested; real provider analytics are UNVERIFIED.
+- [x] Title rotation/A-B tracking is implemented; real CTR-based conclusions remain UNVERIFIED.
+- [x] Gameplay + facecam layout, killfeed, Telegram notifications, multi-channel, YouTube sources; Kick/Twitch URL support is VOD-only (not live monitoring or upload).
+- [x] Credential vault encrypts stored values with a locally generated key. `YT_CLIPS_SECRET_KEY` can provide an externally managed key; Windows ACL behavior is UNVERIFIED.
 - [ ] LICENSE: the OWNER must choose the licence (nothing chosen for him)
 
 ## From `Yt-copyright` / `Prompt`
@@ -57,9 +58,9 @@
 - [x] Fair Share round-robin (router.ts, tests, UI toggle) - unit/integration VERIFIED in sandbox, real multi-account upload UNVERIFIED
 - [x] Live capture module (live-monitor.ts, tests with fakes) - logic VERIFIED, real live stream UNVERIFIED (needs owner's phone + a live channel)
 - [ ] Hindi STT accuracy on phone - UNVERIFIED (needs phone)
-- [ ] Hardware encoding / parallel render - not built (phone ffmpeg codecs vary; risk of broken renders)
-- [ ] Analytics-driven learning loop + A/B title CTR - partly present (titleTest), needs real analytics data
-- [ ] Token encryption mandatory - not built (owner key choice needed)
+- [x] Hardware encoding / parallel render selection and fallback are implemented and locally tested; phone/GPU performance remains UNVERIFIED.
+- [x] Analytics-driven learning and title rotation are implemented/stub-tested; real analytics data and CTR conclusions remain UNVERIFIED.
+- [x] Token encryption uses the encrypted vault and generated local key; external key management and Windows ACL behavior remain UNVERIFIED.
 - [ ] Bluesky live test, Pexels B-roll live download, face tracking on phone (no opencv on Termux) - UNVERIFIED
 - [ ] OWNER: YouTube OAuth Production + reconnect, real deploy error text, LICENSE, OpenRouter auto-fix key
 - [ ] Source-burned text overlapping our captions - use caption position setting
@@ -73,7 +74,7 @@
 - [x] Sequential lock + BUSY/IDLE UI (fake-yt-dlp verified; phone UNVERIFIED)
 - [x] facecam_top layout (synthetic verified; real footage UNVERIFIED)
 - [ ] OWNER decision: enable storage.freeAfterRender (loses re-render of that video)
-- [ ] Facecam auto-detect (needs face model; not on Termux) - corner presets for now
+- [x] Facecam auto-detect and face-only fallback are implemented and synthetic-tested; Termux and real-footage behavior remain UNVERIFIED.
 
 ## Round 2026-11-14 d
 - [x] Auto facecam (synthetic-verified; real footage UNVERIFIED - watch log 'facecam auto-detect' scores)
@@ -100,7 +101,8 @@
 ## 2026-11-19 additions
 - [ ] Owner: Phone par `git pull && npm start`; Setup → Connected Accounts → **Test** dabao har account par (Main abhi expired hona chahiye) → Main Reconnect.
 - [ ] Owner: Decider ke sources ko Decider channel par assign karo (ya source→destination mapping API) — default Main hai.
-- [ ] Dev: per-account schedule limits, parent batch/PARTIAL_SUCCESS, mapping UI, 8-tab dashboard, Meta/TikTok Test Connection.
+- [x] Per-account schedule limits, source mapping UI, dashboard tabs, and Meta/TikTok Test Connection are implemented/fake-tested; full dynamic-action browser coverage remains partial.
+- [ ] Dev: parent batch/PARTIAL_SUCCESS behavior and full per-destination schedule/metadata profiles.
 - [x] Test Connection Facebook/Instagram/TikTok (fake-server verified; real tokens UNVERIFIED)
 
 - [x] Auto-Pilot lanes / queue heartbeat + restart recovery / live probe+rolling capture / Live Priority Mode / unlimited duration + sectioned download / missing-file re-render (fake-verified; real streams UNVERIFIED)
@@ -111,4 +113,24 @@
 - [x] Platform re-encode with FFprobe re-validation
 - [x] docs/FEATURE_STATUS.md classification
 - [ ] OWNER: run `npm run verify:device -- --capture` on Termux while @ishowspeed is live; share data/device_verification.json
-- [ ] NOT_IMPLEMENTED: live chat/engagement signals, per-destination title/tag policy, horizontal->vertical conversion, AI upscale/2K 16:9
+- [x] Live chat/heatmap sidecar parsing, per-destination title prefix/suffix/tags, and horizontal→vertical derived copies exist; real sidecar capture and platform-specific policy UI are PARTIAL/UNVERIFIED.
+- [ ] AI upscale / 16:9 2560×1440 output is NOT_IMPLEMENTED.
+
+## Final local audit (2026-11-21)
+- [x] PC/VPS PyAV 18 + faster-whisper compatibility checked in isolated Python; synthetic audio decoder smoke test passed.
+- [x] STT provider-network cooldown now continues to local STT on subsequent clips; mocked-provider/local-VoiceStudio regression passed.
+- [x] `npm run typecheck` passed; focused STT tests passed 2/2; orchestration/security tests passed 21/21; isolated stale-output render recovery passed 1/1.
+- [ ] Full `test/logfix.test.ts` suite: its broad run was interrupted at the local-model timeout; only the focused render-recovery test is verified.
+- [x] Local dashboard is running at `http://127.0.0.1:8080` with background automation disabled; Chromium shows the 8 tabs and empty Clips inbox.
+- [x] Project DB read-only check: sources/jobs/videos/clips/uploads/studio generations all contain 0 rows; no live-edit preview exists yet. Default data/output path is this project’s `data/` directory.
+- [ ] Real Termux, live stream, OAuth/account, deployment, provider analytics, and real speech-quality checks remain owner/device-only; no public upload or approval gates were enabled.
+- [ ] Kick live monitoring/capture remains unimplemented; Kick's documented Public API currently requires an app/user access token for livestream queries. No app credentials or account authorization were provided.
+- [-] Automated Kick video upload is not built: the current official API docs do not document a video-upload endpoint. Revisit only if Kick publishes a supported endpoint and the owner explicitly approves account authorization.
+
+## Continued prompt audit (2026-11-21)
+- [x] Content profile API, channel UI, manual strategy scoring, strict only-gaming filtering, conservative transcript-only auto inference, and custom vocabulary are implemented and covered by focused tests.
+- [x] Short-source whole-video fallback now respects only-gaming rejection; verified with a synthetic media + unrelated transcript regression.
+- [x] Existing `src/edit/*` implementation, presets, fonts, effects, transitions, and rendering behavior were not changed.
+- [x] Kick VOD URL parsing is tested; Kick channel/live monitoring and account uploads are not claimed as supported.
+- [ ] Restart the existing localhost dashboard with `npm start` to load the updated profile controls; the current listener still serves pre-change HTML. No active source/job/clip exists for a live editing preview.
+- [ ] Full `test/adapters.test.ts` is not green on this Windows run: 3 fake-yt-dlp/STT adapter tests fail (`0 !== 2`, `spawn EFTYPE`, and missing offline result); the focused URL-validation test passes. Investigate separately before claiming the adapter suite is verified.

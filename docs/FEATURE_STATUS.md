@@ -12,18 +12,26 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | Live | Moment detection signals: speech (STT), audio energy, scene change, kill-feed/gameplay, face mood, live-chat replay/heatmap sidecars | VERIFIED-LOCAL on files | live-chat capture itself is source/YT-DLP sidecar-dependent; real stream UNVERIFIED |
 | Live | Live Priority Mode (claim order + fair-share bypass; per-source UI; API) | VERIFIED-LOCAL | test/live_priority.test.ts, test/ui_live.test.ts |
 | Live | Live monitoring card (status, last chunk, failures, buffer MB) | VERIFIED-LOCAL (Chromium) | |
+| Analysis | Channel content profiles (general/auto/gaming/only-gaming/vlog/mixed/podcast/comedy/reaction/educational/custom) | VERIFIED-LOCAL | test/analysis.test.ts, test/channels.test.ts, test/e2e.test.ts; `auto` infers gaming only from multiple transcript callouts |
+| Analysis | only-gaming content gate, including short-source fallback | VERIFIED-LOCAL | test/analysis.test.ts and test/e2e.test.ts; unrelated short video is rejected |
 | Runtime | 3-lane loop, queue heartbeat, restart recovery | VERIFIED-LOCAL | test/lanes, queue_recovery |
 | Runtime | Termux behaviour (Auto-Pilot, Queue, Live) | UNVERIFIED | `verify-device` produces the evidence |
 | Long video | No duration limit; 60-min section download | MOCK-TESTED + UNVERIFIED | test/longvideo.test.ts (window math); real yt-dlp `--download-sections` untested |
 | Routing | Multi-account/source→many, per-destination enable + delay, bulk distribute UI | VERIFIED-LOCAL (fake provider) | test/source_mapping, ui_bulk, distribute |
 | Routing | Per-destination title/tag policy | VERIFIED-LOCAL (mapping DB/API) | title prefix/suffix + extra tags are applied per mapped source/destination at upload |
+| Routing | Per-destination platform-specific metadata policy | PARTIAL | prefix/suffix/tags exist; dedicated per-platform policy UI and live provider checks remain open |
 | Scheduling | Per-account timezone / daily limits / missed-job reschedule | MOCK-TESTED | account_timezone, missed_job |
 | Media | Platform re-encode (size/duration/codec) + FFprobe re-validation, master untouched | VERIFIED-LOCAL | test/derive.test.ts. Horizontal→vertical uses fit_blur-derived 1080x1920 copy |
 | Media | Missing output file → re-render + resume | VERIFIED-LOCAL | test/missing_file.test.ts |
+| AI | PC/VPS STT dependency/runtime compatibility | VERIFIED-LOCAL (decoder smoke) | Isolated Python with PyAV 18 + faster-whisper decoded a synthetic 16 kHz audio sample; real speech transcription quality is UNVERIFIED |
+| AI | STT provider network cooldown and local fallback | MOCK-TESTED | test/hardening.test.ts uses mocked cloud failure and local VoiceStudio endpoint; no provider credentials or real audio sent |
+| Analytics | Analytics import / learning / title rotation | MOCK-TESTED | local logic and stubs only; real account analytics and CTR evidence are UNVERIFIED |
 | YouTube | Upload (resumable), identity guard, reconnect, token health | MOCK-TESTED | fakeGoogle; real upload needs owner login; **Main account needs reconnect** |
+| Kick | VOD URL allowlist (single video only) | VERIFIED-LOCAL (URL parsing only) | test/adapters.test.ts; actual Kick downloads were not run |
+| Kick | Live monitoring/capture and account video upload | NOT_IMPLEMENTED / BLOCKED_EXTERNAL | Current official docs describe authenticated livestream/channel APIs but no documented video-upload endpoint; no Kick app credentials or account authorization used. See https://docs.kick.com/apis/livestreams.md and https://docs.kick.com/apis/channels.md |
 | Meta (FB/IG) | Login/upload/Test Connection | MOCK-TESTED (Test Connection) / BLOCKED_EXTERNAL (login) | needs public HTTPS callback domain |
 | TikTok | Login/upload/Test Connection | MOCK-TESTED (Test Connection) / BLOCKED_EXTERNAL (Direct Post audit) | manual-post fallback is marked manual, never "uploaded" |
 | Safety | publish / public visibility / auto-comments gates OFF + read-only in UI | VERIFIED-LOCAL | |
-| UI | 8 tabs, controls → real APIs | VERIFIED-LOCAL (Chromium: tabs, live, bulk) | other dynamic buttons covered by API-route tests only |
+| UI | 8-tab dashboard and API wiring | VERIFIED-LOCAL / PARTIAL | Chromium confirms Prompt1 tab labels/order, live and bulk flows; full dynamic-action click-through remains incomplete |
 | AI | Local Ollama slot | BLOCKED_EXTERNAL | not running on owner device |
 | AI | Upscaling / 16:9 2560×1440 | NOT_IMPLEMENTED (secondary) | |

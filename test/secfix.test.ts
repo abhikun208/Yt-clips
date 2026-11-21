@@ -42,9 +42,12 @@ test('5: rclone remote cannot start with - or contain ..', () => {
   assert.equal(validRemote('gdrive:yt-clips/backup'), true);
 });
 
-test('7: data/config.json is written 0600', () => {
+test('7: data/config.json is created; POSIX permissions are restrictive where mode bits are supported', () => {
   const cfg = testConfig(); updateOwnerConfig(cfg, { publishEnabled: false } as never);
-  const f = join(cfg.dataDir, 'config.json'); assert.equal(statSync(f).mode & 0o077, 0, 'no group/other access'); void readFileSync(f); void loadConfig;
+  const f = join(cfg.dataDir, 'config.json');
+  if (process.platform !== 'win32') assert.equal(statSync(f).mode & 0o077, 0, 'no group/other access');
+  else assert.ok(statSync(f).isFile(), 'Windows ACLs are not represented by POSIX mode bits');
+  void readFileSync(f); void loadConfig;
 });
 
 test('3: bootstrap installs once per 24h, respects AUTO_INSTALL=0, never throws', async () => {

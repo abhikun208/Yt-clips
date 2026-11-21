@@ -1,10 +1,15 @@
-# Known issues / owner actions (2026-11-19)
+# Known issues / owner actions (2026-11-21)
 - Real Google/Meta/TikTok login, upload and revoke are UNVERIFIED (sandbox has no accounts).
 - Meta HTTPS callback: needs owner domain/tunnel; GitHub Pages is not a proxy.
 - `yt-dead:main`: reconnect Main (Test user of the OAuth project or its own client in the connect dialog).
-- Source→destination mapping UI is a small per-source row (Sources list); no schedule/metadata profile per mapping yet. "Test connection" works for YouTube only; token-expiry (access token lifetime) is not shown.
+- Source→destination mapping UI is a small per-source row (Sources list); no full schedule/platform-specific metadata profile per mapping yet. Social Test Connection is fake-server tested; real provider tokens are UNVERIFIED. Token-expiry (access token lifetime) is not shown.
 - 2K = conventional upscale only (no AI upscaler); 16:9 2560×1440 output not implemented.
 - Unlimited candidate generation is now the default (`0 = unlimited`), but clip candidates still require quality, overlap and resource gates.
-- Per-destination title/tag policy is implemented; exact platform-specific title/description policies need per-account UI and real provider verification.
-- UI nav is Home/Clips/Publish/Schedule/Insights/Studio/Setup/Create, not the 8-tab layout of Prompt1.
+- Per-destination title prefix/suffix and extra tags are implemented; exact platform-specific title/description policies need per-account UI and provider verification.
+- The 8-tab navigation matches Prompt1. Full dynamic-action click-through coverage is still incomplete.
+- PC/VPS local STT uses the compatible PyAV 18 + faster-whisper combination; local speech accuracy/Hindi quality is UNVERIFIED. Windows ACL protections are not verified by POSIX mode-bit tests.
+- Current project DB has no active source/job/clip/upload to preview. A live editing preview requires an authorized source/job; no demo job was inserted into owner data.
+- Device/provider/deployment checks remain blocked on an owner-run Termux phone, OAuth accounts, live sources, and provider credentials.
+- Channel analysis profiles tune clip selection without changing the legacy account/layout profile or editing implementation. `auto` only infers gaming from multiple transcript callouts; non-gaming specialized profiles must be selected manually.
+- Kick/Twitch links are accepted only as single VOD URLs via yt-dlp. The live monitor remains YouTube-channel-only. Kick's current official API docs list livestream/channel metadata and OAuth scopes but no video-upload endpoint; Kick live/account integration remains unimplemented pending supported API details and owner-provided app credentials/approval.
 - Ollama slot warns when Ollama isn't running (not a defect).

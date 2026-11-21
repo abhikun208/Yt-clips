@@ -66,11 +66,11 @@ if (-not $pythonExe) {
 if (-not $pythonExe) { throw "Python 3.12 install hua lekin interpreter nahi mila. Naya terminal kholo aur setup dobara chalao." }
 
 Write-Host "Installing Python helpers and fast local speech-to-text..." -ForegroundColor Yellow
-$pipArgs = @($pythonPrefix) + @("-m", "pip", "--isolated", "install", "--ignore-installed", "--upgrade", "yt-dlp", "edge-tts", "faster-whisper", "opencv-python-headless", "numpy")
+$pipArgs = @($pythonPrefix) + @("-m", "pip", "--isolated", "install", "--ignore-installed", "--upgrade", "yt-dlp", "edge-tts", "av>=18,<19", "faster-whisper", "opencv-python-headless", "numpy")
 & $pythonExe @pipArgs
 if ($LASTEXITCODE -ne 0) { throw "Python dependencies install nahi hui (pip exit $LASTEXITCODE)." }
 
-$importArgs = @($pythonPrefix) + @("-I", "-c", "import faster_whisper, cv2, numpy")
+$importArgs = @($pythonPrefix) + @("-I", "-c", "import av, faster_whisper, cv2, numpy; assert int(av.__version__.split('.')[0]) == 18")
 & $pythonExe @importArgs
 if ($LASTEXITCODE -ne 0) { throw "Python packages normal install hue, lekin isolated Python import fail hua." }
 

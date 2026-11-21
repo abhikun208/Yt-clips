@@ -19,12 +19,18 @@ test('channels: main exists, create/update validated, main cannot be archived, u
   assert.equal(listChannels(store).length, 1); assert.equal(mainChannel(store).slug, 'main');
   const a = createChannel(store, { name: 'Team Unknown', profile: 'gaming', config: { schedule: { perDayCap: 2 }, platforms: ['youtube_shorts', 'telegram'] } }, ok);
   assert.equal(a.slug, 'team-unknown'); assert.equal(a.profile, 'gaming'); assert.equal(ytSecretName(a), 'youtube-team-unknown'); assert.equal(ytSecretName(mainChannel(store)), 'youtube');
+  const profiled = createChannel(store, { name: 'Learning Channel', config: { contentProfile: 'educational' } }, ok);
+  assert.equal(profiled.profile, 'general', 'analysis profile must not change the legacy editing profile');
+  assert.equal(profiled.config.contentProfile, 'educational');
+  assert.throws(() => createChannel(store, { name: 'Bad profile', config: { contentProfile: 'made-up' } }, ok), /contentProfile/);
   assert.throws(() => createChannel(store, { name: 'x' }, ok), /invalid/);
   assert.throws(() => createChannel(store, { name: 'Bad one', config: { gates: {} } }, ok), /unknown/);
   assert.throws(() => createChannel(store, { name: 'Bad two', config: { platforms: ['myspace'] } }, ok), /invalid/);
   assert.throws(() => updateChannel(store, mainChannel(store).id, { archived: true }, ok), /main/);
   const b = updateChannel(store, a.id, { config: { schedule: { minGapMinutes: 90 } } }, ok);
   assert.equal(b.config.schedule?.perDayCap, 2, 'schedule patch merges'); assert.equal(b.config.schedule?.minGapMinutes, 90);
+  const updatedProfile = updateChannel(store, profiled.id, { config: { contentProfile: 'only_gaming' } }, ok);
+  assert.equal(updatedProfile.config.contentProfile, 'only_gaming');
   const cfg = loadConfig(process.cwd(), { dataDir: tmpDir() }); assert.equal(scheduleFor(cfg, b).perDayCap, 2); assert.equal(scheduleFor(cfg, mainChannel(store)).perDayCap, cfg.schedule.perDayCap);
 });
 
@@ -55,6 +61,10 @@ test('channel API: create/policy/plan/calendar; source assignment; gates not set
   try {
     const post = (p: string, b: unknown) => fetch(base + p, { method: 'POST', headers: auth, body: JSON.stringify(b) });
     const c = await (await post('/api/channels', { name: 'Decider Gaming', profile: 'gaming' })).json() as { channel: { slug: string } }; assert.equal(c.channel.slug, 'decider-gaming');
+    const profileResponse = await post('/api/channels', { name: 'Podcast Channel', config: { contentProfile: 'podcast' } });
+    assert.equal(profileResponse.status, 200);
+    assert.equal((await profileResponse.json() as { channel: { config: { contentProfile: string } } }).channel.config.contentProfile, 'podcast');
+    assert.equal((await post('/api/channels', { name: 'Invalid profile', config: { contentProfile: 'arbitrary' } })).status, 400);
     assert.equal((await post('/api/channels/decider-gaming', { config: { schedule: { perDayCap: 3, minGapMinutes: 45 }, platforms: ['youtube_shorts', 'telegram'] } })).status, 200);
     assert.equal((await post('/api/channels/decider-gaming', { config: { gates: { publishEnabled: true } } })).status, 400);
     assert.equal((await post('/api/channels/decider-gaming', { config: { schedule: { perDayCap: 999 } } })).status, 400);
