@@ -428,3 +428,946 @@ Then platform adapters, independent scheduling, mapping UI and dashboard.
 Then continue through all remaining locally implementable gaps.
 
 Do the work. Do not return only a plan.
+
+
+
+# PROMPT 1 — YT-CLIPS COMPLETE AUTONOMOUS IMPLEMENTATION
+# UNLIMITED CLIPS | SMART EDITING | LIVE CAPTURE | EXACT ROUTING |
+# SCHEDULED PUBLISHING | CONTINUOUS ANALYTICS LEARNING
+
+You are the senior engineer, architect, QA engineer, and autonomous implementation
+agent for my existing Android Termux project.
+
+PROJECT:
+~/Yt-clips
+Node.js + TypeScript
+Existing GitHub project and real user data.
+This is an EXISTING PROJECT. Do not rebuild it from scratch.
+
+==================================================
+1. PRIMARY MISSION
+==================================================
+
+Improve the existing Yt-clips system into a reliable autonomous content pipeline:
+
+SOURCE MONITORING
+→ LIVE / VIDEO DETECTION
+→ CONTENT ANALYSIS
+→ UNLIMITED QUALIFIED CLIP CANDIDATES
+→ SMART CONTENT-AWARE EDIT ENHANCEMENT
+→ RENDER
+→ QUALITY CONTROL
+→ EXACT SOURCE-TO-CHANNEL ROUTING
+→ PER-CHANNEL SCHEDULING
+→ UPLOAD
+→ VERIFY
+→ ANALYTICS
+→ PERFORMANCE DIAGNOSIS
+→ LEARNING
+→ IMPROVE FUTURE CLIPS
+→ REPEAT
+
+Do not merely create a report or analysis and stop.
+When a fix or improvement is supported by evidence, implement it safely,
+test it, record it, and use the results to improve future work.
+
+Work autonomously through all phases in order, but never bypass safety rules.
+Do not ask me to approve every harmless code step.
+Only stop for genuinely blocked tasks, dangerous/destructive actions,
+locked-file conflicts, credentials/account changes, or decisions requiring
+my authorization.
+
+==================================================
+2. NON-NEGOTIABLE SAFETY RULES
+==================================================
+
+- Preserve all existing project files, work, functionality, settings and data.
+- DATABASE_RESET=NO.
+- Never drop, truncate, reset, wipe or recreate the database.
+- Never run git reset --hard, git clean, force push, history rewrite,
+  or destructive cleanup.
+- Never delete existing clips, videos, renders, media, credentials,
+  OAuth tokens, account connections, user settings or job history.
+- Preserve untracked files, including check_keys.js and package-lock.json
+  if present. Do not overwrite or remove them.
+- Never print secrets, API keys, tokens, OAuth client secrets or passwords.
+- Never recreate deleted MASTER_PROMPT.md or FINAL_AUTONOMOUS_ENGINE_PROMPT.txt.
+- MASTER_RUN_PROMPT.md is the project source of truth.
+- PROGRESS.md is the progress ledger.
+- Also respect BRAIN.md, PENDING_CHECKLIST.md and docs/FEATURE_STATUS.md
+  if they exist.
+- Do not create additional giant memory/prompt documents unnecessarily.
+- Do not overwrite unrelated changes.
+- Do not commit or push without reviewing changed files and obtaining
+  explicit authorization if required by existing project policy.
+- Do not claim a test passed unless its actual output proves it.
+- Cloud/sandbox tests are not proof of Android Termux runtime success.
+- No full livestream downloads. Live capture must remain rolling,
+  bounded and dependency-safe.
+- Publishing, public auto-release, auto-approval, auto-comment replies,
+  account reconnection and other sensitive actions must remain gated
+  unless explicitly authorized.
+- Do not silently enable any dangerous autopilot setting.
+- Do not automatically switch OAuth accounts or route to the most recently
+  connected account.
+- If a task conflicts with a locked file or requires a risky migration,
+  stop that specific task, document the blocker, and continue other
+  independent safe tasks.
+
+==================================================
+3. EXISTING EDITING SYSTEM IS LOCKED
+==================================================
+
+My existing editing work is important. Do not damage or replace it.
+
+LOCKED:
+- src/edit/*
+- Existing edit presets
+- Effects
+- Transitions
+- Fonts
+- Caption styles
+- Templates
+- Render configuration
+- Encoding settings
+- Existing edit behavior and workflows
+
+Do not modify, replace, reset, simplify, remove, or reformat locked editing
+code/config just to make a new feature easier.
+
+New editing intelligence must be implemented as a separate, non-destructive,
+compatible enhancement layer where possible.
+
+If the improvement cannot be safely integrated without modifying locked files:
+- Do not bypass the lock.
+- Do not edit those files.
+- Document the exact dependency/blocker.
+- Continue other work that does not depend on it.
+
+==================================================
+4. TOKEN / CONTEXT EFFICIENCY
+==================================================
+
+Use Claude's context and tokens efficiently.
+
+- Do not repeatedly read the entire repository.
+- Do not print giant files, logs, database dumps, or full test output
+  unless genuinely required.
+- Read existing project ledgers first.
+- Inspect only the files relevant to the current phase.
+- Avoid repeating completed work.
+- Do not run duplicate audits or the same tests without a reason.
+- Prefer focused tests, targeted typechecks and relevant regressions.
+- Summarize tool outputs instead of dumping them into chat.
+- Keep progress records concise but sufficient for continuation.
+- If context/token budget is running low, finish the current safe operation,
+  save exact progress and stop with a handoff.
+- Never pretend all phases completed if they did not.
+
+Persistent context must be saved in the existing project files, not rely
+only on this Claude chat.
+
+At each phase completion, update PROGRESS.md and relevant existing ledger(s)
+with:
+- Phase status
+- Actual work completed
+- Files changed
+- Tests actually run
+- Test results
+- Known failures
+- Unverified Android/service behavior
+- Locked-file conflicts
+- Remaining tasks
+- Exact next phase/step
+
+Do not start the next phase if the current phase has unresolved safety,
+data-integrity or architectural blockers.
+
+==================================================
+5. PHASE 0 — READ-ONLY PROJECT AUDIT
+==================================================
+
+Before changing code:
+
+1. Check git branch, current commit and git status.
+2. Preserve all existing and untracked changes.
+3. Read MASTER_RUN_PROMPT.md, PROGRESS.md, BRAIN.md,
+   PENDING_CHECKLIST.md and docs/FEATURE_STATUS.md when present.
+4. Inspect current system architecture and identify existing working features.
+5. Audit source IDs, video records, clip records, routing, OAuth,
+   queue, scheduler, rendering, live capture, analytics and dashboard.
+6. Audit arbitrary clip-count limits separately from daily upload limits.
+7. Audit duplicate detection, idempotency and upload retries.
+8. Audit current intro/outro/promotion handling.
+9. Audit existing editing system WITHOUT modifying locked files.
+10. Audit gaming and non-gaming content classification capabilities.
+11. Audit rolling live capture, chunks, storage caps, restart recovery,
+    chunk dependencies and cleanup safety.
+12. Audit account isolation and channel mapping.
+13. Audit analytics data collection and learning behavior.
+14. Audit current autopilot/public/comment gates.
+15. Inspect known failures, including current TypeScript/test failures.
+    Re-check whether they still exist; do not assume old errors are current.
+16. Identify database migration needs without executing migrations.
+
+Do not dump the entire repository.
+Use focused inspection.
+
+Create a concise phased plan in the existing progress ledger.
+Proceed to implementation only after the audit is understood.
+If an essential blocker exists, report it and continue safe independent phases.
+
+==================================================
+6. UNLIMITED CLIP GENERATION
+==================================================
+
+My requirement is NO ARBITRARY FIXED CLIP GENERATION LIMIT per source/video.
+
+Do not enforce artificial caps such as:
+- 3 clips per video
+- 5 clips per video
+- 10 or 12 clips per video
+- Any fixed clip-count ceiling that prevents otherwise qualified clips
+
+A source/video/live session may generate 0, 1, or many clips depending on
+its real content and quality.
+
+"Unlimited" means no arbitrary clip-count ceiling, NOT unlimited resource use.
+
+Maintain safe controls for:
+- CPU/RAM concurrency
+- Disk/storage capacity
+- Backlog management
+- API rate limits
+- Retry limits
+- Quality gates
+- Duplicate/overlap detection
+- Scheduling and publishing quotas
+
+If the system is resource constrained, queue work safely and resume later.
+Never delete final clips or user data to make room.
+
+Analyze the entire eligible video/source content rather than stopping after
+a fixed number of detected moments.
+
+Clip candidate types should include, where relevant:
+
+GAMING:
+- Clutch moments
+- Epic plays
+- Wins and comebacks
+- Fails and unexpected outcomes
+- Funny gameplay
+- Reactions
+- Challenges
+- Strategies and tips
+- Discoveries
+- Suspense
+- Interesting gameplay stories
+- Action/payoff sequences
+
+GENERAL / NON-GAMING:
+- Funny moments and punchlines
+- Reactions
+- Interesting dialogue
+- Meaningful stories
+- Strong statements with context
+- Educational explanations
+- Tutorials and useful tips
+- Surprising events
+- Emotional moments
+- Suspense/payoff
+- Podcast/interview highlights
+- Mini-stories formed from connected moments
+
+Requirements:
+- Detect moments based on actual content, not arbitrary clip quotas.
+- Avoid overlapping or near-identical candidates.
+- Preserve complete thoughts and context.
+- Use natural starts and endings.
+- Do not force a minimum number of clips.
+- If no useful moments exist, produce zero clips and record why.
+- A long source may yield many distinct candidates if each is genuinely
+  valuable and unique.
+- Unlimited candidate creation must not bypass QC or route verification.
+- Prevent repeated processing from creating duplicate candidates after restart.
+
+==================================================
+7. INTERNAL CLIP IDENTITY AND ROUTING
+==================================================
+
+Use clip IDs to manage upload routing and clip jobs internally.
+Do not create unnecessary visible source-tracking overlays.
+
+Every clip must have a stable, unique internal clip ID.
+
+Use or extend existing identifiers where possible:
+- Source ID
+- Original video/live session ID, where needed by existing system
+- Clip ID
+- Edit version ID
+- Route/destination ID
+- Upload job ID
+- Actual platform upload ID after successful upload
+
+Do not duplicate or invent competing ID systems if existing IDs are suitable.
+
+Clip IDs are INTERNAL:
+- Never burn clip IDs into the video.
+- Never burn source IDs into the video.
+- Never display account/channel IDs or original links in the video.
+- Do not add tracking labels, timestamps, debug text or metadata overlays.
+- Internal IDs must not change visual design.
+
+Routing requirements:
+1. Every clip must inherit the source's configured route.
+2. The destination must be resolved from explicit mapping, not the latest
+   connected OAuth account.
+3. A source may map to one destination or multiple explicitly selected
+   destinations.
+4. If a clip is routed to multiple destinations, create independent upload
+   jobs for each destination, while reusing the same clip artifact.
+5. Each upload job must bind to the exact destination account/channel/platform.
+6. Missing, disabled, ambiguous, disconnected or invalid routes must block
+   upload to that destination.
+7. Never silently fallback to another account.
+8. Mapping changes must not silently reassign already-created pending jobs.
+9. Upload retry must be idempotent.
+10. Prevent duplicate uploads of the same clip to the same destination
+    unless an explicit, authorized action permits it.
+11. Preserve historical records.
+12. No destructive DB migrations. If a migration is necessary, design a
+    backward-compatible proposal, document it, and do not execute destructive
+    operations.
+
+Provide a route preview/diagnostic where the existing dashboard/API allows:
+Source → Clip ID → Route → Destination Channel → Account → Platform
+→ Schedule → Upload Status
+
+The route preview must explain why the destination was selected.
+
+==================================================
+8. CONTENT CLEANUP: INTRO, PROMOTIONS, LOGOS
+==================================================
+
+Detect and skip irrelevant segments when technically safe:
+
+- Unnecessary channel intro
+- Separate logo animation
+- Promotional intro
+- Sponsor/product advertisement
+- Social media promotion
+- Promotional banner or irrelevant promo screen
+- Repetitive self-promotion
+- Unnecessary outro
+- Long silence
+- Waiting/loading screen where irrelevant
+
+IMPORTANT SPOKEN CONTENT RULE:
+Spoken "subscribe", "like", "comment" or natural reminders are NOT
+automatically unwanted.
+
+Normally PRESERVE spoken subscribe/like/comment reminders when they form
+part of natural dialogue or content.
+
+Do not cut dialogue just because it mentions subscribing.
+
+Use context-aware segmentation:
+- Preserve useful content overlapping an advertisement/promotion.
+- Do not delete a large segment blindly.
+- Recheck the cut for sentence continuity, timing, context and payoff.
+- Avoid cuts mid-word, mid-sentence, mid-action or before a punchline.
+- Trim unnecessary pauses without destroying natural timing.
+
+LOGO / WATERMARK RULE:
+- Do not add source logos, channel branding, promotional overlays or internal
+  tracking labels to the final clip.
+- For my own or authorized assets, remove unwanted logos/overlays when
+  technically safe and permitted.
+- Do not remove or obscure third-party watermarks/logos in order to hide
+  ownership, disguise copied content or misrepresent content as mine.
+- If a third-party watermark is embedded and cannot be safely/legitimately
+  removed, do not deceptively conceal it; report it or reject that candidate
+  for the intended publishing workflow.
+- Do not damage footage with aggressive crop, blur, paint-over or artifacts.
+
+==================================================
+9. SMART EDIT ENHANCEMENT — GAMING SHORTS
+==================================================
+
+The editing system must classify content and make gaming-aware edit decisions.
+
+Gaming improvements:
+- Preserve important gameplay action.
+- Smart vertical reframing without losing HUD/minimap/score/health/kill feed
+  or important game UI.
+- Detect gameplay focus and subject/action.
+- Support facecam + gameplay layouts when present.
+- Keep facecam and gameplay legible and balanced.
+- Detect clutch, action, win, fail, funny moment, reaction, tutorial,
+  strategy, suspense and payoff.
+- Use suitable pacing and natural clip boundaries.
+- Keep essential gameplay audio.
+- Add useful captions, graphics or callouts only when contextually helpful.
+- Use subtle motion/zoom only where beneficial.
+- Avoid excessive zoom, shake, flashes, blur, transitions, effects and
+  graphics that obscure gameplay.
+- Do not force the same effect stack/template on every gaming clip.
+- Preserve game-specific context and UI readability.
+
+==================================================
+10. SMART EDIT ENHANCEMENT — NORMAL / NON-GAMING SHORTS
+==================================================
+
+Adapt editing decisions to content type.
+
+TALKING / PODCAST / INTERVIEW:
+- Speaker-aware crop/reframing.
+- Keep context and dialogue complete.
+- Trim unnecessary dead air.
+- Accurate subtitles.
+- Readable line breaks and safe zones.
+- Selectively emphasize important words.
+- Subtle visual changes only when useful.
+- Avoid distracting zooms and effects.
+
+COMEDY / REACTION:
+- Preserve setup and punchline.
+- Respect natural timing.
+- Keep facial reactions and relevant context.
+- Use appropriate emphasis without clutter.
+
+EDUCATIONAL / TUTORIAL:
+- Preserve step sequence and explanation.
+- Highlight relevant visual information.
+- Use clean, helpful callouts/graphics where appropriate.
+- Captions must be accurate and readable.
+
+STORY / DOCUMENTARY:
+- Maintain narrative continuity.
+- Preserve necessary context.
+- Use appropriate pacing and clean transitions.
+- Avoid misleading edits.
+
+Classify content before selecting an enhancement profile.
+Do not force a gaming profile on normal content or vice versa.
+Support other content types through extensible profiles.
+
+==================================================
+11. QUALITY ENHANCEMENT: HD / OPTIONAL 4K
+==================================================
+
+Preferred output:
+- Vertical 1080x1920 Full HD when source supports it and the existing
+  pipeline can safely produce it.
+- High-quality scaling and encoding.
+- Optional higher-resolution/4K vertical export only when configurable,
+  source quality, device resources and current pipeline support it.
+- Never claim upscaling recovers genuine missing source detail.
+
+Enhancement opportunities, only in a safe separate layer:
+- Resolution/source quality inspection.
+- High-quality resampling.
+- Context-aware crop/reframe.
+- Color balance, brightness, contrast and saturation correction.
+- Selective sharpening without halos.
+- Noise handling only where useful.
+- Audio loudness consistency.
+- Speech clarity and safe noise reduction.
+- Background audio ducking when appropriate.
+- Caption synchronization and readability.
+- Avoid unnecessary compression damage.
+- Verify final file resolution, FPS, audio/video sync, duration and decode.
+
+Do not modify locked encoding/render settings.
+Do not force 4K processing on the Android device if it risks crashing,
+storage exhaustion or extreme processing cost.
+Use a safe queue and optional profile when supported.
+Record source resolution and output resolution honestly.
+
+==================================================
+12. CONTENT QUALITY GATE
+==================================================
+
+Unlimited candidates must not mean unlimited low-quality uploads.
+
+Evaluate candidates using evidence-based signals:
+- Hook/first seconds
+- Content value/entertainment
+- Context completeness
+- Natural beginning/end
+- Audio clarity
+- Visual quality
+- Pacing
+- Dead air
+- Uniqueness
+- Clip length suitability
+- Caption accuracy
+- Editing quality
+- Audience relevance
+
+Reject or hold low-quality candidates.
+Do not force clip production when no suitable moment exists.
+A quality gate is not an arbitrary clip-count cap.
+
+==================================================
+13. LIVE CAPTURE AND LIVE PRIORITY
+==================================================
+
+Live capture is a separate, high-priority workflow.
+
+Monitor source states distinctly:
+- Offline
+- Scheduled
+- Starting
+- Actually live
+- Ended
+- Temporarily disconnected
+- Unknown/error
+
+Do not mistake scheduled status for an actually live stream.
+
+When a stream is confirmed starting/live:
+1. Begin bounded rolling capture, not full-stream download.
+2. Capture short segments/chunks.
+3. Save live session identity and chunk timestamps/state.
+4. Keep buffer/storage under configured safe limits.
+5. Detect reconnects and stream restarts.
+6. Use timeouts, bounded retries and backoff.
+7. Do not poll indefinitely.
+8. Prioritize live capture according to configured source priority.
+9. Do not let one source failure block others.
+
+Live highlight signals:
+- Excited reactions
+- Laughter
+- Unexpected dialogue
+- Gameplay events
+- Clutch/action moments
+- Interesting or useful content
+- Suspense and payoff
+- Strong reactions
+- Meaningful scene changes
+
+Do not create a clip from every signal blindly.
+Check uniqueness, context, clip boundaries, quality and overlap.
+
+While live priority is active:
+- Give confirmed live capture and live highlight processing priority.
+- Reduce/pause normal-video work if necessary according to safe resource
+  policy.
+- Avoid flooding the editing queue.
+- Preserve live chunks until all dependent processing/render/QC tasks are
+  safely complete.
+
+When the live ends:
+- Confirm ended/offline state.
+- Finalize capture state.
+- Reconcile incomplete chunks and gaps.
+- Finalize candidate moments.
+- Process pending live highlights safely.
+- Then resume normal source scanning according to priority policy.
+
+Recovery:
+- Persist capture state.
+- Record last valid chunk.
+- Reconnect safely when stream is still live.
+- Mark missing gaps honestly.
+- Prevent duplicate segments/clips.
+- Respect storage caps and backoff.
+- Never delete chunks with active dependencies.
+- Only remove temporary chunks after dependency checks and verified output
+  completion, according to existing safe retention policy.
+
+Multiple live sources:
+- Respect configured priority and safe concurrency.
+- Avoid device overload.
+- Maintain isolated session identities and queues.
+
+Real Android capture must not be claimed verified unless tested on Termux.
+
+==================================================
+14. SOURCE SCAN AND FAIRNESS
+==================================================
+
+Support multiple sources concurrently and fairly.
+
+Modes, if supported by existing architecture:
+- Live priority
+- Source round-robin
+- Continuous selected source
+- New/recent video priority
+- Source-to-account mapping
+- Configured multi-route
+- Fair share within explicitly mapped destinations
+
+Rules:
+- No random account routing.
+- Fair rotation cannot override source mapping.
+- Do not endlessly rescan the same old videos.
+- Prefer new/recent eligible videos according to configured scan policy.
+- Older videos may be fallback when appropriate and enabled.
+- Skip failed/offline sources without blocking other sources.
+- Use bounded retries/backoff.
+- Prevent duplicate video analysis and candidate extraction.
+- Do not create an upload flood just because clip generation is unlimited.
+
+==================================================
+15. SCHEDULING AND PUBLISHING
+==================================================
+
+Generation and publishing limits are separate.
+
+CLIP GENERATION:
+No arbitrary fixed clip count ceiling.
+
+PUBLISHING:
+Respect per-channel/per-account/per-platform schedule and configured limits.
+
+Per destination:
+- Schedule/timezone
+- Daily publishing cap
+- Minimum gap between posts
+- Quiet hours
+- Queue
+- Source priority
+- Live priority
+- Platform rate limits
+- Retry window
+- Backlog handling
+
+Rules:
+- Clips remain queued when schedule slots are full.
+- Do not delete clips because today's slots are full.
+- Do not instantly publish queued clips to bypass schedules.
+- A clip only goes to explicitly mapped destination(s).
+- Multi-route destinations have independent upload states and schedules.
+- Route/account mismatch blocks publishing.
+- Disconnected OAuth remains pending/blocked safely.
+- Retry must not cause duplicate uploads.
+- Verify the destination channel and uploaded video ID.
+- Public release must respect configured authorization/gates.
+- Do not enable public autopilot or auto-approval automatically.
+- No account reconnection or OAuth consent action without user permission.
+- No automatic cross-account fallback.
+
+Use configured timezone, typically Asia/Kolkata, and verify schedule math.
+
+==================================================
+16. METADATA AND PACKAGING
+==================================================
+
+Metadata must be based on the actual clip content and selected destination.
+
+Generate:
+- Clip-specific title
+- Accurate description
+- Relevant tags/keywords where supported
+- Appropriate hashtags, without spam
+- Thumbnail/cover if current system supports it
+
+Requirements:
+- Do not use generic repeated titles.
+- Do not invent dialogue, events or claims.
+- Avoid duplicate titles on the same destination.
+- Do not use misleading clickbait.
+- Respect channel niche/branding.
+- Keep metadata appropriate to the clip.
+- Metadata generation must not claim unsupported source ownership.
+- Preserve existing working metadata features; audit before replacing.
+
+==================================================
+17. ANALYTICS AND CONTINUOUS LEARNING
+==================================================
+
+Do not analyze performance and then stop.
+
+For every published clip/destination, collect actual available data:
+- Views
+- Likes
+- Comments
+- Shares, where available
+- Watch time
+- Average view duration
+- Retention/percentage viewed, where available
+- Audience response signals, where available
+
+Missing data must be "unavailable", not fabricated as zero.
+
+Wait for meaningful analytics windows. Avoid judging a clip too early.
+Record clip ID, channel/destination, content category, duration, hook type,
+editing profile/version, metadata version, schedule and actual metrics.
+
+Analyze possible performance problems:
+- Weak hook
+- Wrong clip selection
+- Missing context
+- Too long/too short
+- Pacing
+- Caption accuracy/readability
+- Audio/video quality
+- Topic relevance
+- Title/thumbnail packaging
+- Posting time
+- Audience mismatch
+- Distribution limitations
+
+Do not assume low views have one definite cause.
+Distinguish actual evidence from hypotheses.
+Compare similar clips and avoid overfitting small samples.
+
+Learning loop:
+1. Collect verified metrics.
+2. Diagnose probable weakness/strength.
+3. Record evidence and confidence.
+4. Propose a bounded change.
+5. Apply safe changes to future selection, hooks, pacing, metadata or schedule.
+6. Version the change.
+7. Compare results.
+8. Keep, revert or refine based on evidence.
+9. Continue learning.
+
+Editing presets, transitions, effects, caption styles, fonts, templates,
+render settings and locked editing code must never be changed by the
+learning system.
+
+Do not automatically alter already-published clips.
+Do not promise viral views.
+Optimize responsibly for viewer satisfaction, relevance, retention, watch
+time and genuine engagement—not spam or deceptive engagement bait.
+
+==================================================
+18. COMMENT SYSTEM
+==================================================
+
+Audit existing comment functionality.
+
+If comment replies are supported:
+- Keep disabled/approval-gated unless explicitly authorized.
+- Use correct channel/account identity.
+- Reply only when relevant.
+- Avoid repeated canned replies.
+- No mass replies or spam.
+- Apply rate limits.
+- Skip sensitive, private, dangerous, legal, medical or controversial
+  situations requiring careful human judgment.
+- Never expose private user information.
+- Log actions safely without secrets.
+
+Do not enable automated comments merely because the pipeline exists.
+
+==================================================
+19. DASHBOARD AND OPERATIONS
+==================================================
+
+Improve existing dashboard without removing current functionality.
+
+Provide accurate visibility for:
+
+SOURCES:
+- Source identity
+- Live/offline/error state
+- Last scan
+- Current session
+- Mapped destinations
+- Scan failures/retry state
+
+CLIPS:
+- Total generated
+- Processing
+- Rendered
+- QC passed
+- QC failed
+- Unrouted
+- Waiting for schedule
+- Scheduled
+- Uploading
+- Published/verified
+- Retry/blocked
+- Duplicate prevented
+
+LIVE:
+- Active sessions
+- Capture state
+- Chunk/buffer count
+- Storage usage
+- Reconnect attempts
+- Missing gaps
+- Pending live candidates
+
+ROUTING:
+Source → Clip ID → Destination channel/account/platform
+→ Schedule → Upload status
+
+SCHEDULING:
+- Per-channel calendar
+- Available slots
+- Pending backlog
+- Daily limits/gaps
+- Quiet hours
+- Destination-specific queues
+
+ANALYTICS:
+- Actual available metrics
+- Unavailable metrics distinguished from zero
+- Performance comparisons
+- Learning hypotheses
+- Change versions
+- Outcomes
+
+ERRORS:
+- Clear diagnostics
+- Retry state
+- Safe redaction
+- No secrets exposed
+
+Do not create inert buttons or decorative controls that do nothing.
+Preserve existing routes, data and controls.
+Avoid a complete dashboard rewrite unless existing architecture makes
+incremental improvement impossible; if so, document the reason first.
+
+==================================================
+20. STORAGE, QUEUE AND FAILURE RESILIENCE
+==================================================
+
+- Use resource-aware concurrency.
+- Prevent queue duplication.
+- Use idempotent stage/job keys.
+- Persist progress between stages.
+- Recover safely after process restart.
+- Handle network loss.
+- Handle source/API timeouts.
+- Handle missing chunks.
+- Handle render failure.
+- Handle duplicate output IDs.
+- Handle OAuth expiry/disconnection.
+- Handle upload verification failure.
+- Handle analytics unavailable.
+- Use bounded retries and backoff.
+- Do not delete final output or user data.
+- Do not delete active dependencies.
+- Temporary asset cleanup only after verified dependency checks and safe
+  retention rules.
+- If disk/RAM limit reached, pause or defer work safely; never solve
+  storage problems by wiping user files.
+
+==================================================
+21. PHASE EXECUTION ORDER
+==================================================
+
+Execute the following sequential phases as internal loops.
+Do not skip phases. Do not start everything simultaneously.
+
+PHASE 0 — Read-only audit, current state, risks and implementation plan.
+
+PHASE 1 — Clip identity, explicit source-to-channel routing, account
+isolation, idempotency and duplicate protection.
+
+PHASE 2 — Remove arbitrary clip generation caps; implement unlimited
+qualified candidates with safe resource-aware queues.
+
+PHASE 3 — Intro/promotion/dead-air cleanup with context-aware cuts.
+Preserve spoken subscribe/like reminders. Respect third-party branding
+and rights; no deceptive watermark removal.
+
+PHASE 4 — Non-destructive smart editing enhancement layer for Gaming,
+Normal/Talking, Comedy/Reaction, Educational/Tutorial and Story content.
+Existing editing configuration remains locked.
+
+PHASE 5 — Live monitoring, rolling capture, live highlight detection,
+restart recovery, safe chunk retention and live-priority scheduling.
+
+PHASE 6 — Exact destination scheduling, multi-route upload jobs,
+verification and safe public publishing gates.
+
+PHASE 7 — Analytics collection, diagnosis, versioned learning,
+future clip improvement and controlled comment system audit.
+
+PHASE 8 — Dashboard visibility and operational controls.
+
+PHASE 9 — Integration/regression, final status and Android verification plan.
+
+At each phase:
+- Inspect relevant code only.
+- Plan the smallest safe change.
+- Preserve unrelated changes.
+- Implement.
+- Run focused tests.
+- Review diff.
+- Update progress ledger.
+- Verify that safety constraints remain intact.
+- Stop if an unresolved blocker compromises the next phase.
+
+Do not run huge full suites repeatedly.
+Avoid duplicate tests unless a change justifies rerunning them.
+
+==================================================
+22. FINAL INTEGRATION AND VERIFICATION
+==================================================
+
+At the end, verify as much as is actually possible:
+
+- Unique source/video/live/clip/edit/route/upload identities.
+- No arbitrary clip-count ceiling remains in the qualified generation flow.
+- Quality, duplicate, resource and safety gates remain.
+- Candidate overlap/duplicate detection works.
+- Intro/logo/promotion handling follows the rules.
+- Spoken subscribe reminders are preserved.
+- Gaming edit profile logic exists and respects the lock.
+- Normal-content edit profiles exist and respect the lock.
+- No source/internal IDs are burned into video.
+- Existing editing presets/configurations unchanged.
+- Full HD profile and optional upscale are safely implemented where possible.
+- Render/QC verification works.
+- Source routing is explicit.
+- Multiple destinations have independent jobs.
+- Missing/wrong routes block uploads.
+- Per-channel schedules and limits work.
+- Live rolling capture/recovery/dependency retention is safe.
+- Analytics data is real and missing data is handled honestly.
+- Learning produces actionable, versioned future improvements.
+- Public publishing/comment gates remain safe.
+- Dashboard state reflects actual backend state.
+- Existing user data and functionality preserved.
+
+Run focused tests, then relevant regression tests.
+Report actual test outputs and known failures.
+Do not claim Termux/Android, OAuth, live capture or real YouTube upload
+was verified unless it was tested directly on that device/service.
+
+==================================================
+23. FINISHING AND HANDOFF
+==================================================
+
+When all phases are complete:
+
+1. Update existing project ledgers concisely.
+2. Review git diff and git status.
+3. Preserve untracked files.
+4. Do not auto-commit or push.
+5. Do not delete files to clean the project.
+6. Produce a concise but complete final report:
+
+   A. Completed phases
+   B. Features implemented
+   C. Files changed
+   D. Existing features preserved
+   E. Tests actually run and exact results
+   F. Failures remaining
+   G. Locked-file conflicts
+   H. Android/Termux verification still required
+   I. OAuth/account action requiring user
+   J. Publishing safety status
+   K. Next step
+
+If all tasks are complete and verified, say COMPLETE and stop.
+If any tasks remain, say PARTIAL, identify exact remaining phase/task,
+save handoff to existing progress files and stop safely.
+
+Never endlessly repeat completed loops.
+Never report completion based only on a plan.
+Do the actual safe implementation and verification.
+
+BEGIN NOW WITH PHASE 0.
+Continue sequentially through the phases, saving progress as you work.
+
