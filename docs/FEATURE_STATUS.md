@@ -19,7 +19,7 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | Long video | No duration limit; 60-min section download | MOCK-TESTED + UNVERIFIED | test/longvideo.test.ts (window math); real yt-dlp `--download-sections` untested |
 | Routing | Multi-account/source→many, per-destination enable + delay, bulk distribute UI | VERIFIED-LOCAL (fake provider) | test/source_mapping, ui_bulk, distribute |
 | Routing | Per-destination title/tag policy | VERIFIED-LOCAL (mapping DB/API) | title prefix/suffix + extra tags are applied per mapped source/destination at upload |
-| Routing | Per-destination platform-specific metadata policy | PARTIAL | prefix/suffix/tags exist; dedicated per-platform policy UI and live provider checks remain open |
+| Routing | Per-destination platform-specific metadata policy (prefix/suffix/tags) + delay | MOCK-TESTED / VERIFIED-LOCAL (UI) | storage + pure apply + upload wiring tested; Sources UI edit verified with Chromium (test/ui_destmeta.test.ts); live provider behaviour UNVERIFIED |
 | Scheduling | Per-account timezone / daily limits / missed-job reschedule | MOCK-TESTED | account_timezone, missed_job |
 | Media | Platform re-encode (size/duration/codec) + FFprobe re-validation, master untouched | VERIFIED-LOCAL | test/derive.test.ts. Horizontal→vertical uses fit_blur-derived 1080x1920 copy |
 | Media | Missing output file → re-render + resume | VERIFIED-LOCAL | test/missing_file.test.ts |
@@ -35,3 +35,6 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | UI | 8-tab dashboard and API wiring | VERIFIED-LOCAL / PARTIAL | Chromium confirms Prompt1 tab labels/order, live and bulk flows; full dynamic-action click-through remains incomplete |
 | AI | Local Ollama slot | BLOCKED_EXTERNAL | not running on owner device |
 | AI | Upscaling / 16:9 2560×1440 | NOT_IMPLEMENTED (secondary) | |
+| Analysis | Content type/sub-type detection, quality gate, grounded metadata | MOCK-TESTED | test/shorts_engine.test.ts; transcript heuristics only, real-video accuracy UNVERIFIED; uncommitted |
+| Framing | Smart Framing advisor (multi-person crop vs fit_blur, gaming-safe crop guard), default OFF, toggle in Studio | MOCK-TESTED (FAKE face data, real FFmpeg render) | test/framing*.test.ts + framing_render_hook + framing_config; real face/active-speaker detection and HUD zones on real games UNVERIFIED (sandbox OpenCV has no detector) |
+| Framing | True multi-tile split/trio layouts, content-specific styles, context SFX/music/B-roll | BLOCKED_LOCKED | need new branches in locked src/edit/filters.ts; owner approval required |

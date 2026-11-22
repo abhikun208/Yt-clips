@@ -1,4 +1,5 @@
 import type { ContentProfile, ResolvedContentProfile } from '../content-profile.ts';
+import { detectContent } from './contentdetect.ts';
 
 const STRONG_GAMING_TERMS = [
   'booyah', 'headshot', 'clutch', 'squad wipe', 'one tap', 'onetap', '1v1', '1v2', '1v3', '1v4',
@@ -16,5 +17,6 @@ export function hasStrongGamingEvidence(transcript: string): boolean {
 /** Auto mode only selects gaming when the transcript has multiple distinct gaming callouts. */
 export function resolveContentProfile(configured: ContentProfile | undefined, transcript: string): ResolvedContentProfile {
   if (configured !== 'auto') return configured ?? 'general';
-  return hasStrongGamingEvidence(transcript) ? 'gaming' : 'general';
+  if (hasStrongGamingEvidence(transcript)) return 'gaming';
+  return detectContent(transcript).profile;
 }

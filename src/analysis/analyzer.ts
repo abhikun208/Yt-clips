@@ -94,6 +94,11 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     }
     if (cfg.clip.faceMood !== false && !whole && cands.length) { try { const { applyFaceMood, pythonFaceRunner } = await import('./facemood.ts'); const fm = await applyFaceMood(cands, v.path, pythonFaceRunner(cfg)); cands = fm.cands; if (fm.used) info('face mood used', { videoId, clips: fm.used }); } catch (e) { warn('face mood failed', { err: (e as Error).message.slice(0, 100) }); } }
     { const rr = await rerankCandidates(cands, llmChain(cfg)); cands = rr.cands; if (rr.used) info('llm rerank', { used: rr.used }); else if (rr.note) warn(rr.note); }
+    if (cfg.clip.qualityGate !== false && !whole && cands.length) { // modular quality gate: duplicates, repeated hooks, missing context, bad boundaries, borderline no-payoff; 0 clips stays valid
+      const { gateCandidates } = await import('./qualitygate.ts'); const g = gateCandidates(cands, { minScore: cfg.clip.minScore, skip: (c) => partOf.has(c.fingerprint!) });
+      if (g.dropped.length) { info('quality gate dropped clips', { videoId, dropped: g.dropped.map((d) => ({ at: Math.round(d.c.start), why: d.reason })) }); cands = g.keep; }
+    }
+    if (chan.config.contentProfile === 'auto' && cues.length) { const { detectContent } = await import('./contentdetect.ts'); const dc = detectContent(cues.map((c) => c.text).join(' ')); if (dc.profile !== 'general') store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', `video:content:${videoId}`, JSON.stringify(dc)); }
     let inserted = 0;
     store.tx(() => {
       // Re-analysis (e.g. new transcript): unrendered candidates are re-ranked; already-rendered clips are never duplicated.

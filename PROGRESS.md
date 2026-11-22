@@ -573,3 +573,29 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 - Merged (branch copilot-merge -> main): destination-id routing + identity guard per exact destination, content profiles (selection scoring only), STT failure guard, platform horizontal->vertical `fit_blur` derive (upload copy only, master untouched), Windows setup/update scripts, per-destination metadata (`source_destinations.metadata_json`, migration v17), Copilot tests/docs.
 - Resolved overlaps: unlimited clips (identical), per-destination policy -> Copilot storage kept, application goes through my pure `applyMetaPolicy` (platform title clamp, dedupe) — my kv-based storage removed. `src/edit/*` untouched by Copilot.
 - Tests: 129/129 focused (analysis, channels, hardening, logfix, secfix, adapters, derive, distribute, identity_guard, proc, source_mapping, metapolicy, unlimited_clips, learn, orchestrator, live*, queueorder) in the sandbox. Not run: full suite, Windows, Termux.
+
+## (30) Shorts engine: content detection, quality gate, grounding, framing planner (UNCOMMITTED, awaiting owner authorization)
+- New (all outside src/edit/, editing pipeline untouched): src/analysis/contentdetect.ts (type/sub-type + evidence, auto profile), src/analysis/qualitygate.ts (duplicate / repeated hook / missing context / bad boundary / weak payoff; 0 Shorts allowed; `clip.qualityGate:false` disables), src/seo/grounding.ts (title/desc claims must appear in transcript/evidence), src/framing/plan.ts (pure multi-person / active-speaker layout planner with hysteresis + gaming-safe 9:16 crop guard that reports "use blur-fit" instead of cutting HUD/minimap/killfeed/facecam).
+- Tests: test/shorts_engine.test.ts 5/5, test/framing.test.ts 5/5; regression analysis/queueorder/unlimited_clips/e2e/longvideo 47/47. Typecheck: only the sandbox-only TS6 test/facetrack.test.ts:67 diff.
+- NOT wired: framing planner is not called by render/filters. Integration needs an approved minimal hook in locked src/edit/ (propose first). Real face/speaker detection on phone/YouTube UNVERIFIED.
+
+## (31) Framing advisor modules (UNCOMMITTED; render hook NOT applied, awaiting separate owner approval)
+- New, outside src/edit/: src/framing/advisor.ts (clip-level crop-vs-fit_blur decision from all faces + protected gaming zones; never throws; undefined = keep existing behaviour), tools/face_samples.py (all faces per sample + mouth-motion "speaking"; face_track.py untouched), config keys `edit.framingAdvisor` (default OFF) and `edit.gamingProtect` (src/config.ts).
+- Tests: test/framing_advisor.test.ts (decision rules, every detector-failure mode -> undefined, real sidecar run on a real synthetic video) + framing.test.ts + shorts_engine.test.ts: 19/19.
+- Hook verified only on a THROWAWAY COPY of the repo (real ffmpeg renders): flag unset == flag false == flag on + detector unavailable (identical reframe treatment); flag on + FAKE faces: close -> crop, far -> fit stays. Pending test file kept outside the repo until the hook is approved.
+- Real face detection is UNVERIFIED: sandbox OpenCV 5 has no detector (no Haar, YuNet model not downloadable), so all face data in tests is FAKE. HUD/minimap/kill-feed zones are ASSUMED defaults, not detected.
+- src/edit/render.ts and every other locked file: unchanged.
+
+## (32) Framing hook applied to src/edit/render.ts (owner-approved; UNCOMMITTED)
+- src/edit/render.ts: +1 import, +6 lines (advisor block, only when `cfg.edit.framingAdvisor === true`, no manual `ro.reframe`, reframe auto/crop, wide source) and 1 modified line (`cx` prefers `advice.cropX`). No change to filters, presets, effects, transitions, captions or manual settings. Default OFF.
+- Fallback: any advisor failure/undefined -> identical to the previous behaviour. Gaming: a crop that would cut a protected region -> fit_blur.
+- Tests in the real repo: test/framing_render_hook.test.ts (real FFmpeg renders: flag unset == false == on + detector unavailable; FAKE close faces -> crop; far -> fit), framing_advisor, framing, shorts_engine: 21/21. Full suite 540 tests: 539 pass, 0 fail, 1 skipped. Typecheck: only the sandbox-only TS6 test/facetrack.test.ts:67 diff.
+- Real output check (540x960 renders, frame compared side by side): baseline = fit + blurred background; advisor with FAKE close faces = centred 9:16 crop. QC passed on both.
+- UNVERIFIED: real face/active-speaker detection (sandbox OpenCV has no detector), assumed HUD/minimap/kill-feed zones on real games, Termux/YouTube.
+
+## (33) Full-completion loop: Smart Framing toggle + per-destination metadata UI (UNCOMMITTED)
+- Audit: Prompt1 requirements are covered by phases (1)-(32) in this ledger; remaining items are owner/device/provider blockers or locked-file work. Stale checklist lines corrected (PARTIAL_SUCCESS already implemented; framing hook now wired).
+- New: Studio "Smart Framing" checkbox + `framingAdvisor` accepted by POST /api/config (boolean only; gates untouched; `gamingProtect` not exposed) + GET /api/presets field; Sources: per-destination title prefix/suffix/extra-tags inputs (uses the existing /api/sources/:id/destinations metadata field).
+- Tests: test/framing_config.test.ts (API default OFF, validation, persistence, gates unchanged, UI element present) and test/ui_destmeta.test.ts (real Chromium click-through saves the policy). Both pass.
+- Still BLOCKED_LOCKED: multi-tile split layouts, content-specific styles, context SFX/music/B-roll (new branches in src/edit/filters.ts need approval). BLOCKED_EXTERNAL: Main reconnect, Meta HTTPS, TikTok audit, Kick, Ollama, real face detection on device.
+- (33) verification: full suite 542 tests, 541 pass, 0 fail, 1 skipped (sandbox Linux, real ffmpeg + Chromium); typecheck: only the sandbox-only TS6 test/facetrack.test.ts:67 diff.

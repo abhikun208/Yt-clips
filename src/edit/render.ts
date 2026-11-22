@@ -4,6 +4,7 @@ import { guessLanguage } from '../analysis/transcript.ts';
 import { realHook } from '../seo/hook.ts';
 import { transcribeVideo, sttPrompt } from '../analysis/stt.ts';
 import { detectFacecam, type FacecamGuess } from './facecamdetect.ts';
+import { adviseFraming, type FramingAdvice } from '../framing/advisor.ts';
 import { isInterlaced, hasBurnedSubs, bottomBandBusy } from './sourcecheck.ts';
 import { ensureLocal } from '../storage/cloud.ts';
 import { join } from 'node:path';
@@ -206,13 +207,19 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   }
   if (!ro.reframe && reframe === 'crop' && c.reason === 'whole range as one clip') reframe = 'auto'; // a short source kept whole: never throw away picture just to fill 9:16 (portrait stays as is, wide gets Fit unless a face is found)
   const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
+  // FRAMING ADVISOR (opt-in, default OFF): may only choose between the EXISTING 'crop' / 'fit_blur' modes (+ a safer crop centre); any failure -> undefined -> behaviour below is exactly as before
+  let advice: FramingAdvice | undefined;
+  if (cfg.edit.framingAdvisor === true && !ro.reframe && (reframe === 'auto' || reframe === 'crop') && m.width / m.height > 1.2) {
+    advice = await adviseFraming({ src: editSrc, rootDir: cfg.rootDir, duration: m.duration, gaming: chan.profile === 'gaming', ...(cfg.edit.gamingProtect ? { protect: cfg.edit.gamingProtect } : {}), aspect: m.width / m.height }).catch(() => undefined);
+    if (advice) { reframe = advice.reframe; reframeNote = advice.note; info('framing advisor', { reframe: advice.reframe, cropX: advice.cropX, layout: advice.layout, note: advice.note }); }
+  }
   if (reframe === 'auto') { // Auto layout: wide source with a findable face -> Fill (face-tracked crop); wide without a face (screen, scenery, group) -> Fit (nothing cut off); already tall/square -> Fill
     if (m.width / m.height > 1.2) { const fc = await faceCenter(editSrc, cfg.rootDir, chan.profile !== 'gaming' && cfg.edit.faceFallback !== false, m.duration).catch(() => undefined); reframe = fc !== undefined ? 'crop' : 'fit_blur'; reframeNote = `auto layout: ${reframe === 'crop' ? 'face found -> fill' : 'no face -> fit'}`; } else reframe = 'crop';
   }
   let burnedSrc = false;
   if (reframe === 'crop' && !ro.reframe && chan.profile !== 'gaming' && m.width / m.height > 1.2 && await hasBurnedSubs(editSrc, 0, m.duration, cfg.dirs.tmp)) { reframe = 'fit_blur'; burnedSrc = true; info('reframe switched', { why: 'burned-in subtitles' }); reframeNote = 'source has burned-in subtitles/text: fit + blurred background instead of a centre crop that cuts them'; }
   const deint = await isInterlaced(editSrc, 0, m.duration);
-  const cx = reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir, chan.profile !== 'gaming' && cfg.edit.faceFallback !== false, m.duration) : undefined;
+  const cx = reframe === 'crop' && advice?.cropX !== undefined ? advice.cropX : reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir, chan.profile !== 'gaming' && cfg.edit.faceFallback !== false, m.duration) : undefined;
   const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir, ro.trackSensitivity ?? cfg.edit.trackSensitivity) : [];
   let punch: number[] = []; let closeups: { start: number; end: number }[] = [];
   if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); if ((ro.closeups ?? cfg.edit.closeups) !== false) closeups = planCloseups(punch, m.duration); } catch { punch = []; closeups = []; } }

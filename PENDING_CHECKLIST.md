@@ -102,7 +102,7 @@
 - [ ] Owner: Phone par `git pull && npm start`; Setup → Connected Accounts → **Test** dabao har account par (Main abhi expired hona chahiye) → Main Reconnect.
 - [ ] Owner: Decider ke sources ko Decider channel par assign karo (ya source→destination mapping API) — default Main hai.
 - [x] Per-account schedule limits, source mapping UI, dashboard tabs, and Meta/TikTok Test Connection are implemented/fake-tested; full dynamic-action browser coverage remains partial.
-- [ ] Dev: parent batch/PARTIAL_SUCCESS behavior and full per-destination schedule/metadata profiles.
+- [x] Parent batch / PARTIAL_SUCCESS is implemented (src/publish/distribution.ts, Queue UI colours); per-destination schedule delay + metadata policy (prefix/suffix/tags) are editable in Sources (Chromium test test/ui_destmeta.test.ts). Real-provider behaviour UNVERIFIED.
 - [x] Test Connection Facebook/Instagram/TikTok (fake-server verified; real tokens UNVERIFIED)
 
 - [x] Auto-Pilot lanes / queue heartbeat + restart recovery / live probe+rolling capture / Live Priority Mode / unlimited duration + sectioned download / missing-file re-render (fake-verified; real streams UNVERIFIED)
@@ -133,4 +133,10 @@
 - [x] Existing `src/edit/*` implementation, presets, fonts, effects, transitions, and rendering behavior were not changed.
 - [x] Kick VOD URL parsing is tested; Kick channel/live monitoring and account uploads are not claimed as supported.
 - [ ] Restart the existing localhost dashboard with `npm start` to load the updated profile controls; the current listener still serves pre-change HTML. No active source/job/clip exists for a live editing preview.
-- [ ] Full `test/adapters.test.ts` is not green on this Windows run: 3 fake-yt-dlp/STT adapter tests fail (`0 !== 2`, `spawn EFTYPE`, and missing offline result); the focused URL-validation test passes. Investigate separately before claiming the adapter suite is verified.
+- [ ] (Windows-only, owner runs Termux/Linux; sandbox Linux run is green) Full `test/adapters.test.ts` was not green on a Windows run: 3 fake-yt-dlp/STT adapter tests fail (`0 !== 2`, `spawn EFTYPE`, and missing offline result); the focused URL-validation test passes. Investigate separately before claiming the adapter suite is verified.
+
+## Shorts engine batch (2026-11-22, UNCOMMITTED until owner authorizes)
+- [x] Content type/sub-type detection + auto profile, quality gate (duplicate / repeated hook / missing context / bad boundary / weak payoff; 0 Shorts allowed), grounded titles/descriptions, framing planner (multi-person/active-speaker layout + gaming-safe 9:16 crop guard): tests pass (shorts_engine 5/5, framing 5/5, regression 47/47). Sandbox only.
+- [x] Framing advisor wired into src/edit/render.ts with the owner-approved minimal hook (default OFF; toggle: Studio > Smart Framing or POST /api/config {framingAdvisor}); real FFmpeg render verified with FAKE face data.
+- [ ] BLOCKED_LOCKED: content-specific edit styles, context-aware SFX/music/B-roll for no-face clips, and true multi-tile split/trio layouts need new branches in locked src/edit/filters.ts (separate approval). Real face/active-speaker detection needs a device with OpenCV + detector model (sandbox has none): UNVERIFIED.
+- [ ] Real Termux/YouTube verification of all of the above is UNVERIFIED.
