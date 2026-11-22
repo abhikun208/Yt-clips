@@ -15,7 +15,7 @@ Scope source: MASTER_RUN_PROMPT.md. Locked: `src/edit/filters.ts` was NOT modifi
 | 8 | Same patch on a THROWAWAY copy: 2 and 3 tiles render 1080x1920; the 5 existing reframe modes x 3 source sizes give identical `reframeParts` output before/after | one-off script on the scratch copy (not in repo) | `2 1080,1920 \| multi-person stack: 2 tiles (960+960px)` / `3 1080,1920 \| ... 3 tiles (640+640+640px)` / `existing modes identical: 15/15` |
 | 9 | Typecheck | `node .../tsc -p tsconfig.json --noEmit` (sandbox TS 6) | 1 error, `test/facetrack.test.ts(67,92) TS2769`, sandbox-TS-version only (owner's TS 5.9 list had none) |
 | 10 | Full regression before this run's last test additions | `node --test test/*.test.ts` | `# tests 542 / # pass 541 / # fail 0 / # skipped 1` |
-| 11 | Full regression after this run | `node --test test/*.test.ts` | `# tests 549 / # pass 548 / # fail 0 / # skipped 1` |
+| 11 | Full regression after this run | `node --test test/*.test.ts` | `# tests 594 / # pass 593 / # fail 0 / # skipped 1` (after AGENT loop T1-T12) |
 
 ## IMPLEMENTED + NOT VERIFIED
 - Real face / active-speaker detection (`tools/face_samples.py`, advisor): sandbox OpenCV has no detector; every face in tests is FAKE.
