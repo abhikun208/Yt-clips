@@ -33,7 +33,7 @@ export const sourceHints = (t: string): string[] => [...new Set((t.match(/(?:^|[
 export async function metaForClip(store: Store, cfg: Config, clipId: number, o: { notifyOwner?: boolean; force?: boolean } = {}): Promise<Metadata & { thumbnailOk: boolean }> {
   const row = store.get<{ id: number; candidate_id: number; edited_path: string; output_id: string }>('SELECT id, candidate_id, edited_path, output_id FROM clips WHERE id=?', clipId); if (!row) throw new Error(`unknown clip ${clipId}`);
   const ch = channelOfClip(store, clipId);
-  const cand = store.get<{ category: string; transcript: string | null; language: string | null; start_sec: number; end_sec: number; hook: string | null; part_no: number | null; part_total: number | null; video_id: number }>('SELECT category, transcript, language, start_sec, end_sec, hook, part_no, part_total, video_id FROM candidates WHERE id=?', row.candidate_id)!;
+  const cand = store.get<{ category: string; transcript: string | null; language: string | null; start_sec: number; end_sec: number; hook: string | null; part_no: number | null; part_total: number | null; series_key: string | null; video_id: number }>('SELECT category, transcript, language, start_sec, end_sec, hook, part_no, part_total, series_key, video_id FROM candidates WHERE id=?', row.candidate_id)!;
   let transcript = (cand.transcript ?? '').trim(); let language = cand.language ?? 'unknown';
   const nsKey = `nospeech:${row.output_id}:${row.edited_path ? (() => { try { return statSync(row.edited_path).size; } catch { return 0; } })() : 0}`; // a clip without speech is asked ONCE (the owner's log showed the same 20-45 s speech-to-text repeated every minute)
   if (transcript.split(/\s+/).length < 8 && row.edited_path && !store.get('SELECT 1 FROM kv WHERE k=?', nsKey)) { // no usable speech stored → listen to the finished clip itself
@@ -77,6 +77,18 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
     if (alt) md = { ...md, title: withPart({ ...md, title: `${alt.slice(0, 90)} #Shorts` }, part).title, warnings: [...md.warnings, 'title was already used on another clip: alternative picked'] };
     else md = { ...md, title: `${md.title.replace(/ #Shorts$/i, '').slice(0, 80)} • ${clipId} #Shorts`.slice(0, 100), warnings: [...md.warnings, 'duplicate title: clip number added'] };
   }
+  { // near-duplicate titles / numbered templates / copy-pasted descriptions across earlier clips (series parts of the same series are expected to look alike and are skipped)
+    const { checkMetadata, lessSimilarTitle } = await import('./metasimilarity.ts');
+    const others = store.all<{ id: number; metadata_json: string | null }>(`SELECT c.id, c.metadata_json FROM clips c JOIN candidates cd ON cd.id=c.candidate_id WHERE c.id<>? AND c.metadata_json IS NOT NULL AND cd.series_key IS NOT ? ORDER BY c.id DESC LIMIT 300`, clipId, cand.series_key ?? null)
+      .map((r) => { try { const m = JSON.parse(r.metadata_json!) as { title?: string; description?: string }; return { id: r.id, title: m.title ?? '', description: m.description ?? '' }; } catch { return { id: r.id, title: '', description: '' }; } }).filter((o) => o.title);
+    const chk = checkMetadata(md, others);
+    if (chk.flags.includes('near_duplicate_title') || chk.flags.includes('similar_title')) {
+      const alt = chk.flags.includes('near_duplicate_title') ? lessSimilarTitle(md.title, md.titles.map((t) => withPart({ ...md, title: `${t.slice(0, 90)} #Shorts` }, part).title), others) : null;
+      md = alt ? { ...md, title: alt, warnings: [...md.warnings, `title was ${Math.round(chk.titleMax * 100)}% like clip ${chk.titleWith}: less similar alternative picked`] } : { ...md, warnings: [...md.warnings, `title is ${Math.round(chk.titleMax * 100)}% like the title of clip ${chk.titleWith} (${chk.flags.includes('near_duplicate_title') ? 'near duplicate' : 'similar'})`] };
+    }
+    if (chk.flags.includes('similar_description')) md = { ...md, warnings: [...md.warnings, `description is ${Math.round(chk.descMax * 100)}% like clip ${chk.descWith}: rewrite it so each Short stands on its own`] };
+  }
+  { const { buildResearch } = await import('./evidence.ts'); md = { ...md, research: buildResearch({ keywords: md.keywords, suggestions: related, trendsTried: !!transcript && llmChain(cfg).length > 0, trends, generatedBy: md.generatedBy, seoScore: md.seo?.seo ?? null }) }; }
   const aiWrote = md.generatedBy !== undefined ? !/^rules/.test(String(md.generatedBy)) : md.source === 'llm'; // 'rules (no AI answered)' = template text, not an analysis of THIS video -> counts as generic so the automation re-tries it later (owner: titles must come from the video, not from a button)
   const generic = md.generic === true || transcript.split(/\s+/).length < 8 || (!aiWrote && llmChain(cfg).length > 0); md = { ...md, generic }; // only when an AI WAS configured but did not answer (temporary): with no AI at all the rules text is the best possible, so it must not block publishing
   const errs = validateMetadata(md); if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);

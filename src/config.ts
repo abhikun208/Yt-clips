@@ -11,7 +11,7 @@ export interface Config {
   timezone: string;
   clip: {
     minSec: number; maxSec: number; targetSec: number; shortSourceSec?: number; maxClipsPerVideo: number;
-    minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number; skipHeadSec?: number; skipTailSec?: number; faceMood?: boolean; /** drop duplicate/weak/bad-boundary clips after selection (0 clips is a valid result); default on */ qualityGate?: boolean;
+    minScore: number; maxOverlap: number; introMaxSec: number; outroMaxSec: number; skipHeadSec?: number; skipTailSec?: number; faceMood?: boolean; /** drop duplicate/weak/bad-boundary clips after selection (0 clips is a valid result); default on */ qualityGate?: boolean; /** reject candidates whose opportunity score (0-100, src/analysis/opportunity.ts) is below this; undefined/0 = off (score is still stored) */ opportunityMin?: number; /** build >=5 verbatim hook candidates per clip and keep the best as the clip's hook; default on */ smartHooks?: boolean;
     series?: { enabled: boolean; partSec: number; maxParts: number }; dupBlock?: number; dupFlag?: number;
   };
   edit: {
@@ -110,8 +110,17 @@ export function loadConfig(rootDir = resolve(process.cwd()), opts: { dataDir?: s
 }
 
 /** Throws unless the owner has explicitly enabled publishing in config. Tests passing never enables this. */
-export function assertPublishAllowed(cfg: Config, visibility: 'private' | 'unlisted' | 'public'): void {
+export type PublishMode = 'DRY_RUN' | 'PRIVATE' | 'PUBLIC';
+/** Owner-controlled env PUBLISH_MODE. Unset or anything unrecognised = DRY_RUN (nothing leaves the machine). Only the owner changes it; no code path sets it. */
+export function publishMode(env: Record<string, string | undefined> = process.env): PublishMode {
+  const v = String(env.PUBLISH_MODE ?? '').trim().toUpperCase();
+  return v === 'PRIVATE' || v === 'PUBLIC' ? v : 'DRY_RUN';
+}
+export function assertPublishAllowed(cfg: Config, visibility: 'private' | 'unlisted' | 'public', env: Record<string, string | undefined> = process.env): void {
   if (!cfg.gates.publishEnabled) throw new Error('PUBLISH_DISABLED: gates.publishEnabled is false. Owner must enable it explicitly in data/config.json.');
+  const mode = publishMode(env); // reuses the PUBLISH_DISABLED / PUBLIC_DISABLED codes so every caller already treats it as a hold, not a failure
+  if (mode === 'DRY_RUN') throw new Error('PUBLISH_DISABLED: PUBLISH_MODE is DRY_RUN (default). Nothing is uploaded. Owner sets PUBLISH_MODE=PRIVATE to allow non-public uploads.');
+  if (visibility === 'public' && mode !== 'PUBLIC') throw new Error('PUBLIC_DISABLED: PUBLISH_MODE is ' + mode + ' (only PUBLIC may publish publicly; owner decision).');
   if (visibility === 'public' && !cfg.gates.publicVisibilityAllowed) throw new Error('PUBLIC_DISABLED: gates.publicVisibilityAllowed is false.');
 }
 

@@ -2,6 +2,7 @@ import { sttPrompt } from './stt.ts';
 import { channelOfVideo } from '../channels.ts';
 import { loadExternalSeries } from './external.ts';
 import { learnedCategoryPrior } from '../publish/service.ts';
+import { opportunity, rejectLowOpportunity, maxSimilarity } from './opportunity.ts';
 import { scanKillfeed } from './killfeed.ts';
 import { writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
@@ -11,7 +12,9 @@ import { probe } from '../media/probe.ts';
 import { detectSilence, detectScenes, audioEnergy, detectBlack, normalizeEnergy } from './signals.ts';
 import { detectBoundaries, applySkips } from './boundaries.ts';
 import { loadTranscript, textInRange, guessLanguage } from './transcript.ts';
-import { sentencesFromCues, sentencesIn } from './textsignals.ts';
+import { sentencesFromCues, sentencesIn, hookScore } from './textsignals.ts';
+import { hookCandidates } from '../seo/hooks.ts';
+import { rightsScreen } from './rights.ts';
 import { planSeries } from './series.ts';
 import { shortHash } from '../util/hash.ts';
 import { selectCandidates, overlapRatio } from './select.ts';
@@ -99,6 +102,13 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       if (g.dropped.length) { info('quality gate dropped clips', { videoId, dropped: g.dropped.map((d) => ({ at: Math.round(d.c.start), why: d.reason })) }); cands = g.keep; }
     }
     if (chan.config.contentProfile === 'auto' && cues.length) { const { detectContent } = await import('./contentdetect.ts'); const dc = detectContent(cues.map((c) => c.text).join(' ')); if (dc.profile !== 'general') store.exec('INSERT INTO kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', `video:content:${videoId}`, JSON.stringify(dc)); }
+    // opportunity score (0-100, 13 sub-scores): stored for every candidate; an extra rejection only when the owner sets clip.opportunityMin (default off)
+    const oppPrior = learnedCategoryPrior(store, chan.id) as Record<string, number> | undefined; const oppPast = store.all<{ transcript: string | null }>(`SELECT transcript FROM candidates WHERE status='rendered' AND transcript IS NOT NULL ORDER BY id DESC LIMIT 200`).map((r) => r.transcript ?? '').filter(Boolean);
+    const oppCtx = (c: (typeof cands)[number]) => ({ ...(oppPast.length && c.transcript ? { similarityToPast: maxSimilarity(c.transcript, oppPast) } : {}), ...(oppPrior?.[c.category] ? { categoryPrior: oppPrior[c.category]! } : {}) });
+    if ((cfg.clip.opportunityMin ?? 0) > 0 && !whole && cands.length) { const g = rejectLowOpportunity(cands, cfg.clip.opportunityMin!, oppCtx); if (g.dropped.length) { info('opportunity gate dropped clips', { videoId, dropped: g.dropped.map((d) => ({ at: Math.round(d.c.start), score: d.score })) }); cands = g.keep; } }
+    // truthful hook candidates (verbatim lines of the clip); the best one replaces the stored hook only when it is clearly stronger
+    const hooksByFp = new Map<string, ReturnType<typeof hookCandidates>>();
+    if (cfg.clip.smartHooks !== false && cues.length && !whole) { const allS = sentencesFromCues(cues); for (const c of cands) { const h = hookCandidates(sentencesIn(allS, c.start, c.end)); hooksByFp.set(c.fingerprint!, h); if (h.best && hookScore(h.best.text) >= hookScore(c.hook) + 0.1) c.hook = h.best.text.slice(0, 140); } }
     let inserted = 0;
     store.tx(() => {
       // Re-analysis (e.g. new transcript): unrendered candidates are re-ranked; already-rendered clips are never duplicated.
@@ -114,6 +124,9 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       }
       store.exec(`UPDATE videos SET state='ANALYZED', intro_end=?, outro_start=?, analysis_path=?, error=NULL, updated_at=datetime('now') WHERE id=?`, a.introEnd, a.outroStart, analysisPath, videoId);
     });
+    for (const c of cands) { const row = store.get<{ id: number }>('SELECT id FROM candidates WHERE fingerprint=?', c.fingerprint!); if (!row) continue; const o = opportunity(c, oppCtx(c)); store.exec(`INSERT INTO candidate_opportunity(candidate_id, score, parts_json) VALUES (?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET score=excluded.score, parts_json=excluded.parts_json, computed_at=datetime('now')`, row.id, o.score, JSON.stringify({ parts: o.parts, unavailable: o.unavailable, reasons: o.reasons })); }
+    for (const [fp, h] of hooksByFp) { const row = store.get<{ id: number }>('SELECT id FROM candidates WHERE fingerprint=?', fp); if (row) store.exec(`INSERT INTO candidate_hooks(candidate_id, best, candidates_json) VALUES (?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET best=excluded.best, candidates_json=excluded.candidates_json, computed_at=datetime('now')`, row.id, h.best?.text ?? null, JSON.stringify({ candidates: h.candidates, slowIntro: h.slowIntro, note: h.note })); }
+    { const own = [chan.name, chan.slug, ...(((chan.config as { handles?: string[] }).handles) ?? [])]; for (const c of cands) { const row = store.get<{ id: number }>('SELECT id FROM candidates WHERE fingerprint=?', c.fingerprint!); if (!row) continue; const r = rightsScreen({ transcript: c.transcript ?? '', duration: c.duration, ownNames: own }); store.exec(`INSERT INTO candidate_rights(candidate_id, decision, flags_json, detail_json) VALUES (?,?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET decision=excluded.decision, flags_json=excluded.flags_json, detail_json=excluded.detail_json, computed_at=datetime('now')`, row.id, r.decision, JSON.stringify(r.flags), JSON.stringify(r)); if (r.decision !== 'ok') info('rights screen', { videoId, at: Math.round(c.start), decision: r.decision, reasons: r.reasons }); } }
     store.logState('video', videoId, prev, 'ANALYZED', `${cands.length} candidates, ${inserted} new (${basename(v.path)})`);
     if (cands.length) info('analysis result', { videoId, clips: cands.length, scores: cands.slice(0, 4).map((x) => +x.score.toFixed(2)) });
     else warn('analysis found NO clip', { videoId, duration: Math.round(a.duration), minSec: cfg.clip.minSec, why: a.duration < cfg.clip.minSec ? 'video clip-minimum se chhoti hai: Re-analyze > Original mode (whole) use karo' : 'koi hissa minScore paar nahi kar paya ya bolne wala hissa nahi mila: Re-analyze karo ya minScore kam karo' });

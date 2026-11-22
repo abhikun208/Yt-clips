@@ -103,6 +103,35 @@ Dhyan: Google naye/unverified API projects par videos ki visibility par pabandi 
 ### Analytics (best posting time)
 `npm run cli -- platforms` dikhata hai kaun connected hai. YouTube `youtube-connect` se milta hai. Instagram/Facebook/TikTok ke liye aapka khud ka access token: `echo TOKEN | npm run cli -- set-token instagram`. Ya CSV: `npm run cli -- analytics-import file.csv` (columns `published_at,views`). Worker har 6 ghante khud collect karta hai; `npm run cli -- plan 3` agle slots dikhata hai (data kam ho to baseline hours).
 
+## Kaise chalayein + PUBLISH_MODE
+
+```
+git pull && npm run typecheck && npm start      # Termux / VPS / PC, Node >= 22, koi npm dependency nahi
+```
+
+`PUBLISH_MODE` (sirf owner badalta hai, code kabhi nahi): `DRY_RUN` (default: kuch publish nahi hota) · `PRIVATE` (YouTube par sirf private upload) · `PUBLIC` (public). Asli upload se pehle `PUBLISH_MODE=PRIVATE` set karein. Public visibility aur auto-comments alag gates se band rehte hain.
+
+## Smart features: integration table
+
+Status: **MOCK-TESTED** = fixtures/ffmpeg/fake data se test hua; **UNVERIFIED** = asli YouTube/video/phone par abhi nahi dekha. Koi bhi feature clip ko edit nahi karta (editing system locked hai) aur kahin bhi dubara-publish nahi karta.
+
+| Feature | Module | Kahan dikhta / kaise use | Status |
+|---|---|---|---|
+| Publish safety | `src/config.ts` `assertPublishAllowed` | `PUBLISH_MODE`; `/api/youtube/status` | MOCK-TESTED |
+| Studio CSV import + judging rule | `src/analytics/studiocsv.ts` | `POST /api/analytics/studio-import`, `GET /api/analytics/studio` | MOCK-TESTED; asli CSV columns UNVERIFIED |
+| Opportunity score (13 parts) | `src/analysis/opportunity.ts` | analyzer; table `candidate_opportunity`; optional `clip.opportunityMin` | MOCK-TESTED; accuracy UNVERIFIED |
+| Hook engine (>=5 sachche hooks) | `src/seo/hooks.ts` | analyzer; table `candidate_hooks`; `clip.smartHooks` | MOCK-TESTED |
+| Metadata similarity | `src/seo/metasimilarity.ts` | clip metadata warnings / alternative title | MOCK-TESTED; thresholds UNVERIFIED |
+| Rights/originality screen | `src/analysis/rights.ts` | table `candidate_rights`; sirf text, watermark/OCR nahi | MOCK-TESTED |
+| Failure analysis | `src/analytics/failure.ts` | `GET /api/analytics/failure?remote_id=` | MOCK-TESTED; <5 peers => NO EVIDENCE YET |
+| Experiments memory | `src/analytics/experiments.ts` | `/api/experiments` (+ `/:id/observe`, `/:id/conclude`) | MOCK-TESTED |
+| Research evidence labels | `src/seo/evidence.ts` | clip metadata `research[]` | MOCK-TESTED; UI display baaki |
+| Channel DNA | `src/analytics/dna.ts` | `GET /api/analytics/dna` | MOCK-TESTED |
+| Report card | `src/analytics/report.ts` | Insights tab; `GET /api/analytics/report` (rules, koi AI model nahi) | MOCK-TESTED |
+| Smart framing | `src/framing/*`, `tools/face_samples.py` | Settings toggle, default OFF | Real face detection UNVERIFIED |
+
+Abhi blocked (provider/owner par): YouTube API audit, asli YouTube Analytics API pull, Meta HTTPS callback, TikTok audit, Main account reconnect.
+
 ## Common problems
 - `EADDRINUSE: address already in use ...:8080` → pehle se koi server (ya aapka purana `npm start`) chal raha hai. Naya port lo: `PORT=8090 npm start`, ya purana band karo (Termux mein `pkill node`).
 - Termux/Android par bhi chalta hai (Node ≥ 22.18, `pkg install ffmpeg`); heavy rendering phone par dheere hoga, `edit.preset`/`glow`/`zoom` kam karke tez karo.

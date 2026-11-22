@@ -1,3 +1,4 @@
+import { publishMode } from '../config.ts';
 import { listSourceMappings } from '../accounts/destinations.ts';
 import { fairPick } from './router.ts';
 import { autopilotPass } from '../autopilot/engine.ts';
@@ -88,7 +89,7 @@ export { queueUpload };
 
 export function youtubeStatus(store: Store, cfg: Config, ch: Channel = mainChannel(store)) {
   const secrets = secretsFor(cfg); const tp = tokenFor(cfg, ch); const ad = new YouTubeAdapter(store, tp);
-  return { clientConfigured: !!clientCreds(secrets), connected: tp.connected(), secretsEncrypted: secrets.encrypted, quota: { insertsUsed: ad.quotaUsed('insert'), unitsUsed: ad.quotaUsed('units') }, gates: { publishEnabled: cfg.gates.publishEnabled, publicVisibilityAllowed: cfg.gates.publicVisibilityAllowed } };
+  return { clientConfigured: !!clientCreds(secrets), connected: tp.connected(), secretsEncrypted: secrets.encrypted, quota: { insertsUsed: ad.quotaUsed('insert'), unitsUsed: ad.quotaUsed('units') }, publishMode: publishMode(), gates: { publishEnabled: cfg.gates.publishEnabled, publicVisibilityAllowed: cfg.gates.publicVisibilityAllowed } };
 }
 export async function youtubeConnectStart(store: Store, cfg: Config, ch: Channel = mainChannel(store)): Promise<DeviceStart> {
   const cc = clientCreds(secretsFor(cfg)); if (!cc) throw new Error('invalid: set YT_OAUTH_CLIENT_ID and YT_OAUTH_CLIENT_SECRET (Google Cloud "TVs and Limited Input devices" OAuth client) first');

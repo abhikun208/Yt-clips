@@ -44,3 +44,10 @@ test('export ZIP carries title/description/tags of the saved metadata', async ()
   const { cfg, s, out } = await setup(); fallbackMetaForClip(s, cfg, out.clipId, 'x'); editClipMeta(s, out.clipId, { title: 'Zip title' });
   const x = exportPackage(s, cfg, out.clipId); for (const n of ['title.txt', 'description.txt', 'tags.txt', 'version.json']) assert.ok(x.files.includes(n), `${n} in ${JSON.stringify(x.files)}`); assert.ok(x.files.some((f: string) => f.endsWith('.mp4')));
 });
+test('metaForClip stores evidence labels (research) and offline suggestions are labelled UNAVAILABLE, never VERIFIED', async () => {
+  const { cfg, s, out } = await setup(); process.env.YT_CLIPS_VISION = '0';
+  await metaForClip(s, cfg, out.clipId, { notifyOwner: false, force: true });
+  const m = JSON.parse(s.get<{ m: string }>('SELECT metadata_json m FROM clips WHERE id=?', out.clipId)!.m) as { research?: { topic: string; label: string }[] };
+  assert.ok(m.research && m.research.length === 5, 'five labelled insights'); assert.ok(m.research.every((r) => ['VERIFIED_DATA', 'ESTIMATE', 'AI_GUESS', 'UNAVAILABLE'].includes(r.label)));
+  assert.notEqual(m.research.find((r) => r.topic === 'title_text')!.label, 'VERIFIED_DATA');
+});

@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { run } from '../src/util/proc.ts';
 import { loadConfig } from '../src/config.ts';
 
+// The owner's PUBLISH_MODE (default DRY_RUN) is a separate safety layer with its own tests (test/publish_mode.test.ts). Tests that exercise the
+// gates/state machine with fake adapters need the mode layer open; they still go through assertPublishAllowed and the gates.
+process.env.PUBLISH_MODE ??= 'PUBLIC';
+
 export function tmpDir(): string { return mkdtempSync(join(tmpdir(), 'ytc-test-')); }
 export function testConfig(over: Record<string, unknown> = {}) {
   return loadConfig(process.cwd(), { dataDir: tmpDir(), overrides: over });

@@ -140,3 +140,16 @@
 - [x] Framing advisor wired into src/edit/render.ts with the owner-approved minimal hook (default OFF; toggle: Studio > Smart Framing or POST /api/config {framingAdvisor}); real FFmpeg render verified with FAKE face data.
 - [ ] BLOCKED_LOCKED: content-specific edit styles, context-aware SFX/music/B-roll for no-face clips, and true multi-tile split/trio layouts need new branches in locked src/edit/filters.ts (separate approval). Real face/active-speaker detection needs a device with OpenCV + detector model (sandbox has none): UNVERIFIED.
 - [ ] Real Termux/YouTube verification of all of the above is UNVERIFIED.
+
+- [x] (AGENT loop T1) PUBLISH_MODE DRY_RUN/PRIVATE/PUBLIC. Owner: set `PUBLISH_MODE=PRIVATE` (env) before real uploads; PUBLIC only when you decide.
+- [x] (AGENT loop T2) Studio CSV import: export from YouTube Studio (Advanced mode > Export) and POST to /api/analytics/studio-import. Real Studio column names UNVERIFIED (aliases cover the documented ones); first real export may need an alias added.
+- [x] (AGENT loop T3) Opportunity score stored in `candidate_opportunity`; set `clip.opportunityMin` in data/config.json to reject weak clips (0/unset = off). Competition + search volume stay UNAVAILABLE until a real YouTube search source is wired.
+- [x] (AGENT loop T4) Hook candidates stored per clip. NOT done: actually reordering the video so the payoff teaser plays in the first 1-2 s (that is editing; needs an approved render hook).
+- T5 DONE (mock-tested): metadata similarity; thresholds need tuning on real titles.
+- T6 DONE (mock-tested): rights screen; owner may list own handles in channel config `handles`; OCR watermark detection not available.
+- T7 DONE (mock-tested): failure analysis; needs >=5 judged peer videos from Studio CSV import to say anything.
+- T8 DONE (mock-tested): experiments memory; observations are entered by owner/analytics (not auto-linked to uploads yet).
+- T9 DONE (mock-tested): research labels stored in metadata_json.research; not yet shown in the UI.
+- T10 DONE (mock-tested): channel DNA endpoint; needs real judged clips to say anything.
+- T11 DONE (mock-tested): report card on Insights tab; visual check in real browser pending.
+- T12 DONE: README integration table.

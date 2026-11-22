@@ -110,6 +110,19 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE source_destinations ADD COLUMN delay_min INTEGER NOT NULL DEFAULT 0;`,
   // v17 (additive): per-destination metadata policy, stored as JSON only
   `ALTER TABLE source_destinations ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';`,
+  // v18 (additive): per-video stats the OWNER imports from a YouTube Studio export (source stays MANUAL_IMPORT; nothing here is fetched or invented)
+  `CREATE TABLE IF NOT EXISTS studio_stats (
+    remote_id TEXT PRIMARY KEY, title TEXT, published_at TEXT, duration_sec REAL, views REAL, engaged_views REAL, avg_view_duration_sec REAL, avg_pct_viewed REAL,
+    watch_hours REAL, likes REAL, comments REAL, shares REAL, subs_gained REAL, subs_lost REAL, impressions REAL, viewed_pct REAL, swiped_pct REAL,
+    source TEXT NOT NULL DEFAULT 'MANUAL_IMPORT', imported_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v19 (additive): opportunity score per candidate (0-100) with its sub-scores, bases and reasons, so analytics can learn from them later
+  `CREATE TABLE IF NOT EXISTS candidate_opportunity (candidate_id INTEGER PRIMARY KEY, score REAL, parts_json TEXT NOT NULL, computed_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v20 (additive): truthful hook candidates (verbatim lines from the clip) with scores, and the chosen best
+  `CREATE TABLE IF NOT EXISTS candidate_hooks (candidate_id INTEGER PRIMARY KEY, best TEXT, candidates_json TEXT NOT NULL, computed_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v21 (additive): rights/originality screen decision per candidate (text-only flags; owner decides)
+  `CREATE TABLE IF NOT EXISTS candidate_rights (candidate_id INTEGER PRIMARY KEY, decision TEXT NOT NULL, flags_json TEXT NOT NULL, detail_json TEXT NOT NULL, computed_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v22 (additive): persistent experiments memory (hypothesis, <=3 variables, group, metric, observations, conclusion + confidence)
+  `CREATE TABLE IF NOT EXISTS experiments (id INTEGER PRIMARY KEY AUTOINCREMENT, hypothesis TEXT NOT NULL, variables_json TEXT NOT NULL, grp TEXT NOT NULL DEFAULT 'general', metric TEXT NOT NULL DEFAULT 'avg_pct_viewed', status TEXT NOT NULL DEFAULT 'open', control_json TEXT NOT NULL DEFAULT '[]', test_json TEXT NOT NULL DEFAULT '[]', conclusion TEXT, confidence TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
 ];
 
 export type Row = Record<string, unknown>;
