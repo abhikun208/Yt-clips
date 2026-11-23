@@ -68,6 +68,22 @@ async function getJ(url: string, init?: RequestInit): Promise<any> {
   const r = await netFetch(url, init); const j = await r.json().catch(() => ({})); if (!r.ok || j?.error) throw new Error(`oauth: ${(j?.error?.message ?? j?.error_description ?? j?.error ?? r.status)}`.toString().slice(0, 200)); return j;
 }
 
+/**
+ * Checks the saved Meta App ID + App secret WITHOUT a login (Meta's client_credentials call). Only an explicit credential error from Meta counts as "bad";
+ * network trouble or an unexpected answer is "unknown" and never blocks the login. Returns the app's name when Meta gives it, so the owner can see WHICH app the ID belongs to.
+ * The secret is only sent to Meta and never returned or logged.
+ */
+export async function checkAppCreds(cfg: Config, app: SocialApp): Promise<{ status: 'ok' | 'bad' | 'unknown'; appName?: string; message?: string }> {
+  if (app !== 'facebook') return { status: 'unknown', message: 'TikTok keys can only be checked by a real login' };
+  const c = appCreds(cfg, 'facebook'); if (!c) return { status: 'unknown', message: 'no app saved' };
+  try {
+    const r = await netFetch(`${graph()}/oauth/access_token?${new URLSearchParams({ client_id: c.id, client_secret: c.secret, grant_type: 'client_credentials' })}`); const j = await r.json().catch(() => ({})) as { access_token?: string; error?: { message?: string } };
+    if (j.access_token) { let appName: string | undefined; try { const n = await netFetch(`${graph()}/${encodeURIComponent(c.id)}?${new URLSearchParams({ fields: 'name', access_token: j.access_token })}`); appName = ((await n.json()) as { name?: string }).name; } catch { /* name is only a nicety */ } return { status: 'ok', ...(appName ? { appName } : {}) }; }
+    const m = String(j.error?.message ?? ''); if (/client secret|validating application|Invalid application|Invalid client|app id|secret/i.test(m)) return { status: 'bad', message: m.slice(0, 160) };
+    return { status: 'unknown', message: m.slice(0, 120) || `HTTP ${r.status}` };
+  } catch (e) { return { status: 'unknown', message: (e as Error).message.slice(0, 120) }; }
+}
+
 interface MetaPage { id: string; name: string; access_token: string; ig_user_id: string | null; ut?: string }
 export async function handleCallback(store: Store, cfg: Config, app: SocialApp, q: { code?: string | null; state?: string | null; error?: string | null }, base: string): Promise<{ connected: string[]; note?: string }> {
   if (q.error) throw new Error(`oauth: ${q.error}`.slice(0, 100)); if (!q.code || !q.state) throw new Error('invalid: missing code/state');
