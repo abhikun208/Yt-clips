@@ -67,3 +67,20 @@ test('empty /me/accounts (Business-portfolio Page): the ticked Page is read from
     } finally { s.close(); delete process.env.GRAPH_API_BASE; }
   }
 });
+test('empty Pages: the error carries Meta\'s own answers (calls, counts, errors) but never a token or the secret', async () => {
+  const s = createServer((req, res) => { const u = new URL(req.url!, 'http://x'); res.setHeader('content-type', 'application/json'); const p = u.pathname;
+    if (p.endsWith('/oauth/access_token')) return void res.end(JSON.stringify({ access_token: 'SECRETUSERTOKEN' }));
+    if (p.endsWith('/me/accounts')) return void res.end(JSON.stringify({ data: [] }));
+    if (p.endsWith('/me/permissions')) return void res.end(JSON.stringify({ data: [{ permission: 'pages_show_list', status: 'granted' }] }));
+    if (p.endsWith('/debug_token')) return void res.end(JSON.stringify({ data: { type: 'USER', is_valid: true, granular_scopes: [{ scope: 'pages_show_list' }] } }));
+    if (p.endsWith('/me/businesses')) { res.statusCode = 400; return void res.end(JSON.stringify({ error: { message: '(#200) Requires business_management permission' } })); }
+    if (p.endsWith('/me')) return void res.end(JSON.stringify({ id: '1', name: 'X' }));
+    res.statusCode = 400; res.end('{}'); });
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r)); process.env.GRAPH_API_BASE = `http://127.0.0.1:${(s.address() as { port: number }).port}`;
+  try {
+    const cfg = loadConfig(tmpDir()); const store = new Store(':memory:'); saveAppCreds(cfg, 'facebook', 'app-12345', 'right-secret-1'); const st = new URL(startAuth(store, cfg, 'facebook', 'https://x.example')).searchParams.get('state')!;
+    const err = await handleCallback(store, cfg, 'facebook', { code: 'c', state: st }, 'https://x.example').then(() => '', (e: Error) => e.message);
+    assert.match(err, /me\/accounts=0 items/); assert.match(err, /token=USER valid=true scopes=\[pages_show_list:0\]/); assert.match(err, /businesses=ERR\(.*business_management/); assert.ok(!err.includes('SECRETUSERTOKEN') && !err.includes('right-secret-1'));
+    const msg = friendlyOAuthError(err); assert.match(msg, /Meta ka jawab: me=ok; me\/accounts=0 items/); assert.ok(!msg.includes('SECRETUSERTOKEN'));
+  } finally { s.close(); delete process.env.GRAPH_API_BASE; }
+});

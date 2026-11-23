@@ -68,6 +68,20 @@ export async function netFetch(url: string, init?: RequestInit): Promise<Respons
   const c = (last as { cause?: { code?: string; message?: string } })?.cause; const host = (() => { try { return new URL(url).host; } catch { return url.slice(0, 40); } })();
   throw new Error(`network: ${host} tak nahi pahunch paya (${c?.code ?? c?.message ?? (last as Error)?.message ?? 'unknown'})`);
 }
+/** One-line summary of what Meta answers for this login, to find WHY no Page is listed. No tokens, secrets or Page tokens are included - only names of calls, counts and Meta's own error text. */
+interface DiagJ { id?: string; data?: unknown }
+const cnt = (j: DiagJ): number => (Array.isArray(j.data) ? j.data.length : 0);
+async function metaDiag(user: string, c: { id: string; secret: string }): Promise<string> {
+  const one = async (label: string, url: string, pick: (j: DiagJ) => string): Promise<string> => { try { return `${label}=${pick((await getJ(url)) as DiagJ)}`; } catch (e) { return `${label}=ERR(${(e as Error).message.replace(/^oauth: /, '').slice(0, 70)})`; } };
+  const q = (o: Record<string, string>) => new URLSearchParams(o).toString(); const tok = { access_token: user };
+  const parts = await Promise.all([
+    one('me', `${graph()}/me?${q({ fields: 'id,name', ...tok })}`, (j) => (j.id ? 'ok' : 'empty')),
+    one('me/accounts', `${graph()}/me/accounts?${q({ fields: 'id', limit: '5', ...tok })}`, (j) => `${cnt(j)} items`),
+    one('token', `${graph()}/debug_token?${q({ input_token: user, access_token: `${c.id}|${c.secret}` })}`, (j) => { const d = (j.data ?? {}) as { type?: string; is_valid?: boolean; granular_scopes?: { scope: string; target_ids?: string[] }[] }; return `${d.type ?? '?'} valid=${d.is_valid} scopes=[${(d.granular_scopes ?? []).map((g) => `${g.scope}:${(g.target_ids ?? []).length}`).join(',')}]`; }),
+    one('businesses', `${graph()}/me/businesses?${q({ fields: 'id', limit: '5', ...tok })}`, (j) => `${cnt(j)} items`),
+  ]);
+  return parts.join('; ');
+}
 async function getJ(url: string, init?: RequestInit): Promise<any> {
   const r = await netFetch(url, init); const j = await r.json().catch(() => ({})); if (!r.ok || j?.error) throw new Error(`oauth: ${(j?.error?.message ?? j?.error_description ?? j?.error ?? r.status)}`.toString().slice(0, 200)); return j;
 }
@@ -116,7 +130,7 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
       tickedIds = ids.size; for (const id of [...ids].slice(0, 25)) { try { const pg1 = await getJ(`${graph()}/${id}?${new URLSearchParams({ fields: 'id,name,access_token,instagram_business_account', access_token: user })}`) as PageRow; if (pg1.id && pg1.access_token) list.push(pg1); } catch { /* an id that is an Instagram account or not readable: skip */ } }
     } catch { /* fall through to the clear message below */ }
   }
-  if (!list.length) { let granted = 'unknown'; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); granted = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission).join(',') || 'none'; } catch { /* keep unknown */ } throw new Error(`oauth: no Facebook Page found for this login (granted permissions: ${granted}; assets ticked in dialog: ${tickedIds < 0 ? 'unknown' : tickedIds})`); }
+  if (!list.length) { let granted = 'unknown'; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); granted = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission).join(',') || 'none'; } catch { /* keep unknown */ } const diag = await metaDiag(user, c).catch(() => 'diag unavailable'); throw new Error(`oauth: no Facebook Page found for this login (granted permissions: ${granted}; assets ticked in dialog: ${tickedIds < 0 ? 'unknown' : tickedIds}; meta says: ${diag})`); }
   let perms: string[] = []; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); perms = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission); } catch { /* publishing just stays manual */ }
   const pg = list.find((p) => p.instagram_business_account) ?? list[0]!; const connected = ['facebook'];
   // MERGE, never replace: a second Meta login (another person / another Page set) adds its Pages; Pages seen before stay, refreshed when returned again.
