@@ -48,3 +48,22 @@ test('empty Pages: message says Pages permission was not granted and points to t
   const a = friendlyOAuthError('oauth: no Facebook Page found for this login (granted permissions: public_profile)'); assert.match(a, /Configuration ID/); assert.match(a, /public_profile/);
   const b = friendlyOAuthError('oauth: no Facebook Page found for this login (granted permissions: pages_show_list,instagram_basic)'); assert.ok(!/Configuration ID/.test(b)); assert.match(b, /SELECT/);
 });
+import { handleCallback } from '../src/publish/socialOauth.ts';
+import { SecretStore } from '../src/publish/secrets.ts';
+test('empty /me/accounts (Business-portfolio Page): the ticked Page is read from debug_token granular scopes and connected; nothing ticked => clear error', async () => {
+  const mk = async (targets: string[]) => createServer((req, res) => { const u = new URL(req.url!, 'http://x'); res.setHeader('content-type', 'application/json'); const p = u.pathname;
+    if (p.endsWith('/oauth/access_token')) return void res.end(JSON.stringify({ access_token: 'U1' }));
+    if (p.endsWith('/me/accounts')) return void res.end(JSON.stringify({ data: [] }));
+    if (p.endsWith('/me/permissions')) return void res.end(JSON.stringify({ data: [{ permission: 'pages_show_list', status: 'granted' }] }));
+    if (p.endsWith('/debug_token')) return void res.end(JSON.stringify({ data: { granular_scopes: [{ scope: 'pages_show_list', target_ids: targets }, { scope: 'ads_read', target_ids: ['999999'] }] } }));
+    if (p.endsWith('/777777')) return void res.end(JSON.stringify({ id: '777777', name: 'My Page', access_token: 'PT', instagram_business_account: { id: '555555' } }));
+    res.statusCode = 400; res.end(JSON.stringify({ error: { message: 'nope' } })); });
+  for (const [targets, expectOk] of [[['777777'], true], [[], false]] as const) {
+    const s = await mk([...targets]); await new Promise<void>((r) => s.listen(0, '127.0.0.1', r)); process.env.GRAPH_API_BASE = `http://127.0.0.1:${(s.address() as { port: number }).port}`;
+    try {
+      const cfg = loadConfig(tmpDir()); const store = new Store(':memory:'); saveAppCreds(cfg, 'facebook', 'app-12345', 'right-secret-1'); const st = new URL(startAuth(store, cfg, 'facebook', 'https://x.example')).searchParams.get('state')!;
+      if (expectOk) { const r = await handleCallback(store, cfg, 'facebook', { code: 'c', state: st }, 'https://x.example'); assert.ok(r.connected.includes('facebook')); const pages = SecretStore.forData(cfg.dataDir).read<{ pages: { id: string; ig_user_id: string | null }[] }>('meta-pages')!.pages; assert.deepEqual(pages.map((p) => [p.id, p.ig_user_id]), [['777777', '555555']]); }
+      else await assert.rejects(() => handleCallback(store, cfg, 'facebook', { code: 'c', state: st }, 'https://x.example'), /no Facebook Page found/);
+    } finally { s.close(); delete process.env.GRAPH_API_BASE; }
+  }
+});

@@ -105,7 +105,16 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
   let user = String(t1.access_token ?? ''); if (!user) throw new Error('oauth: no access_token from Facebook');
   try { const t2 = await getJ(`${graph()}/oauth/access_token?${new URLSearchParams({ grant_type: 'fb_exchange_token', client_id: c.id, client_secret: c.secret, fb_exchange_token: user })}`); if (t2.access_token) user = t2.access_token; } catch { /* keep short-lived token; analytics still works until it expires */ }
   const pages = await getJ(`${graph()}/me/accounts?${new URLSearchParams({ fields: 'id,name,access_token,instagram_business_account', access_token: user })}`);
-  const list = (pages.data ?? []) as { id: string; name: string; access_token: string; instagram_business_account?: { id: string } }[];
+  type PageRow = { id: string; name: string; access_token: string; instagram_business_account?: { id: string } };
+  const list = (pages.data ?? []) as PageRow[];
+  // Facebook Login for Business / Business-portfolio Pages: /me/accounts can be empty even though the owner ticked the Page in the dialog. The chosen assets are listed in the token's granular scopes (debug_token), so read the Pages from there.
+  if (!list.length) {
+    try {
+      const dbg = await getJ(`${graph()}/debug_token?${new URLSearchParams({ input_token: user, access_token: `${c.id}|${c.secret}` })}`);
+      const ids = new Set<string>(); for (const g of (dbg?.data?.granular_scopes ?? []) as { scope?: string; target_ids?: string[] }[]) if (/^(pages_|instagram_basic|read_insights)/.test(g.scope ?? '')) for (const t of g.target_ids ?? []) if (/^\d{5,30}$/.test(t)) ids.add(t);
+      for (const id of [...ids].slice(0, 25)) { try { const pg1 = await getJ(`${graph()}/${id}?${new URLSearchParams({ fields: 'id,name,access_token,instagram_business_account', access_token: user })}`) as PageRow; if (pg1.id && pg1.access_token) list.push(pg1); } catch { /* an id that is an Instagram account or not readable: skip */ } }
+    } catch { /* fall through to the clear message below */ }
+  }
   if (!list.length) { let granted = 'unknown'; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); granted = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission).join(',') || 'none'; } catch { /* keep unknown */ } throw new Error(`oauth: no Facebook Page found for this login (granted permissions: ${granted})`); }
   let perms: string[] = []; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); perms = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission); } catch { /* publishing just stays manual */ }
   const pg = list.find((p) => p.instagram_business_account) ?? list[0]!; const connected = ['facebook'];
