@@ -34,3 +34,17 @@ test('API (real HTTP): Connect with a bad App secret is stopped BEFORE the Faceb
     const c = await (await fetch(base + '/api/oauth/facebook/check', { headers: h })).json() as { status: string }; assert.equal(c.status, 'ok');
   } finally { await app.stop(); g.s.close(); delete process.env.GRAPH_API_BASE; }
 });
+import { Store } from '../src/db.ts';
+import { startAuth, setFbConfigId, getFbConfigId } from '../src/publish/socialOauth.ts';
+import { friendlyOAuthError } from '../src/publish/oauthguard.ts';
+test('Facebook Login for Business: with a Configuration ID the dialog uses config_id (no scope); without it the old scope dialog is unchanged; bad id rejected', () => {
+  const cfg = loadConfig(tmpDir()); const store = new Store(':memory:'); saveAppCreds(cfg, 'facebook', 'app-12345', 'right-secret-1');
+  const u0 = new URL(startAuth(store, cfg, 'facebook', 'https://x.example')); assert.ok(u0.searchParams.get('scope')); assert.equal(u0.searchParams.get('config_id'), null);
+  assert.throws(() => setFbConfigId(store, 'abc')); setFbConfigId(store, ' 1821 2805 95589485 '); assert.equal(getFbConfigId(store), '1821280595589485');
+  const u1 = new URL(startAuth(store, cfg, 'facebook', 'https://x.example')); assert.equal(u1.searchParams.get('config_id'), '1821280595589485'); assert.equal(u1.searchParams.get('scope'), null); assert.equal(u1.searchParams.get('response_type'), 'code');
+  setFbConfigId(store, ''); assert.equal(getFbConfigId(store), null); assert.ok(new URL(startAuth(store, cfg, 'facebook', 'https://x.example')).searchParams.get('scope'));
+});
+test('empty Pages: message says Pages permission was not granted and points to the Configuration ID; with pages_show_list granted it keeps the select-your-Page hint', () => {
+  const a = friendlyOAuthError('oauth: no Facebook Page found for this login (granted permissions: public_profile)'); assert.match(a, /Configuration ID/); assert.match(a, /public_profile/);
+  const b = friendlyOAuthError('oauth: no Facebook Page found for this login (granted permissions: pages_show_list,instagram_basic)'); assert.ok(!/Configuration ID/.test(b)); assert.match(b, /SELECT/);
+});

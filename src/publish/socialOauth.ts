@@ -42,10 +42,14 @@ export const setRelay = (v: string | null): void => { try { const u = v ? new UR
 export const getRelay = (): string | null => relay;
 export const redirectUri = (base: string, app: SocialApp) => relay ?? `${base.replace(/\/+$/, '')}/api/oauth/${app}/callback`;
 
+/** Facebook Login for Business apps need a Configuration (config_id) instead of plain scopes: the configuration carries the permissions AND the Page/Instagram assets. Optional; not a secret. */
+export const getFbConfigId = (store: Store): string | null => { const v = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'oauth:fb_config_id')?.v?.trim(); return v && /^\d{5,30}$/.test(v) ? v : null; };
+export function setFbConfigId(store: Store, id: string): void { const v = id.replace(/\s+/g, ''); if (v && !/^\d{5,30}$/.test(v)) throw new Error('invalid: configuration id must be digits only'); store.exec('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', 'oauth:fb_config_id', v); }
 export function startAuth(store: Store, cfg: Config, app: SocialApp, base: string, o: { publish?: boolean; port?: number } = {}): string {
   const c = appCreds(cfg, app); if (!c) throw new Error(`invalid: save the ${app === 'facebook' ? 'Meta (Facebook) app id/secret' : 'TikTok client key/secret'} first`);
   const state = (relay ? `${app}.${o.port ?? 8080}.` : '') + randomBytes(18).toString('hex'); store.exec(`INSERT INTO kv(k,v) VALUES(?,?)`, `oauth_state_${state}`, JSON.stringify({ app, at: Date.now(), ru: redirectUri(base, app) }));
   const ru = redirectUri(base, app);
+  if (app === 'facebook' && getFbConfigId(store)) return `${fbDialog()}?${new URLSearchParams({ client_id: c.id, redirect_uri: ru, state, response_type: 'code', config_id: getFbConfigId(store)!, override_default_response_type: 'true' })}`;
   if (app === 'facebook') return `${fbDialog()}?${new URLSearchParams({ client_id: c.id, redirect_uri: ru, state, scope: FB_SCOPES + (o.publish ? FB_PUBLISH_SCOPES : ''), response_type: 'code' })}`;
   return `${ttAuth()}?${new URLSearchParams({ client_key: c.id, scope: TT_SCOPES, response_type: 'code', redirect_uri: ru, state })}`;
 }
@@ -102,7 +106,7 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
   try { const t2 = await getJ(`${graph()}/oauth/access_token?${new URLSearchParams({ grant_type: 'fb_exchange_token', client_id: c.id, client_secret: c.secret, fb_exchange_token: user })}`); if (t2.access_token) user = t2.access_token; } catch { /* keep short-lived token; analytics still works until it expires */ }
   const pages = await getJ(`${graph()}/me/accounts?${new URLSearchParams({ fields: 'id,name,access_token,instagram_business_account', access_token: user })}`);
   const list = (pages.data ?? []) as { id: string; name: string; access_token: string; instagram_business_account?: { id: string } }[];
-  if (!list.length) throw new Error('oauth: no Facebook Page found for this login (Page admin access is needed for Facebook/Instagram insights)');
+  if (!list.length) { let granted = 'unknown'; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); granted = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission).join(',') || 'none'; } catch { /* keep unknown */ } throw new Error(`oauth: no Facebook Page found for this login (granted permissions: ${granted})`); }
   let perms: string[] = []; try { const pm = await getJ(`${graph()}/me/permissions?${new URLSearchParams({ access_token: user })}`); perms = ((pm.data ?? []) as { permission: string; status: string }[]).filter((x) => x.status === 'granted').map((x) => x.permission); } catch { /* publishing just stays manual */ }
   const pg = list.find((p) => p.instagram_business_account) ?? list[0]!; const connected = ['facebook'];
   // MERGE, never replace: a second Meta login (another person / another Page set) adds its Pages; Pages seen before stay, refreshed when returned again.

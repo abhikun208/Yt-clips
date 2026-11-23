@@ -615,3 +615,4 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 - (45) T12: README section 'Kaise chalayein + PUBLISH_MODE' + integration table (feature/module/entry/status). Docs only.
 - (46) FINAL: full regression after T1-T12: 594 tests / 593 pass / 0 fail / 1 skipped; locked checksums unchanged; pushed as 86f755a.
 - (47) Meta App ID/secret pre-check (checkAppCreds, GET /api/oauth/facebook/check, shown after 'App badlo' and blocks Connect early only on an explicit Meta credential error; network trouble never blocks). test/appcreds_check.test.ts 2/2; OAuth/destination suites 28/28. Real Meta UNVERIFIED.
+- (48) Meta 'no Facebook Page found': optional Configuration ID (Facebook Login for Business) -> dialog uses config_id instead of scope; error now lists granted permissions and points to the Configuration ID when Pages permission is missing. test/appcreds_check.test.ts 4/4, OAuth suites 26/26. Real Meta UNVERIFIED.
