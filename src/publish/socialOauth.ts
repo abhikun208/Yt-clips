@@ -15,7 +15,8 @@ const fbDialog = () => process.env.FB_DIALOG_BASE ?? `https://www.facebook.com/$
 const graph = () => process.env.GRAPH_API_BASE ?? `https://graph.facebook.com/${FB_VER}`;
 const ttAuth = () => process.env.TIKTOK_AUTH_BASE ?? 'https://www.tiktok.com/v2/auth/authorize/';
 const ttApi = () => process.env.TIKTOK_API_BASE ?? 'https://open.tiktokapis.com';
-export const FB_SCOPES = 'pages_show_list,pages_read_engagement,read_insights,instagram_basic,instagram_manage_insights';
+// business_management: Pages that sit in a Business portfolio (Meta Business Suite) are NOT listed by /me/accounts without it
+export const FB_SCOPES = 'pages_show_list,pages_read_engagement,read_insights,instagram_basic,instagram_manage_insights,business_management';
 /** Added only when the owner asks for upload access (Publish tab): the Meta app must have these permissions enabled or the dialog refuses. */
 export const FB_PUBLISH_SCOPES = ',pages_manage_posts,instagram_content_publish';
 export const TT_SCOPES = 'user.info.basic,video.list';
@@ -122,6 +123,15 @@ export async function handleCallback(store: Store, cfg: Config, app: SocialApp, 
   type PageRow = { id: string; name: string; access_token: string; instagram_business_account?: { id: string } };
   const list = (pages.data ?? []) as PageRow[];
   // Facebook Login for Business / Business-portfolio Pages: /me/accounts can be empty even though the owner ticked the Page in the dialog. The chosen assets are listed in the token's granular scopes (debug_token), so read the Pages from there.
+  // Business-portfolio Pages: ask the businesses the person belongs to (needs business_management)
+  if (!list.length) {
+    try {
+      const biz = await getJ(`${graph()}/me/businesses?${new URLSearchParams({ fields: 'id', limit: '25', access_token: user })}`);
+      for (const b of ((biz.data ?? []) as { id: string }[]).slice(0, 10)) for (const edge of ['owned_pages', 'client_pages']) {
+        try { const r = await getJ(`${graph()}/${encodeURIComponent(b.id)}/${edge}?${new URLSearchParams({ fields: 'id,name,access_token,instagram_business_account', limit: '50', access_token: user })}`); for (const pg2 of (r.data ?? []) as PageRow[]) if (pg2.id && pg2.access_token && !list.some((x) => x.id === pg2.id)) list.push(pg2); } catch { /* this edge is not readable for this business */ }
+      }
+    } catch { /* no business access: fall through */ }
+  }
   let tickedIds = -1;
   if (!list.length) {
     try {

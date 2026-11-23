@@ -84,3 +84,23 @@ test('empty Pages: the error carries Meta\'s own answers (calls, counts, errors)
     const msg = friendlyOAuthError(err); assert.match(msg, /Meta ka jawab: me=ok; me\/accounts=0 items/); assert.ok(!msg.includes('SECRETUSERTOKEN'));
   } finally { s.close(); delete process.env.GRAPH_API_BASE; }
 });
+test('Business-portfolio Pages: /me/accounts empty but /me/businesses -> owned_pages has the Page => connected; scope now asks business_management; the business hint shows when that permission is missing', async () => {
+  assert.match(new URL(startAuth(new Store(':memory:'), (() => { const c = loadConfig(tmpDir()); saveAppCreds(c, 'facebook', 'app-12345', 'right-secret-1'); return c; })(), 'facebook', 'https://x.example')).searchParams.get('scope')!, /business_management/);
+  const s = createServer((req, res) => { const u = new URL(req.url!, 'http://x'); res.setHeader('content-type', 'application/json'); const p = u.pathname;
+    if (p.endsWith('/oauth/access_token')) return void res.end(JSON.stringify({ access_token: 'U1' }));
+    if (p.endsWith('/me/accounts')) return void res.end(JSON.stringify({ data: [] }));
+    if (p.endsWith('/me/permissions')) return void res.end(JSON.stringify({ data: [{ permission: 'pages_show_list', status: 'granted' }, { permission: 'business_management', status: 'granted' }] }));
+    if (p.endsWith('/debug_token')) return void res.end(JSON.stringify({ data: { granular_scopes: [] } }));
+    if (p.endsWith('/me/businesses')) return void res.end(JSON.stringify({ data: [{ id: 'B1' }] }));
+    if (p.endsWith('/B1/owned_pages')) return void res.end(JSON.stringify({ data: [{ id: '777777', name: 'Team Unknown 1M', access_token: 'PT', instagram_business_account: { id: '555555' } }] }));
+    if (p.endsWith('/B1/client_pages')) { res.statusCode = 400; return void res.end(JSON.stringify({ error: { message: 'nope' } })); }
+    res.statusCode = 400; res.end('{}'); });
+  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r)); process.env.GRAPH_API_BASE = `http://127.0.0.1:${(s.address() as { port: number }).port}`;
+  try {
+    const cfg = loadConfig(tmpDir()); const store = new Store(':memory:'); saveAppCreds(cfg, 'facebook', 'app-12345', 'right-secret-1'); const st = new URL(startAuth(store, cfg, 'facebook', 'https://x.example')).searchParams.get('state')!;
+    const r = await handleCallback(store, cfg, 'facebook', { code: 'c', state: st }, 'https://x.example'); assert.ok(r.connected.includes('facebook'));
+    assert.deepEqual(SecretStore.forData(cfg.dataDir).read<{ pages: { id: string; ig_user_id: string | null }[] }>('meta-pages')!.pages.map((p) => [p.id, p.ig_user_id]), [['777777', '555555']]);
+  } finally { s.close(); delete process.env.GRAPH_API_BASE; }
+  const hint = friendlyOAuthError('oauth: no Facebook Page found for this login (granted permissions: pages_show_list,public_profile; assets ticked in dialog: 0; meta says: me=ok; me/accounts=0 items; token=USER valid=true scopes=[pages_show_list:0]; businesses=ERR((#100) Missing Permission))');
+  assert.match(hint, /Business portfolio/); assert.match(hint, /business_management/);
+});
