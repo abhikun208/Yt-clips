@@ -69,3 +69,14 @@ test('a distribute job for facebook_reels (destination bound) is picked up by th
   const t = await automationTick(store, cfg); assert.ok(t.advanced >= 1, JSON.stringify(t));
   assert.notEqual(store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', id)!.state, 'QC_PASSED', 'the loop moved the distributed job on (without a Meta publish login it is the manual-post flow; with one it is the real adapter behind the same gates)');
 });
+
+test('slot planning is per platform account: a YouTube post does not push the same channel\'s Facebook slot away, but does space the next YouTube post', async () => {
+  const { planFromStore } = await import('../src/schedule/analytics.ts'); const { mainChannel } = await import('../src/channels.ts');
+  const dataDir = tmpDir(); const cfg = loadConfig(process.cwd(), { dataDir }); const store = new Store(':memory:'); const ch = mainChannel(store);
+  store.exec(`INSERT INTO videos(id, path, fingerprint) VALUES (1,'/x','f')`); store.exec(`INSERT INTO candidates(id, video_id, start_sec, end_sec, score, fingerprint) VALUES (1,1,0,6,.5,'c')`);
+  store.exec(`INSERT INTO clips(id, candidate_id, output_id, edited_path, qc_pass, metadata_json) VALUES (1,1,'o1','/x.mp4',1,'{}')`);
+  const from = new Date('2030-01-01T04:00:00Z'); const plan = (platform: string) => planFromStore(store, { n: 1, tz: cfg.timezone, cfg: { ...cfg.schedule, jitterMinutes: 0 }, from, platform, channelId: ch.id }).slots[0]!.at.getTime();
+  const base = plan('youtube_shorts'); assert.equal(plan('facebook_reels'), base, 'empty calendar: same first slot');
+  store.exec(`INSERT INTO uploads(clip_id, platform, state, idempotency_key, channel_id, scheduled_at) VALUES (1,'youtube_shorts','SCHEDULED_OR_APPROVED','k1',?,?)`, ch.id, new Date(base).toISOString());
+  assert.equal(plan('facebook_reels'), base, 'Facebook slot is NOT pushed by the YouTube post'); assert.ok(plan('youtube_shorts') > base, 'the next YouTube post is spaced after the first');
+});

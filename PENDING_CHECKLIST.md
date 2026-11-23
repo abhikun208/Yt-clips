@@ -120,7 +120,7 @@
 - [x] PC/VPS PyAV 18 + faster-whisper compatibility checked in isolated Python; synthetic audio decoder smoke test passed.
 - [x] STT provider-network cooldown now continues to local STT on subsequent clips; mocked-provider/local-VoiceStudio regression passed.
 - [x] `npm run typecheck` passed; focused STT tests passed 2/2; orchestration/security tests passed 21/21; isolated stale-output render recovery passed 1/1.
-- [ ] Full `test/logfix.test.ts` suite: its broad run was interrupted at the local-model timeout; only the focused render-recovery test is verified.
+- [x] Full `test/logfix.test.ts` suite 13/13 pass (2026-11-24, sandbox; earlier run was interrupted at the local-model timeout).
 - [x] Local dashboard is running at `http://127.0.0.1:8080` with background automation disabled; Chromium shows the 8 tabs and empty Clips inbox.
 - [x] Project DB read-only check: sources/jobs/videos/clips/uploads/studio generations all contain 0 rows; no live-edit preview exists yet. Default data/output path is this project’s `data/` directory.
 - [ ] Real Termux, live stream, OAuth/account, deployment, provider analytics, and real speech-quality checks remain owner/device-only; no public upload or approval gates were enabled.
@@ -160,3 +160,4 @@
 - [x] Staged platforms (Telegram/Discord/Mastodon/Bluesky/Facebook/Instagram) reach PUBLISHED after the real send (verify reported unlisted forever before).
 - [ ] OWNER: for real posts set PUBLISH_MODE=PRIVATE (unlisted/private only) or PUBLISH_MODE=PUBLIC (public/scheduled posts) in .env and restart; gates publishEnabled/publicVisibilityAllowed must be ON too. The Home 'Publish ke liye kya ready hai' card shows the current mode.
 - [ ] UNVERIFIED on real Meta/Telegram/YouTube accounts (fake servers only).
+- [x] Slot planning (day cap / min gap) is per platform account, not shared across a channel's platforms.

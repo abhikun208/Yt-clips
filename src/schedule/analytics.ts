@@ -68,7 +68,7 @@ export function hourStats(store: Store, tz: string, platform?: string, channelId
  * channels' evidence while the channel has too few samples), and other channels' slots are kept `staggerMinutes` apart.
  */
 export function planFromStore(store: Store, o: { n: number; tz: string; cfg: SchedConfig; from?: Date; platform?: string; channelId?: number }) {
-  const rows = store.all<{ scheduled_at: string; channel_id: number | null }>(`SELECT scheduled_at, channel_id FROM uploads WHERE scheduled_at IS NOT NULL AND state IN ('SCHEDULED_OR_APPROVED','PUBLISHED')`);
+  const rows = store.all<{ scheduled_at: string; channel_id: number | null; platform: string }>(`SELECT scheduled_at, channel_id, platform FROM uploads WHERE scheduled_at IS NOT NULL AND state IN ('SCHEDULED_OR_APPROVED','PUBLISHED')`).filter((r) => !o.platform || r.platform === o.platform); // an account's day cap / min gap count only ITS OWN platform: a YouTube post must not push the same channel's Facebook/Instagram post hours later
   const toD = (r: { scheduled_at: string }) => new Date(r.scheduled_at);
   const ok = (d: Date) => !Number.isNaN(d.getTime());
   const mine = o.channelId === undefined ? rows : rows.filter((r) => r.channel_id === o.channelId);
