@@ -149,7 +149,14 @@
 - T6 DONE (mock-tested): rights screen; owner may list own handles in channel config `handles`; OCR watermark detection not available.
 - T7 DONE (mock-tested): failure analysis; needs >=5 judged peer videos from Studio CSV import to say anything.
 - T8 DONE (mock-tested): experiments memory; observations are entered by owner/analytics (not auto-linked to uploads yet).
-- T9 DONE (mock-tested): research labels stored in metadata_json.research; not yet shown in the UI.
+- T9 DONE (mock-tested + Chromium): research labels stored in metadata_json.research and shown in the clip dialog.
 - T10 DONE (mock-tested): channel DNA endpoint; needs real judged clips to say anything.
-- T11 DONE (mock-tested): report card on Insights tab; visual check in real browser pending.
+- T11 DONE (mock-tested + Chromium render check): report card on Insights tab.
 - T12 DONE: README integration table.
+
+## Schedule audit (2026-11-24)
+- [x] Owner-approved/scheduled jobs publish at their due time even with autoQueue off (test/scheduled_due.test.ts).
+- [x] Distribute-created jobs (explicit destination) are advanced by the loop regardless of automation.platforms.
+- [x] Staged platforms (Telegram/Discord/Mastodon/Bluesky/Facebook/Instagram) reach PUBLISHED after the real send (verify reported unlisted forever before).
+- [ ] OWNER: for real posts set PUBLISH_MODE=PRIVATE (unlisted/private only) or PUBLISH_MODE=PUBLIC (public/scheduled posts) in .env and restart; gates publishEnabled/publicVisibilityAllowed must be ON too. The Home 'Publish ke liye kya ready hai' card shows the current mode.
+- [ ] UNVERIFIED on real Meta/Telegram/YouTube accounts (fake servers only).

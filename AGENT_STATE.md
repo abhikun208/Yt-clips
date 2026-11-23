@@ -54,3 +54,6 @@ T4: `node --test test/hooks.test.ts` -> 4/4. Real stored example (120 s fixture 
 
 ## BLOCKERS
 - B1, B2 above (owner: Google Cloud audit/consent + analytics OAuth scope; first real analytics data).
+
+## 2026-11-24 schedule audit
+DONE: three scheduling defects fixed (see PROGRESS (54)); tests test/scheduled_due.test.ts 3/3, focused regression 109/109. Remaining code-doable: T8 auto-link of experiments to Studio stats.

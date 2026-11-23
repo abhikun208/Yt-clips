@@ -158,8 +158,8 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
   try { sweepSources(store, cfg); } catch (e) { r.errors.push(`cleanup: ${(e as Error).message}`); } // free disk of finished videos (storage.autoCleanup)
   if (!autopilotPass(store, cfg)) { r.blocked.PAUSED = 1; return r; } // owner pressed Pause Autopilot: nothing is queued/advanced/published
   if (cfg.automation.blockGenericMetadata !== false) await healGenericMetadata(store, cfg); // runs even when auto-queue is off: a title must come from the video itself, not from a button
-  if (!cfg.automation.autoQueue) return r;
-  for (const ch of listChannels(store)) for (const platform of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
+  const queueOn = !!cfg.automation.autoQueue; // OFF: nothing new is queued, but jobs the OWNER already approved/scheduled (SCHEDULED_OR_APPROVED) must still go out at their time
+  for (const ch of queueOn ? listChannels(store) : []) for (const platform of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
     if (!cfg.automation.platforms.includes(platform)) continue; // the global list is the owner's master switch
     let liveLeft = liveBudget(store, cfg); // live-captured clips: at most N uploads per hour
     const allRows = store.all<{ id: number; sid: number; la: string | null; lv: number }>(`SELECT c.id, COALESCE(v.source_id, 0) AS sid, c.last_attempt_at AS la, CASE WHEN ${LIVE_VIDEO_SQL} THEN 1 ELSE 0 END AS lv FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND k.score*100 >= ? AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, ch.config.minViral ?? 0, platform);
@@ -169,7 +169,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
   }
   // source -> extra destinations: clips of a mapped source are ALSO queued for the mapped channel (own job, own idempotency key; the account gates still apply per job)
-  for (const m of listSourceMappings(store).filter((x) => x.enabled && cfg.automation.platforms.includes(x.platform))) {
+  for (const m of listSourceMappings(store).filter((x) => queueOn && x.enabled && cfg.automation.platforms.includes(x.platform))) {
     const rows = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id WHERE v.source_id=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL ORDER BY c.id LIMIT ?`, m.sourceId, cfg.automation.maxAdvancePerCycle);
     for (const c of rows) {
       const before = store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n; queueUpload(store, c.id, m.platform, m.channelId);
@@ -178,7 +178,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
   }
   { const used = store.get<{ units: number }>(`SELECT units FROM quota_usage WHERE day=? AND pool='units'`, quotaDay(now))?.units ?? 0; if (used >= 10_000 * ((cfg.automation.quotaPausePct ?? 80) / 100)) { r.blocked.QUOTA_GUARD = 1; void notify(store, cfg, `quota:${quotaDay(now)}`, `YouTube quota ${used}/10000 units: uploads paused until the Pacific-time reset.`); return r; } } // quota guardian
   // round-robin across channels/platforms: the oldest job of EACH destination goes first, so one stuck/blocked account can never starve another
-  const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM (SELECT id, platform, state, ROW_NUMBER() OVER (PARTITION BY COALESCE(channel_id, 0), platform ORDER BY id) AS rn FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"})) ORDER BY rn, id LIMIT 500`, ...cfg.automation.platforms)
+  const pending = store.all<{ id: number; platform: string; state: string }>(`SELECT id, platform, state FROM (SELECT id, platform, state, ROW_NUMBER() OVER (PARTITION BY COALESCE(channel_id, 0), platform ORDER BY id) AS rn FROM uploads WHERE state NOT IN ('PUBLISHED','QC_FAILED','FAILED','ANALYTICS_WAIT','ANALYZING','LEARNING','NEXT_CYCLE') AND ((${queueOn ? '1' : '0'} AND platform IN (${cfg.automation.platforms.map(() => '?').join(',') || "''"})) OR destination_id IS NOT NULL OR state='SCHEDULED_OR_APPROVED')) ORDER BY rn, id LIMIT 500`, ...cfg.automation.platforms)
     .filter((x) => { const h = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `uphold:${x.id}`)?.v; return !h || Date.parse(h) <= now.getTime(); }) // per-destination delay not over yet: this job waits, others go on
     .filter((x) => !store.get('SELECT 1 FROM kv WHERE k=?', `uppause:${x.id}`)) // owner paused this job: only a manual advance moves it
     .sort((x, y) => (lastTried.get(x.id) ?? 0) - (lastTried.get(y.id) ?? 0) || 0).slice(0, cfg.automation.maxAdvancePerCycle); // never-tried / least-recently-tried first: a job that just blocked yields its turn to the others

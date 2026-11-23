@@ -73,7 +73,7 @@ export abstract class StagedAdapter implements Adapter {
     this.store.exec(`INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v`, `stage:${id}`, JSON.stringify({ file: a.filePath, title: a.title, description: a.description }));
     return { remoteId: id };
   }
-  async verify(id: string, expect?: { title: string }) { const s = this.staged(id); return { processed: !!s, metadataMatches: !!s && (!expect || s.title === expect.title), visibility: 'unlisted' }; }
+  async verify(id: string, expect?: { title: string }) { const s = this.staged(id); const sent = !!this.store.get('SELECT 1 FROM kv WHERE k=?', uploadKey(id)); return { processed: !!s, metadataMatches: !!s && (!expect || s.title === expect.title), visibility: sent ? 'public' : 'unlisted' }; }
   async publish(id: string, at: Date | null): Promise<{ remoteId?: string } | void> {
     if (at && at.getTime() > Date.now()) throw new Error(`WAIT_SCHEDULE: due ${at.toISOString()}`); // local scheduling: the worker loop retries until the slot
     const done = this.store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', uploadKey(id))?.v; if (done) return { remoteId: done }; // idempotent: never double-post after a crash
