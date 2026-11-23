@@ -36,3 +36,30 @@ test('API (real HTTP): create, observe, conclude, list', async () => {
     const l = await (await fetch(base + '/api/experiments', { headers: h })).json() as { experiments: { id: number; test: number[] }[] }; assert.deepEqual(l.experiments.find((x) => x.id === e.id)!.test, [5]);
   } finally { await app.stop(); }
 });
+
+test('observeFromStudio: takes the metric from imported Studio stats, only judgeable videos, each video once, reasons reported, never invented', async () => {
+  const { observeFromStudio } = await import('../src/analytics/experiments.ts');
+  const s = new Store(testConfig({}).dbPath); const e = createExperiment(s, { hypothesis: 'question hooks keep viewers', variables: ['hook style'], metric: 'avg_pct_viewed' });
+  const old = new Date(Date.now() - 10 * 86400_000).toISOString(); const young = new Date(Date.now() - 3600_000).toISOString();
+  const ins = (id: string, at: string | null, views: number | null, pct: number | null) => s.exec(`INSERT INTO studio_stats(remote_id, published_at, views, avg_pct_viewed) VALUES (?,?,?,?)`, id, at, views, pct);
+  ins('ok1', old, 500, 61.5); ins('ok2', old, 900, 48); ins('young', young, 900, 70); ins('few', old, 5, 70); ins('nopct', old, 500, null); ins('noage', null, 500, 40);
+  const r = observeFromStudio(s, e.id, 'test', ['ok1', 'ok2', 'young', 'few', 'nopct', 'noage', 'ghost', 'ok1']);
+  assert.equal(r.added, 2); assert.deepEqual(r.experiment.test.sort((a, b) => a - b), [48, 61.5]); assert.deepEqual(r.experiment.control, []);
+  const why = Object.fromEntries(r.skipped.map((x) => [x.remote_id, x.reason]));
+  assert.deepEqual(why, { young: 'TOO_YOUNG', few: 'TOO_FEW_VIEWS', nopct: 'METRIC_MISSING', noage: 'UNKNOWN_AGE', ghost: 'NOT_IN_STUDIO_IMPORT' }, 'duplicate in the same call is deduped silently');
+  assert.equal(observeFromStudio(s, e.id, 'test', ['ok1']).skipped[0]!.reason, 'ALREADY_COUNTED', 'a video is never counted twice');
+  const bad = createExperiment(s, { hypothesis: 'h', variables: ['v'], metric: 'ctr_guess' }); assert.throws(() => observeFromStudio(s, bad.id, 'test', ['ok1']), /not a Studio column/);
+  assert.equal(concludeExperiment(s, e.id).verdict.conclusion, 'NO EVIDENCE YET', 'still honest: 2 samples is not evidence');
+});
+
+test('HTTP: POST /api/experiments/:id/observe-studio validates side and ids', async () => {
+  const T = 'test-token-0123456789'; const h = { authorization: `Bearer ${T}`, 'content-type': 'application/json' };
+  const app = createApp({ host: '127.0.0.1', port: 0, token: T, dataDir: tmpDir(), autoRun: false }); const base = `http://127.0.0.1:${await app.start()}`;
+  try {
+    const e = await (await fetch(base + '/api/experiments', { method: 'POST', headers: h, body: JSON.stringify({ hypothesis: 'h', variables: ['v'] }) })).json() as { experiment?: { id: number }; id?: number }; const id = e.experiment?.id ?? e.id!;
+    assert.equal((await fetch(`${base}/api/experiments/${id}/observe-studio`, { method: 'POST', headers: h, body: JSON.stringify({ side: 'x', remote_ids: ['a'] }) })).status, 400);
+    assert.equal((await fetch(`${base}/api/experiments/${id}/observe-studio`, { method: 'POST', headers: h, body: JSON.stringify({ side: 'test', remote_ids: [] }) })).status, 400);
+    const ok = await fetch(`${base}/api/experiments/${id}/observe-studio`, { method: 'POST', headers: h, body: JSON.stringify({ side: 'test', remote_ids: ['nope'] }) }); assert.equal(ok.status, 200);
+    assert.deepEqual(((await ok.json()) as { added: number; skipped: { reason: string }[] }).skipped.map((x) => x.reason), ['NOT_IN_STUDIO_IMPORT']);
+  } finally { await app.stop?.(); }
+});

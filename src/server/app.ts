@@ -62,7 +62,7 @@ import { importStudioCsv, judgeOpts, judgeable, categoryOf, peersOf, type StatRo
 import { diagnose } from '../analytics/failure.ts';
 import { channelDnaFor } from '../analytics/dna.ts';
 import { buildReport } from '../analytics/report.ts';
-import { createExperiment, listExperiments, addObservation, concludeExperiment } from '../analytics/experiments.ts';
+import { createExperiment, listExperiments, addObservation, concludeExperiment, observeFromStudio } from '../analytics/experiments.ts';
 import { collectAnalytics, analyticsSummary, analyticsBreakdown } from '../analytics/collect.ts';
 import { titleTestTick, funnelTick, listTitleTests } from '../publish/titletest.ts';
 import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPosted } from '../publish/direct.ts';
@@ -534,6 +534,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/analytics/studio-import' && m === 'POST') return json(res, 200, importStudioCsv(store, (await readBody(req, 5 * 1024 * 1024)).toString('utf8'))); // invalid CSV throws -> the generic handler answers with the error
       if (p === '/api/experiments' && m === 'GET') return json(res, 200, { experiments: listExperiments(store) });
       if (p === '/api/experiments' && m === 'POST') { const b = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8')) as { hypothesis: string; variables: string[]; group?: string; metric?: string }; try { return json(res, 200, createExperiment(store, b)); } catch (e) { return json(res, 400, { error: (e as Error).message }); } }
+      { const sm = /^\/api\/experiments\/(\d+)\/observe-studio$/.exec(p); if (sm && m === 'POST') { try { const b = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as { side?: string; remote_ids?: string[] }; if (b.side !== 'control' && b.side !== 'test') return json(res, 400, { error: 'side must be control or test' }); if (!Array.isArray(b.remote_ids) || !b.remote_ids.length) return json(res, 400, { error: 'remote_ids (array of YouTube video ids) required' }); return json(res, 200, observeFromStudio(store, Number(sm[1]), b.side, b.remote_ids)); } catch (e) { return json(res, 400, { error: (e as Error).message }); } } }
       { const em = /^\/api\/experiments\/(\d+)\/(observe|conclude)$/.exec(p); if (em && m === 'POST') { const id = Number(em[1]); try { if (em[2] === 'conclude') return json(res, 200, concludeExperiment(store, id)); const b = JSON.parse((await readBody(req, 4096)).toString('utf8')) as { side: 'control' | 'test'; value: number }; if (b.side !== 'control' && b.side !== 'test') return json(res, 400, { error: 'side must be control or test' }); return json(res, 200, addObservation(store, id, b.side, Number(b.value))); } catch (e) { return json(res, 400, { error: (e as Error).message }); } } }
       if (p === '/api/analytics/report' && m === 'GET') return json(res, 200, buildReport(store));
       if (p === '/api/analytics/dna' && m === 'GET') { const c = url.searchParams.get('channel_id'); return json(res, 200, channelDnaFor(store, c ? Number(c) : null)); }

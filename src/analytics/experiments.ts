@@ -4,6 +4,7 @@
  * "NO EVIDENCE YET" until both groups have enough samples. Nothing here edits a clip or changes any setting.
  */
 import type { Store } from '../db.ts';
+import { judgeable, judgeOpts, type StatRow } from './studiocsv.ts';
 export const MAX_VARIABLES = 3; export const MIN_PER_GROUP = 5;
 export interface Experiment { id: number; hypothesis: string; variables: string[]; grp: string; metric: string; status: 'open' | 'concluded'; control: number[]; test: number[]; conclusion: string | null; confidence: string | null; created_at: string }
 interface Row { id: number; hypothesis: string; variables_json: string; grp: string; metric: string; status: 'open' | 'concluded'; control_json: string; test_json: string; conclusion: string | null; confidence: string | null; created_at: string }
@@ -34,4 +35,23 @@ export function concludeExperiment(store: Store, id: number): { experiment: Expe
   const e = getExperiment(store, id); if (!e) throw new Error('unknown experiment'); const v = conclude(e);
   if (v.conclusion === 'NO EVIDENCE YET') return { experiment: e, verdict: v }; // stays open; nothing is recorded as a result
   store.exec(`UPDATE experiments SET status='concluded', conclusion=?, confidence=? WHERE id=?`, `${v.conclusion}: ${v.note}`, v.confidence, id); return { experiment: getExperiment(store, id)!, verdict: v };
+}
+
+const NUMERIC = /^(views|avg_pct_viewed|viewed_pct|swiped_pct|duration_sec)$/;
+/**
+ * Take the experiment's metric straight from imported YouTube Studio stats (studio_stats) instead of typing it. Each video is
+ * counted at most once per experiment, and only when it is judgeable (old enough + enough views, same rule as the rest of the
+ * analytics). Anything else is reported back with its reason and nothing is invented.
+ */
+export function observeFromStudio(store: Store, id: number, side: 'control' | 'test', remoteIds: string[]): { added: number; skipped: { remote_id: string; reason: string }[]; experiment: Experiment } {
+  const e = getExperiment(store, id); if (!e) throw new Error('unknown experiment'); if (!NUMERIC.test(e.metric)) throw new Error(`metric "${e.metric}" is not a Studio column (use views, avg_pct_viewed, viewed_pct, swiped_pct or duration_sec)`);
+  const o = judgeOpts(store); const skipped: { remote_id: string; reason: string }[] = []; let added = 0;
+  for (const rid of [...new Set(remoteIds.map((x) => String(x).trim()).filter(Boolean))].slice(0, 200)) {
+    const k = `exp:obs:${id}:${rid}`; if (store.get('SELECT 1 FROM kv WHERE k=?', k)) { skipped.push({ remote_id: rid, reason: 'ALREADY_COUNTED' }); continue; }
+    const r = store.get<StatRow>('SELECT * FROM studio_stats WHERE remote_id=?', rid); if (!r) { skipped.push({ remote_id: rid, reason: 'NOT_IN_STUDIO_IMPORT' }); continue; }
+    const j = judgeable(r, o); if (!j.ok) { skipped.push({ remote_id: rid, reason: j.reason }); continue; }
+    const v = r[e.metric]; if (typeof v !== 'number' || !Number.isFinite(v)) { skipped.push({ remote_id: rid, reason: 'METRIC_MISSING' }); continue; }
+    addObservation(store, id, side, v); store.exec('INSERT INTO kv(k,v) VALUES(?,?)', k, side); added++;
+  }
+  return { added, skipped, experiment: getExperiment(store, id)! };
 }

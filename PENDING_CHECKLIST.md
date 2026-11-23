@@ -92,7 +92,7 @@
 
 - [ ] (2026-11-15) Enable GitHub Pages (repo Settings → Pages → Branch main, folder /docs); open https://abhikun208.github.io/Yt-clips/oauth-relay.html (should say "state galat"); then Relay ON in Settings and register that single URI in Meta.
 
-- [ ] (2026-11-16) Meta: after the next successful login pick a Page per channel in Settings; TikTok multi-account NOT built.
+- [ ] (2026-11-16) Meta: after the next successful login pick a Page per channel in Settings. (TikTok multi-account: built later, see 2026-11-17 line.)
 - [ ] (2026-11-16) YouTube: reconnect each channel after the Client ID/Secret is final (unauthorized_client = client changed). Google Cloud → consent screen → Publish app so tokens do not die in 7 days.
 - [ ] (2026-11-17) Google Cloud → OAuth consent screen → Test users: add EVERY Google account you connect (or Publish app).
 - [ ] (2026-11-17) Phone: `git pull && npm start` → Setup → Connected Accounts. Connect 2 Google accounts; both must list. Disconnect one → other stays Connected.
@@ -148,7 +148,7 @@
 - T5 DONE (mock-tested): metadata similarity; thresholds need tuning on real titles.
 - T6 DONE (mock-tested): rights screen; owner may list own handles in channel config `handles`; OCR watermark detection not available.
 - T7 DONE (mock-tested): failure analysis; needs >=5 judged peer videos from Studio CSV import to say anything.
-- T8 DONE (mock-tested): experiments memory; observations are entered by owner/analytics (not auto-linked to uploads yet).
+- T8 DONE (mock-tested): experiments memory; observations can be pulled from imported Studio stats (POST /api/experiments/:id/observe-studio); the owner still lists which video ids are control vs test.
 - T9 DONE (mock-tested + Chromium): research labels stored in metadata_json.research and shown in the clip dialog.
 - T10 DONE (mock-tested): channel DNA endpoint; needs real judged clips to say anything.
 - T11 DONE (mock-tested + Chromium render check): report card on Insights tab.
