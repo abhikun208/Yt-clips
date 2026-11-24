@@ -34,6 +34,21 @@ export function parseScenes(stderr: string): number[] {
   return [...new Set(out)].sort((a, b) => a - b);
 }
 
+/**
+ * Scene changes AND a frame-difference "visual activity" series from ONE cheap ffmpeg pass (4 fps, 160 px wide, no frames kept in memory).
+ * activity[i] = scdet's mean absolute frame difference (0 = identical frames) at i*step: static screens ~0, gameplay/camera motion higher.
+ * It is a motion/event-activity proxy, not object detection.
+ */
+export async function visualActivity(path: string, fps = 4, threshold = 12): Promise<{ scenes: number[]; motion: Series }> {
+  const r = await run('ffmpeg', ['-nostats', '-hide_banner', '-i', path, '-an', '-vf', `fps=${fps},scale=160:-2,scdet=t=${threshold}:s=0,metadata=print:key=lavfi.scd.score:file=-`, '-f', 'null', '-'], { timeoutMs: 30 * 60_000 });
+  return { scenes: parseScenes(r.stderr), motion: parseMotion(r.stdout, 1 / fps) };
+}
+export function parseMotion(out: string, step: number): Series {
+  const values: number[] = [];
+  for (const m of out.matchAll(/pts_time:([\d.]+)\s+lavfi\.scd\.score=([\d.]+)/g)) { const i = Math.round(Number(m[1]) / step); const v = Number(m[2]); if (i >= 0 && i < 5_000_000 && Number.isFinite(v)) { while (values.length < i) values.push(0); values[i] = v; } }
+  return { step, values };
+}
+
 /** RMS loudness series (dBFS) at fixed step across the whole file using astats via ametadata. */
 export async function audioEnergy(path: string, step = 0.5): Promise<Series> {
   // asetnsamples groups into step-sized frames at 16kHz mono so astats reports per-frame RMS.
