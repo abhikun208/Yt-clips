@@ -1,0 +1,22 @@
+import { freemem, totalmem, loadavg, cpus } from 'node:os';
+import { readFileSync, statfsSync } from 'node:fs';
+
+/** Resource awareness for a phone-class device: sample memory / load / disk, decide whether heavy work (analysis, render) may start. No promises about speed; just backpressure. */
+export interface ResourceSample { memFreeMB: number; memTotalMB: number; load1: number; cpus: number; rssMB: number; diskFreeMB: number | null }
+export interface ResourceLimits { minFreeMemMB: number; warnFreeMemMB: number; maxLoadPerCpu: number; minDiskFreeMB: number; warnDiskFreeMB: number }
+export const DEFAULT_LIMITS: ResourceLimits = { minFreeMemMB: 150, warnFreeMemMB: 400, maxLoadPerCpu: 2.5, minDiskFreeMB: 500, warnDiskFreeMB: 2000 };
+export type Level = 'ok' | 'warn' | 'critical';
+export interface Assessment { level: Level; allowHeavy: boolean; maxLanes: number; reasons: string[] }
+
+export function sampleResources(dir = '.', over: Partial<ResourceSample> = {}): ResourceSample {
+  let memFree = freemem(); try { const m = /MemAvailable:\s+(\d+) kB/.exec(readFileSync('/proc/meminfo', 'utf8')); if (m) memFree = Number(m[1]) * 1024; } catch { /* non-linux */ } // MemAvailable counts reclaimable cache (freemem() understates it)
+  let disk: number | null = null; try { const s = statfsSync(dir); disk = Math.round((s.bavail * s.bsize) / 1048576); } catch { /* unknown */ }
+  return { memFreeMB: Math.round(memFree / 1048576), memTotalMB: Math.round(totalmem() / 1048576), load1: +loadavg()[0]!.toFixed(2), cpus: cpus().length || 1, rssMB: Math.round(process.memoryUsage().rss / 1048576), diskFreeMB: disk, ...over };
+}
+export function assess(s: ResourceSample, l: ResourceLimits = DEFAULT_LIMITS): Assessment {
+  const reasons: string[] = []; let level: Level = 'ok'; const bump = (x: Level) => { if (x === 'critical' || level === 'ok') level = x; };
+  if (s.memFreeMB < l.minFreeMemMB) { bump('critical'); reasons.push(`free memory ${s.memFreeMB} MB < ${l.minFreeMemMB} MB`); } else if (s.memFreeMB < l.warnFreeMemMB) { bump('warn'); reasons.push(`free memory low (${s.memFreeMB} MB)`); }
+  if (s.load1 / s.cpus > l.maxLoadPerCpu) { bump('warn'); reasons.push(`CPU load ${s.load1} on ${s.cpus} cores`); }
+  if (s.diskFreeMB !== null) { if (s.diskFreeMB < l.minDiskFreeMB) { bump('critical'); reasons.push(`disk free ${s.diskFreeMB} MB < ${l.minDiskFreeMB} MB`); } else if (s.diskFreeMB < l.warnDiskFreeMB) { bump('warn'); reasons.push(`disk free low (${s.diskFreeMB} MB)`); } }
+  return { level, allowHeavy: level !== 'critical', maxLanes: level === 'ok' ? 6 : 1, reasons };
+}

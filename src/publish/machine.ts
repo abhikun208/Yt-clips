@@ -42,11 +42,12 @@ export const PLATFORM_CONSTRAINTS: Record<string, Constraints> = {
   reddit: { maxDurationSec: 900, minDurationSec: 1, aspect: 'any', maxTitle: 300, maxDescription: 3000, note: 'manual; subreddit rules apply' },
 };
 
-export interface ClipFacts { width: number; height: number; duration: number; title: string; description: string; qcPass: boolean; authorized: boolean; tags?: string[]; thumbnailPath?: string | null; categoryId?: string; language?: string; risks?: { severity: 'block' | 'warn'; category: string; match: string }[] }
+export interface ClipFacts { width: number; height: number; duration: number; title: string; description: string; qcPass: boolean; /** editorial QC (moment tier/context); undefined = not applicable (older clips) */ editorialQc?: { ok: boolean; reasons: string[] }; authorized: boolean; tags?: string[]; thumbnailPath?: string | null; categoryId?: string; language?: string; risks?: { severity: 'block' | 'warn'; category: string; match: string }[] }
 export function validateForPlatform(platform: string, f: ClipFacts): string[] {
   const c = PLATFORM_CONSTRAINTS[platform]; const e: string[] = [];
   if (!c) return [`unknown platform ${platform}`];
   if (!f.qcPass) e.push('media QC not passed');
+  if (f.editorialQc && !f.editorialQc.ok) e.push(`editorial QC not passed: ${f.editorialQc.reasons.join('; ')}`);
   if (!f.authorized) e.push('source rights/authorization not confirmed by owner');
   if (f.duration > c.maxDurationSec) e.push(`duration ${f.duration.toFixed(1)}s > ${c.maxDurationSec}s`);
   if (f.duration < c.minDurationSec) e.push(`duration < ${c.minDurationSec}s`);

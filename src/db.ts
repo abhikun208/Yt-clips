@@ -123,6 +123,8 @@ const MIGRATIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS candidate_rights (candidate_id INTEGER PRIMARY KEY, decision TEXT NOT NULL, flags_json TEXT NOT NULL, detail_json TEXT NOT NULL, computed_at TEXT NOT NULL DEFAULT (datetime('now')));`,
   // v22 (additive): persistent experiments memory (hypothesis, <=3 variables, group, metric, observations, conclusion + confidence)
   `CREATE TABLE IF NOT EXISTS experiments (id INTEGER PRIMARY KEY AUTOINCREMENT, hypothesis TEXT NOT NULL, variables_json TEXT NOT NULL, grp TEXT NOT NULL DEFAULT 'general', metric TEXT NOT NULL DEFAULT 'avg_pct_viewed', status TEXT NOT NULL DEFAULT 'open', control_json TEXT NOT NULL DEFAULT '[]', test_json TEXT NOT NULL DEFAULT '[]', conclusion TEXT, confidence TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));`,
+  // v23 (additive): discovered moments (every tier, with explainable breakdown) + link to the candidate that uses them; editorial QC reads this
+  `CREATE TABLE IF NOT EXISTS moments (id INTEGER PRIMARY KEY AUTOINCREMENT, video_id INTEGER NOT NULL, candidate_id INTEGER, origin TEXT NOT NULL DEFAULT 'moment', start_sec REAL NOT NULL, end_sec REAL NOT NULL, peak_at REAL, tier TEXT NOT NULL, score REAL NOT NULL, confidence REAL NOT NULL, pattern TEXT, context_complete INTEGER, boundary TEXT, breakdown_json TEXT NOT NULL, missing_json TEXT NOT NULL, reasons_json TEXT NOT NULL, explanation TEXT, fingerprint TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL DEFAULT (datetime('now'))); CREATE INDEX IF NOT EXISTS idx_moments_video ON moments(video_id); CREATE INDEX IF NOT EXISTS idx_moments_cand ON moments(candidate_id);`,
 ];
 
 export type Row = Record<string, unknown>;

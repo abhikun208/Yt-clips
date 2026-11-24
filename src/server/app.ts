@@ -21,6 +21,8 @@ import { setSavedBase, getSavedBase, cleanBase, lastOAuth, handleOAuthCallback, 
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick, liveStatus } from '../watcher/live-monitor.ts';
+import { momentsSummary } from '../analysis/moments-store.ts';
+import { sampleResources, assess } from '../util/resources.ts';
 import { liveRetention, cleanLiveTemp } from '../watcher/live-retention.ts';
 import { addYoutubeSource, parseRange, pollSources, ytdlpAvailable, prettySource } from '../sources/youtube.ts';
 import { PRESETS, getPreset } from '../edit/captionPresets.ts';
@@ -594,6 +596,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
         if (b.backlog === true) store.exec(`DELETE FROM kv WHERE k=?`, `chend:${srcSet[1]}`); lastPoll = 0; void runOnce(); return json(res, 200, { ok: true, settings: sourceSettings(mj, cfg) });
       }
       if (p === '/api/live' && m === 'GET') return json(res, 200, liveStatus(store));
+      if (p === '/api/moments/summary' && m === 'GET') { const ls = liveStatus(store); return json(res, 200, { ...momentsSummary(store), live: { capturingNow: ls.capturingNow, chunks: ls.buffer.chunks }, resources: { sample: sampleResources(cfg.dirs.tmp), ...assess(sampleResources(cfg.dirs.tmp)) } }); }
       if (p === '/api/live/priority' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { on?: boolean }; setLivePriority(store, b.on !== false); return json(res, 200, { ok: true, priority: !livePriorityOff(store) }); }
       const srcLive = /^\/api\/sources\/(\d+)\/live$/.exec(p);
       if (srcLive && m === 'POST') { // opt-in live-stream auto-capture for a watched channel

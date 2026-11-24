@@ -9,7 +9,9 @@ import { join, basename } from 'node:path';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { probe } from '../media/probe.ts';
-import { detectSilence, detectScenes, audioEnergy, detectBlack, normalizeEnergy } from './signals.ts';
+import { detectSilence, detectScenes, audioEnergy, detectBlack, normalizeEnergy, visualActivity } from './signals.ts';
+import { detectMoments, type Moment } from './moment-detector.ts';
+import { persistMoments } from './moments-store.ts';
 import { detectBoundaries, applySkips } from './boundaries.ts';
 import { loadTranscript, textInRange, guessLanguage } from './transcript.ts';
 import { sentencesFromCues, sentencesIn, hookScore } from './textsignals.ts';
@@ -26,7 +28,7 @@ import { resolveContentProfile } from './profiles.ts';
 
 export interface AnalysisFile {
   videoId: number; duration: number; introEnd: number; outroStart: number; boundaryReasons: string[];
-  energyStep: number; energy: number[]; scenes: number[]; silence: { start: number; end: number }[]; hasTranscript: boolean; analyzedAt: string;
+  energyStep: number; energy: number[]; scenes: number[]; silence: { start: number; end: number }[]; hasTranscript: boolean; analyzedAt: string; motion?: { step: number; values: number[] };
 }
 
 /** Analyze ENTIRE video, persist signals (resumable: skips if analysis file exists), then rank candidates. */
@@ -58,10 +60,11 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       const [silence, scenes, black, en] = await Promise.all([
         detectSilence(v.path), detectScenes(v.path), detectBlack(v.path), m.hasAudio ? audioEnergy(v.path, 0.5) : Promise.resolve({ step: 0.5, values: [] }),
       ]);
+      let motion: AnalysisFile['motion']; if (cfg.clip.moments?.enabled !== false && m.videoCodec) { try { const vm = await visualActivity(v.path); motion = { step: vm.motion.step, values: vm.motion.values.map((x) => +x.toFixed(2)) }; } catch (e) { warn('visual motion scan failed; moments use the other signals', { err: (e as Error).message.slice(0, 80) }); } }
       const b = detectBoundaries(m.duration, { silence, black, scenes, introMaxSec: cfg.clip.introMaxSec, outroMaxSec: cfg.clip.outroMaxSec, override: o.override });
       const norm = normalizeEnergy(en);
       const cues = loadTranscript(v.path.replace(/\.[^.]+$/, ''));
-      a = { videoId, duration: m.duration, introEnd: b.introEnd, outroStart: b.outroStart, boundaryReasons: b.reasons, energyStep: en.step, energy: norm, scenes, silence, hasTranscript: cues.length > 0, analyzedAt: new Date().toISOString() };
+      a = { videoId, duration: m.duration, introEnd: b.introEnd, outroStart: b.outroStart, boundaryReasons: b.reasons, energyStep: en.step, energy: norm, scenes, silence, hasTranscript: cues.length > 0, analyzedAt: new Date().toISOString(), ...(motion ? { motion } : {}) };
       writeFileSync(analysisPath, JSON.stringify(a));
     }
     { const k = applySkips(a.duration, a.introEnd, a.outroStart, { skipHeadSec: cfg.clip.skipHeadSec, skipTailSec: cfg.clip.skipTailSec, override: o.override }); if (k.reasons.length) { a = { ...a, introEnd: k.introEnd, outroStart: k.outroStart, boundaryReasons: [...(a.boundaryReasons ?? []), ...k.reasons] }; } }
@@ -74,13 +77,31 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
     let cands = selectCandidates({ videoKey: String(videoId), duration: a.duration, introEnd: a.introEnd, outroStart: a.outroStart, energy: a.energy, energyStep: a.energyStep, scenes: a.scenes, silence: a.silence, cues, external, gaming: chan.profile === 'gaming' || contentProfile === 'gaming' || contentProfile === 'only_gaming', profile: contentProfile, vocabulary: chan.config.vocabulary, categoryPrior: learnedCategoryPrior(store, chan.id) },
       { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec, maxClips: cfg.clip.maxClipsPerVideo, minScore: cfg.clip.minScore, maxOverlap: cfg.clip.maxOverlap });
     // A SHORT source (<= clip.shortSourceSec, default 75 s) is already a Short: it becomes exactly ONE final clip (captions, effects, metadata added), never cut into several. An explicit length bucket / whole:false still wins.
-    const whole = o.whole === true || (o.whole !== false && !o.length && a.duration > 0 && a.duration <= (cfg.clip.shortSourceSec ?? 75));
+    const bridge = (() => { try { const r = store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `live:bridge:${videoId}`); return r ? (JSON.parse(r.v) as { seam: number }) : null; } catch { return null; } })(); // live chunk-seam video: only moments that cross the seam matter
+    const whole = !bridge && (o.whole === true || (o.whole !== false && !o.length && a.duration > 0 && a.duration <= (cfg.clip.shortSourceSec ?? 75)));
     if (whole && !cands[0] && o.whole) throw new Error('whole-range clip needs at least one scored moment in the range; analyse a longer range');
     if (whole && (cands[0] || (!o.whole && contentProfile !== 'only_gaming'))) { // "no clipping": the whole chosen range (intro/outro limits) becomes ONE clip. Strict gaming profiles never bypass their content gate.
       const t = cands[0] ?? { start: 0, end: a.duration, duration: a.duration, score: 0.5, category: 'general', reason: 'whole range as one clip', hook: '', transcript: '', language: 'hi', confidence: 0.5, signals: {} };
       const st = o.whole ? a.introEnd : 0, en = o.whole ? a.outroStart : a.duration; const txt = textInRange(cues, st, en); const fp = shortHash(`${videoId}:whole:${Math.round(st)}:${Math.round(en)}`, 16);
       cands = [{ ...t, start: st, end: en, duration: +(en - st).toFixed(2), transcript: txt, language: guessLanguage(txt), fingerprint: fp, reason: 'whole range as one clip', hook: sentencesFromCues(cues).find((s) => s.start >= st)?.text.slice(0, 140) ?? t.hook }];
     }
+    // multi-signal moments: stored for every tier; EXCEPTIONAL/STRONG moments the classic selector missed are added as candidates (conservative: never over an existing candidate)
+    const momentLink = new Map<Moment, { candidateFp: string; origin: 'moment' | 'legacy' }>(); let moments: Moment[] = [];
+    if (cfg.clip.moments?.enabled !== false && a.duration > 0) {
+      try {
+        const md = detectMoments({ duration: a.duration, lo: a.introEnd, hi: a.outroStart, energy: a.energy, energyStep: a.energyStep, silence: a.silence, scenes: a.scenes, ...(a.motion ? { motion: a.motion } : {}), cues, external, gaming: chan.profile === 'gaming' || contentProfile === 'gaming' || contentProfile === 'only_gaming' }, { minSec: cfg.clip.minSec, maxSec: cfg.clip.maxSec, targetSec: cfg.clip.targetSec });
+        moments = md.moments; info('moments discovered', { videoId, ...md.stats });
+        for (const mo of moments) {
+          if (whole) continue; const ov = cands.find((c) => overlapRatio([mo.start, mo.end], [c.start, c.end]) > 0.5);
+          if (ov) { momentLink.set(mo, { candidateFp: ov.fingerprint!, origin: 'legacy' }); continue; }
+          if (cfg.clip.moments?.addCandidates === false || (mo.tier !== 'EXCEPTIONAL' && mo.tier !== 'STRONG') || mo.score < cfg.clip.minScore || cands.some((c) => overlapRatio([mo.start, mo.end], [c.start, c.end]) > 0.2)) continue;
+          const fp = shortHash(`${videoId}:m:${Math.round(mo.start)}:${Math.round(mo.end)}`, 16);
+          cands.push({ start: mo.start, end: mo.end, duration: mo.duration, score: mo.score, category: mo.category, reason: mo.explanation, hook: mo.hook, transcript: mo.transcript, language: guessLanguage(mo.transcript), confidence: mo.confidence, signals: { moment: mo.score }, fingerprint: fp }); momentLink.set(mo, { candidateFp: fp, origin: 'moment' });
+        }
+        cands.sort((x, y) => x.start - y.start);
+      } catch (e) { warn('moment engine failed; classic selection is used', { err: (e as Error).message.slice(0, 100) }); moments = []; }
+    }
+    if (bridge) { cands = cands.filter((c) => c.start < bridge.seam - 1.5 && c.end > bridge.seam + 1.5); for (const mo of [...momentLink.keys()]) if (!(mo.start < bridge.seam - 1.5 && mo.end > bridge.seam + 1.5)) momentLink.delete(mo); moments = moments.filter((mo) => mo.start < bridge.seam - 1.5 && mo.end > bridge.seam + 1.5); }
     type PartInfo = { no: number; total: number; key: string };
     const partOf = new Map<string, PartInfo>();
     if (cfg.clip.series?.enabled && cues.length && !whole) {
@@ -125,6 +146,7 @@ export async function analyzeVideo(store: Store, cfg: Config, videoId: number, o
       store.exec(`UPDATE videos SET state='ANALYZED', intro_end=?, outro_start=?, analysis_path=?, error=NULL, updated_at=datetime('now') WHERE id=?`, a.introEnd, a.outroStart, analysisPath, videoId);
     });
     for (const c of cands) { const row = store.get<{ id: number }>('SELECT id FROM candidates WHERE fingerprint=?', c.fingerprint!); if (!row) continue; const o = opportunity(c, oppCtx(c)); store.exec(`INSERT INTO candidate_opportunity(candidate_id, score, parts_json) VALUES (?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET score=excluded.score, parts_json=excluded.parts_json, computed_at=datetime('now')`, row.id, o.score, JSON.stringify({ parts: o.parts, unavailable: o.unavailable, reasons: o.reasons })); }
+    if (moments.length) { try { persistMoments(store, videoId, moments, momentLink); } catch (e) { warn('moments not stored', { err: (e as Error).message.slice(0, 100) }); } }
     for (const [fp, h] of hooksByFp) { const row = store.get<{ id: number }>('SELECT id FROM candidates WHERE fingerprint=?', fp); if (row) store.exec(`INSERT INTO candidate_hooks(candidate_id, best, candidates_json) VALUES (?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET best=excluded.best, candidates_json=excluded.candidates_json, computed_at=datetime('now')`, row.id, h.best?.text ?? null, JSON.stringify({ candidates: h.candidates, slowIntro: h.slowIntro, note: h.note })); }
     { const own = [chan.name, chan.slug, ...(((chan.config as { handles?: string[] }).handles) ?? [])]; for (const c of cands) { const row = store.get<{ id: number }>('SELECT id FROM candidates WHERE fingerprint=?', c.fingerprint!); if (!row) continue; const r = rightsScreen({ transcript: c.transcript ?? '', duration: c.duration, ownNames: own }); store.exec(`INSERT INTO candidate_rights(candidate_id, decision, flags_json, detail_json) VALUES (?,?,?,?) ON CONFLICT(candidate_id) DO UPDATE SET decision=excluded.decision, flags_json=excluded.flags_json, detail_json=excluded.detail_json, computed_at=datetime('now')`, row.id, r.decision, JSON.stringify(r.flags), JSON.stringify(r)); if (r.decision !== 'ok') info('rights screen', { videoId, at: Math.round(c.start), decision: r.decision, reasons: r.reasons }); } }
     store.logState('video', videoId, prev, 'ANALYZED', `${cands.length} candidates, ${inserted} new (${basename(v.path)})`);

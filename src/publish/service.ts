@@ -21,6 +21,7 @@ import { probe } from '../media/probe.ts';
 import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
+import { editorialQc } from '../analysis/moments-store.ts';
 import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish, metaDestCred } from './meta.ts';
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, BlueskyAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { notify } from '../notify.ts';
@@ -40,9 +41,9 @@ export async function factsForClip(store: Store, clipId: number): Promise<ClipFa
   if (!c.edited_path) throw new Error('NOT_READY: clip not rendered yet');
   const md = JSON.parse(c.metadata_json) as { title: string; description: string; tags?: string[]; language?: string };
   if (!existsSync(c.edited_path)) throw missingClipFile(store, clipId, c.edited_path);
-  const m = await probe(c.edited_path);
+  const m = await probe(c.edited_path); const ed = editorialQc(store, clipId);
   const src = store.get<{ authorized: number | null }>('SELECT s.authorized FROM candidates c JOIN videos v ON v.id=c.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE c.id=?', c.candidate_id);
-  return { width: m.width, height: m.height, duration: m.duration, title: md.title, description: md.description, tags: md.tags ?? [], language: md.language, risks: screenText(`${md.title} ${md.description} ${tx}`), qcPass: !!c.qc_pass, authorized: src?.authorized == null ? true : src.authorized === 1, thumbnailPath: c.thumbnail_path };
+  return { width: m.width, height: m.height, duration: m.duration, title: md.title, description: md.description, tags: md.tags ?? [], language: md.language, risks: screenText(`${md.title} ${md.description} ${tx}`), qcPass: !!c.qc_pass, ...(ed.applies ? { editorialQc: { ok: ed.ok, reasons: ed.reasons } } : {}), authorized: src?.authorized == null ? true : src.authorized === 1, thumbnailPath: c.thumbnail_path };
 }
 
 /** Token provider for one channel's YouTube account (main keeps the legacy secret name `youtube`). */

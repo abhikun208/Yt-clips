@@ -14,6 +14,7 @@ import { llmMetadata } from './seo/llm.ts';
 import { llmChain } from './ai/settings.ts';
 import { makeThumbnail } from './seo/thumbnail.ts';
 import { info, warn, error } from './util/log.ts';
+import { sampleResources, assess } from './util/resources.ts';
 import { rerenderClip } from './review/review.ts';
 import { notify } from './notify.ts';
 import { channelOfVideo, channelOfClip, type Channel } from './channels.ts';
@@ -96,8 +97,11 @@ export async function work(store: Store, cfg: Config, o: { maxJobs?: number; sho
   if (queuePaused(store)) return { done, failed, dead }; // breaker is open: let things recover first
   const max = o.maxJobs ?? 1e9; const lanes = Math.max(1, Math.min(6, Math.floor(cfg.resources.renderConcurrency || 1)));
   // N lanes pull from the same lease-based queue (claim() is a single synchronous SQLite write, so two lanes never get the same job)
+  let laneNo = 0; let lastGuard = 0;
   const lane = async () => {
+    const me = laneNo++;
     while (!halt && started < max) {
+      { const g = assess(sampleResources(cfg.dirs.tmp)); if (!g.allowHeavy || me >= g.maxLanes) { if (Date.now() - lastGuard > 60_000) { lastGuard = Date.now(); warn('resource guard: heavy work paused, jobs stay queued (nothing is lost)', { level: g.level, reasons: g.reasons, lane: me }); } break; } } // backpressure: critical = start nothing; warn = one lane only
       if (o.shouldStop?.()) break; // graceful shutdown between jobs; in-flight leases expire and are re-claimed after restart
       const job = claim(store);
       if (!job) break;

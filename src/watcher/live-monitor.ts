@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
+import { extractEnds, makeBridge, type Ends } from './live-bridge.ts';
 import { run } from '../util/proc.ts';
 import { ingestLocal } from '../sources/local.ts';
 import { extra, YT_CLIENT_LADDER, RETRY_WITH_OTHER_CLIENT } from '../sources/youtube.ts';
@@ -87,10 +88,13 @@ async function captureLoop(store: Store, cfg: Config, deps: LiveDeps, src: { id:
   const lc = liveCfg(cfg); const dir = join(cfg.dirs.tmp, `live_${src.id}`); mkdirSync(dir, { recursive: true });
   let fails = 0; const ingests: Promise<void>[] = [];
   /** Rolling capture: the next chunk starts RECORDING immediately; analysing/ingesting the finished chunk runs in the background, and no "is it still live" probe sits between two chunks (each of those used to lose seconds of the stream). A probe only happens after a failed chunk, to tell "stream ended" from "network blip". */
+  const ends = new Map<number, Promise<Ends | null>>(); const bridgeOn = cfg.automation.liveBridge !== false && cfg.clip.moments?.enabled !== false;
   const ingestChunk = (out: string, n: number, size: number, startMs: number): Promise<void> => (async () => {
+    if (bridgeOn) ends.set(n, extractEnds(out, dir, String(n)).catch(() => null)); // copy-only, runs before the chunk file is removed
     try { const vid = await deps.ingest(out, `[LIVE] ${new Date(deps.now()).toISOString().slice(0, 16).replace('T', ' ')} #${n}`, src.id, src.channel_id); if (vid) { kvSet(store, `live:video:${vid}`, '1'); kvSet(store, `live:chunk:${vid}`, JSON.stringify({ source: src.id, stream: streamId || null, seq: n, startedAt: new Date(startMs).toISOString(), endedAt: new Date(deps.now()).toISOString(), bytes: size })); info('live: chunk analyze queue me gaya', { source: src.id, video: vid, bytes: size }); } }
     catch (e) { warn('live: chunk ingest fail', { source: src.id, err: (e as Error).message }); }
     finally { rmSync(out, { force: true }); }
+    if (bridgeOn && n > 1) { try { const [pe, ce] = await Promise.all([ends.get(n - 1), ends.get(n)]); if (pe && ce) { const bo = join(dir, `bridge_${n - 1}_${n}.mp4`); const b = await makeBridge(pe, ce, bo); if (b) { const bv = await deps.ingest(bo, `[LIVE] bridge #${n - 1}-${n}`, src.id, src.channel_id); if (bv) { kvSet(store, `live:video:${bv}`, '1'); kvSet(store, `live:bridge:${bv}`, JSON.stringify({ seam: b.seam, seq: n })); } } rmSync(bo, { force: true }); rmSync(pe.tail, { force: true }); rmSync(pe.head, { force: true }); } if (ends.has(n - 1)) ends.delete(n - 1); } catch (e) { warn('live: seam bridge skipped', { source: src.id, err: (e as Error).message.slice(0, 100) }); } }
   })();
   try {
     for (;;) {
