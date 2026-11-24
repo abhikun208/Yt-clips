@@ -21,7 +21,7 @@ import { probe } from '../media/probe.ts';
 import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
-import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish } from './meta.ts';
+import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish, metaDestCred } from './meta.ts';
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, BlueskyAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
 import { notify } from '../notify.ts';
 import { planFromStore } from '../schedule/analytics.ts';
@@ -58,6 +58,11 @@ export function adapterFor(store: Store, cfg: Config, platform: string, ch?: Cha
       return new YouTubeAdapter(store, new TokenProvider(secretsFor(cfg), d.secret_ref));
     }
     return new YouTubeAdapter(store, ch ? tokenFor(cfg, ch) : new TokenProvider(secretsFor(cfg)));
+  }
+  if ((platform === 'facebook_reels' || platform === 'instagram_reels') && destinationId) { // a job for a CHOSEN account posts to exactly that Page / Instagram, never to the channel's default one
+    const d = store.get<{ secret_ref: string }>('SELECT secret_ref FROM destinations WHERE id=?', destinationId); if (!d) throw new Error(`DESTINATION_NOT_FOUND: ${destinationId}`);
+    const dc = metaDestCred(secretsFor(cfg), d.secret_ref, platform); if (dc) return platform === 'facebook_reels' ? new FacebookReelsAdapter(store, dc) : new InstagramReelsAdapter(store, dc);
+    if (/^meta-pages#/.test(d.secret_ref)) return new ManualAdapter(platform); // login without publish permission: manual-post flow, never another account
   }
   if ((platform === 'facebook_reels' || platform === 'instagram_reels') && metaCanPublish(secretsFor(cfg), platform)) { const nm = platform === 'facebook_reels' ? 'facebook' : 'instagram'; const own = ch && ch.slug !== 'main' ? secretsFor(cfg).read<Record<string, string>>(`${nm}-${ch.slug}`) : null; const cred = own && own.access_token ? own : secretsFor(cfg).read<Record<string, string>>(nm); if (cred) return platform === 'facebook_reels' ? new FacebookReelsAdapter(store, cred) : new InstagramReelsAdapter(store, cred); }
   if (isManual(platform)) return new ManualAdapter(platform);

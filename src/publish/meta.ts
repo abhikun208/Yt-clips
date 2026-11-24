@@ -36,6 +36,21 @@ export const metaPerms = (secrets: SecretStore, which: 'facebook' | 'instagram')
 export const metaCanPublish = (secrets: SecretStore, platform: string): boolean =>
   platform === 'facebook_reels' ? metaPerms(secrets, 'facebook').includes('pages_manage_posts') : platform === 'instagram_reels' ? metaPerms(secrets, 'instagram').includes('instagram_content_publish') : false;
 
+/**
+ * Credentials for ONE chosen Page / Instagram account of the last Meta login (destination secret_ref = `meta-pages#<pageId>`).
+ * null = this destination is not a meta-pages one or the login lacks the publish permission (the job then stays on the manual-post flow);
+ * throws when the Page is no longer in the login (never fall back to a DIFFERENT Page: that would post to the wrong account).
+ */
+export function metaDestCred(secrets: SecretStore, secretRef: string, platform: string): Record<string, string> | null {
+  const m = /^meta-pages#(.+)$/.exec(secretRef); if (!m) return null;
+  const d = (() => { try { return secrets.read<{ pages?: { id: string; name?: string; access_token: string; ig_user_id: string | null; ut?: string }[]; user_token?: string; perms?: string[] }>('meta-pages'); } catch { return null; } })();
+  const p = d?.pages?.find((x) => x.id === m[1]); if (!p) throw new Error(`AUTH_NOT_CONNECTED: Page ${m[1]} is not in the last Meta login — Connect Facebook/Instagram again`);
+  const perms = d?.perms ?? [];
+  if (platform === 'facebook_reels') return perms.includes('pages_manage_posts') ? { page_id: p.id, page_name: p.name ?? '', access_token: p.access_token } : null;
+  if (platform === 'instagram_reels') { if (!p.ig_user_id) throw new Error(`AUTH_NOT_CONNECTED: Page ${p.name ?? p.id} has no Instagram professional account linked`); return perms.includes('instagram_content_publish') ? { ig_user_id: p.ig_user_id, page_token: p.access_token, access_token: p.ut ?? d?.user_token ?? p.access_token } : null; }
+  return null;
+}
+
 /** One-time public link for one clip file (Instagram fetches video_url itself). 192-bit token, expires, served without login only for that file. */
 export function publicClipLink(store: Store, file: string, base: string): string {
   const t = randomBytes(24).toString('hex'); store.exec(`DELETE FROM kv WHERE k LIKE 'pubfile:%' AND json_extract(v,'$.exp') < ?`, Date.now());
