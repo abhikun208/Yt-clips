@@ -14,9 +14,9 @@ export function sampleResources(dir = '.', over: Partial<ResourceSample> = {}): 
   return { memFreeMB: Math.round(memFree / 1048576), memTotalMB: Math.round(totalmem() / 1048576), load1: +loadavg()[0]!.toFixed(2), cpus: cpus().length || 1, rssMB: Math.round(process.memoryUsage().rss / 1048576), diskFreeMB: disk, ...over };
 }
 export function assess(s: ResourceSample, l: ResourceLimits = DEFAULT_LIMITS): Assessment {
-  const reasons: string[] = []; let level: Level = 'ok'; const bump = (x: Level) => { if (x === 'critical' || level === 'ok') level = x; };
+  const reasons: string[] = []; const rank = { ok: 0, warn: 1, critical: 2 }; let level: Level = 'ok'; const bump = (x: Level) => { if (rank[x] > rank[level]) level = x; };
   if (s.memFreeMB < l.minFreeMemMB) { bump('critical'); reasons.push(`free memory ${s.memFreeMB} MB < ${l.minFreeMemMB} MB`); } else if (s.memFreeMB < l.warnFreeMemMB) { bump('warn'); reasons.push(`free memory low (${s.memFreeMB} MB)`); }
   if (s.load1 / s.cpus > l.maxLoadPerCpu) { bump('warn'); reasons.push(`CPU load ${s.load1} on ${s.cpus} cores`); }
   if (s.diskFreeMB !== null) { if (s.diskFreeMB < l.minDiskFreeMB) { bump('critical'); reasons.push(`disk free ${s.diskFreeMB} MB < ${l.minDiskFreeMB} MB`); } else if (s.diskFreeMB < l.warnDiskFreeMB) { bump('warn'); reasons.push(`disk free low (${s.diskFreeMB} MB)`); } }
-  return { level, allowHeavy: level !== 'critical', maxLanes: level === 'ok' ? 6 : 1, reasons };
+  return { level, allowHeavy: rank[level] < 2, maxLanes: rank[level] === 0 ? 6 : 1, reasons };
 }
