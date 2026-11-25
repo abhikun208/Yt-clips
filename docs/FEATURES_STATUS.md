@@ -30,3 +30,7 @@ Verified = covered by an automated test. Phone / real-site behaviour is UNVERIFI
 | 47-48 | Account connect + publish | YouTube done; TikTok/Instagram/X modules exist, UNVERIFIED on real accounts | `publish/` |
 | 49 | Calendar + scheduling | done | `/api/calendar` |
 | 50 | Channel automation (length, clips/video, check 6h/12h/24h/weekly, min viral) | done | channel settings |
+| 60 | Moment engine + editorial QC + live bridge | done (real footage UNVERIFIED) | `analysis/moment-detector.ts`, `analysis/moments-store.ts` |
+| 61 | Source upload permission | done | `accounts/sourcepolicy.ts` |
+| 62 | English->Hindi dubbing | done with fakes (voice UNVERIFIED) | `edit/dub.ts` |
+| 63 | Publishing audit | done | `publish/audit.ts` |

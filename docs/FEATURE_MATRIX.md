@@ -87,3 +87,7 @@ Sources were fetched live. Where a page did not state something, it is marked "n
 | Thumbnail studio: real candidate frames, versioned thumbnails | DONE | test/editormeta.test.ts |
 | Export ZIP: video, SRT, manifest, version, title/description/tags, thumbnail | DONE | test/editormeta.test.ts |
 | Editor aspect ratios 16:9/1:1, music licensing, version compare | NOT BUILT | — |
+| Moment engine, editorial QC, live seam bridge, resource guard | in-house | ffmpeg + transcript | DONE; real footage UNVERIFIED | test/moment_detector.test.ts |
+| Per-source upload permission (which channel gets which source) | in-house | DB | DONE | test/source_policy.test.ts |
+| English->Hindi dubbing | in-house | edge-tts + LLM | DONE with fakes; voice UNVERIFIED | test/dub.test.ts |
+| Publishing audit card | in-house | DB | DONE | test/publish_audit.test.ts |

@@ -38,3 +38,6 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | Analysis | Content type/sub-type detection, quality gate, grounded metadata | MOCK-TESTED | test/shorts_engine.test.ts; transcript heuristics only, real-video accuracy UNVERIFIED; uncommitted |
 | Framing | Smart Framing advisor (multi-person crop vs fit_blur, gaming-safe crop guard), default OFF, toggle in Studio | MOCK-TESTED (FAKE face data, real FFmpeg render) | test/framing*.test.ts + framing_render_hook + framing_config; real face/active-speaker detection and HUD zones on real games UNVERIFIED (sandbox OpenCV has no detector) |
 | Framing | True multi-tile split/trio layouts, content-specific styles, context SFX/music/B-roll | BLOCKED_LOCKED | need new branches in locked src/edit/filters.ts; owner approval required |
+| Moments | Moment engine (audio/transcript/scene/motion events, setup->payoff, tiers, editorial QC, live bridge) | VERIFIED-LOCAL (synthetic + real ffmpeg) / UNVERIFIED on real footage | test/moment_detector, moment_integration, live_bridge |
+| Publish | Source upload permission, Publishing audit, owner .env switches | MOCK-TESTED | test/source_policy, publish_audit, owner_env |
+| Edit | English->Hindi dubbing | MOCK-TESTED (fake TTS/LLM, real ffmpeg) | test/dub.test.ts |

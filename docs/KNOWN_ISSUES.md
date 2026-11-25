@@ -13,3 +13,12 @@
 - Channel analysis profiles tune clip selection without changing the legacy account/layout profile or editing implementation. `auto` only infers gaming from multiple transcript callouts; non-gaming specialized profiles must be selected manually.
 - Kick/Twitch links are accepted only as single VOD URLs via yt-dlp. The live monitor remains YouTube-channel-only. Kick's current official API docs list livestream/channel metadata and OAuth scopes but no video-upload endpoint; Kick live/account integration remains unimplemented pending supported API details and owner-provided app credentials/approval.
 - Ollama slot warns when Ollama isn't running (not a defect).
+
+## Added 2026-11-25
+- Moment engine thresholds (EXCEPTIONAL .72 / STRONG .56 / CONDITIONAL .40) are tuned on synthetic data only; real Hindi gaming footage may need tuning. Phone/Termux timing UNVERIFIED.
+- Loudness alone never ranks above CONDITIONAL, and CONDITIONAL moment clips need review=approved (editorial QC).
+- Dubbing needs edge-tts and an LLM key; voice quality is UNVERIFIED. Original is backed up as `.pre_dub.mp4`.
+- Instagram Reels need a public https video_url (cloudflared tunnel or PUBLIC_URL); without it Instagram is MANUAL.
+- Source upload permission: a source with no policy is unrestricted (backwards compatible).
+- YouTube: per-channel upload limit (uploadLimitExceeded) pauses that channel until the next day; vanished videos are re-uploaded max 2 times.
+- Publishing gates/PUBLISH_MODE/autoApprove are owner-only (`.env`), by design not writable via the API.

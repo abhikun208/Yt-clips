@@ -4,3 +4,4 @@ READY_FOR_QC → QC_PASSED → UPLOAD_PENDING → UPLOADING → UPLOAD_VERIFYING
 - Upload is resumable (`upload_sessions` stores session URI + remote id; restart continues, never restarts from zero).
 - PUBLISHED only after API re-read confirms visibility (else NOT_READY). Independent switches: autoQueue, auto-approve, unlistedFirst, autoPublic + delay, gates.publishEnabled / publicEnabled. `--auto-public` never overrides the public gate.
 - Verification: remote title/visibility/processing checked (`verify`); title compared as YouTube stores it.
+- (2026-11-25) `ClipFacts.editorialQc` can block QC_PASSED for moment-origin clips (REJECTED / incomplete context / CONDITIONAL not approved). SOURCE_POLICY pause if the source may not go to that channel. Vanished remote video → back to UPLOAD_PENDING (max 2 re-uploads, kv `reup:<id>`). With PUBLISH_MODE=PUBLIC and AUTO_APPROVE=true in `.env`, clips pass UNLISTED_VERIFIED → SCHEDULED_OR_APPROVED → PUBLISHED without manual approval.

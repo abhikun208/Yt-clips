@@ -39,3 +39,13 @@ Scope source: MASTER_RUN_PROMPT.md. Locked: `src/edit/filters.ts` was NOT modifi
 - Ollama, Groq/Pexels live calls, Bluesky live test, cloud deployment (owner/device).
 - LICENSE choice (owner).
 - Windows-only `test/adapters.test.ts` failures on a Windows run (owner runs Termux/Linux; Linux sandbox green).
+
+## 2026-11-25 additions
+| Item | Status |
+|---|---|
+| Moment extraction engine (events, clustering, setup->payoff, scoring, tiers, dedupe, editorial QC, live bridge, resource guard) | DONE, tested locally; real footage UNVERIFIED |
+| Per-source upload permission | DONE (API + UI + enforcement) |
+| English -> Hindi dubbing | DONE with fake TTS/LLM; real voice quality UNVERIFIED |
+| Publishing audit (API + Home card) | DONE |
+| Owner `.env` switches PUBLISH_MODE / AUTO_APPROVE | DONE |
+| Real-upload blockers (hashtag cap, vanished video, YT limit, IG tunnel) | FIXED in code; real accounts UNVERIFIED |

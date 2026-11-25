@@ -5,7 +5,7 @@
 - Modules: DB `src/db.ts` (additive migrations), analytics `src/analytics/{collect,providers,learn}.ts`, publish `src/publish/*`, SEO `src/seo/*`, dashboard `src/server/ui.html`, analysis `src/analysis/*`, framing `src/framing/*`, styles `src/styles/*`.
 - BASELINE test (sandbox, before this loop; code = commit d27b25b): `node --test test/*.test.ts` -> tests 549, pass 548, fail 0, skipped 1. Typecheck: 1 sandbox-TS6-only error (`test/facetrack.test.ts(67,92)`).
 - Backups: `backups/2026-11-22/` (SQLite + WAL/SHM copy, package.json; git-ignored). Locked list + checksums: `LOCKED_PATHS.md`, `LOCKED_CHECKSUMS.sha256` (39 files, check = `sha256sum -c LOCKED_CHECKSUMS.sha256 | grep -v ': OK'` must be empty).
-- Rules in force: no commit/push (AGENT_PROMPT.md rule 3; the earlier local commit d27b25b stays), no edits to locked files, PUBLISH_MODE never switched by me, no secrets printed.
+- Rules in force: commit+push is now allowed by the owner for this loop (every commit carries the attribution lines), no edits to locked files, PUBLISH_MODE never switched by me, no secrets printed.
 
 ## BACKLOG (statuses: TODO / DOING / DONE / BLOCKED)  [evidence = existing state found in STEP 0]
 | ID | Item | Found | Evidence | Status |
@@ -29,7 +29,7 @@
 | B2 | W9 real YouTube Analytics API pull (engaged views, swipe-away %, traffic sources) | BLOCKED | needs owner OAuth with analytics scope + data; CSV import is the fallback (T2) | BLOCKED |
 
 ## CURRENT_TASK
-FINAL (full regression + report)
+DONE (2026-11-25): moment engine, per-source upload permission, dubbing, publishing audit, owner .env switches, real-upload fixes. Remaining items are owner/device-only (see PENDING_CHECKLIST.md). Next: owner runs `git pull && npm start` on the phone and reads the Home 'Publishing audit' card.
 
 ## DECISIONS
 - Backlog items reuse existing modules; new logic goes in new files (`src/publish/mode.ts`, `src/analytics/studiocsv.ts`, ...), DB changes additive only.
@@ -57,3 +57,12 @@ T4: `node --test test/hooks.test.ts` -> 4/4. Real stored example (120 s fixture 
 
 ## 2026-11-24 schedule audit
 DONE: three scheduling defects fixed (see PROGRESS (54)); tests test/scheduled_due.test.ts 3/3, focused regression 109/109. Remaining code-doable: T8 auto-link of experiments to Studio stats.
+
+## UPDATE 2026-11-25 (items 58-61 in PROGRESS.md)
+- Moment engine: src/analysis/{moment-detector,moments-store}.ts, migration v23 `moments`, editorial QC gate, live seam bridge (src/watcher/live-bridge.ts), resource guard (src/util/resources.ts). API: GET /api/moments/summary.
+- Source upload permission: src/accounts/sourcepolicy.ts (unconfigured = unrestricted; mode open|own_only). API: GET/POST /api/sources/:id/upload-policy.
+- Dubbing: src/edit/dub.ts (English -> Hindi, needs edge-tts + LLM key; result in kv `dub:<clipId>`).
+- Publishing audit: src/publish/audit.ts, GET /api/publish/audit, Home card.
+- Owner switches live ONLY in `.env`: PUBLISH_MODE=PUBLIC|PRIVATE (opens gates + autoQueue) and AUTO_APPROVE=true. Never writable via API.
+- Last full suite: 639 tests, 638 pass, 0 fail, 1 skipped; locked checksums clean.
+- Real FB/IG/YouTube posting: UNVERIFIED (fake servers only).

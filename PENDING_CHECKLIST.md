@@ -15,7 +15,7 @@
 - [x] 31 B-roll: built (Pexels, opt-in; live download UNVERIFIED)
 
 ## Real-world verification - UNVERIFIED / owner-side
-- [ ] Asli YouTube upload after reconnect (OAuth app must be in Production, tokens die in 7 days in Testing)
+- [ ] Asli YouTube upload after reconnect (OAuth app must be in Production, tokens die in 7 days in Testing)  (code blockers fixed 2026-11-25; still needs owner reconnect)
 - [ ] Termux: face tracking/OpenCV availability, local STT accuracy, render speed, and capture behavior
 - [ ] Deploy on Render / Railway / Replit / Fly with the new files (owner must paste the first error line if it fails)
 - [ ] Bluesky adapter against the real service (fake-server tested)
@@ -84,7 +84,7 @@
 - [ ] (2026-11-15) Real OAuth: set OAUTH_PUBLIC_BASE_URL to https tunnel, register redirect URI in Meta/TikTok, connect once.
 - [ ] (2026-11-15) Phone: test a face-only talking video (no OpenCV) -> expect Fill crop centred on face; set edit.faceFallback=false if it misfires.
 
-- [ ] (2026-11-15) Run `npm run cli -- automation on --approve` + set gates on server for true hands-free; then check Clips tab shows only "Status:".
+- [x] (2026-11-25) Hands-free now via `.env`: PUBLISH_MODE=PUBLIC + AUTO_APPROVE=true (opens gates + autoQueue); CLI `automation on --approve` no longer needed. Verify in Home "Publishing audit".
 - [ ] (2026-11-15) Check Part 1/2/3 cut points on a real story video (splitter heuristics are Hinglish-word based, UNVERIFIED on real transcripts).
 
 - [ ] (2026-11-15) Phone: `pkg install cloudflared`; `YT_CLIPS_TUNNEL=1 npm start`; copy the https redirect URI shown in Settings into Meta/TikTok.
