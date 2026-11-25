@@ -18,6 +18,8 @@ function setup() {
 
 test('policy rules: open / own_only / skipOwn / explicit distribute', () => {
   const { store, main, b } = setup();
+  assert.equal(sourceAllows(store, 1, b.id, 'youtube_shorts').ok, true, 'never configured = unrestricted (older jobs keep working)');
+  setSourcePolicy(store, 1, { mode: 'open' });
   assert.equal(sourceAllows(store, 1, main.id, 'youtube_shorts').ok, true, 'own channel allowed by default');
   assert.equal(sourceAllows(store, 1, b.id, 'youtube_shorts').ok, false, 'unmapped channel is not permitted');
   assert.equal(sourceAllows(store, 1, b.id, 'youtube_shorts', true).ok, true, 'explicit owner Distribute is allowed in open mode');

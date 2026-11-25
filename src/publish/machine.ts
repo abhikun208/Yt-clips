@@ -171,7 +171,13 @@ export async function advanceUpload(store: Store, cfg: Config, adapter: Adapter,
       }
       case 'UPLOAD_VERIFYING': {
         if (!adapter.local) assertPublishAllowed(cfg, 'unlisted');
-        const sbx = channelOfClip(store, u.clip_id).config.sandbox === true; const v = await adapter.verify(u.remote_id!, { title: sbx && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, visibility: 'unlisted' });
+        const sbx = channelOfClip(store, u.clip_id).config.sandbox === true; let v: Awaited<ReturnType<Adapter['verify']>>;
+        try { v = await adapter.verify(u.remote_id!, { title: sbx && !o.facts.title.startsWith('[TEST]') ? `[TEST] ${o.facts.title}`.slice(0, 100) : o.facts.title, visibility: 'unlisted' }); }
+        catch (e) { // the platform deleted/never kept the video (rejected while processing): upload it again, at most twice, instead of failing for good
+          if (/^remote video .* not found/.test((e as Error).message)) { const k = `reup:${u.id}`; const n = Number(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', k)?.v ?? 0);
+            if (n < 2) { store.exec('INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', k, String(n + 1)); store.exec('DELETE FROM upload_sessions WHERE key=?', u.idempotency_key); store.exec(`UPDATE uploads SET remote_id=NULL WHERE id=?`, u.id); setState(store, u.id, from, 'UPLOAD_PENDING', { err: `remote video vanished on the platform: uploading again (${n + 1}/2)` }); return 'UPLOAD_PENDING'; }
+            throw new Error(`${(e as Error).message} — platform ne video 2 baar hata di (processing reject / copyright / duplicate?). Platform Studio me check karo.`); }
+          throw e; }
         if (v.processed && v.visibility === 'public') { // already live on the platform (owner flipped it in Studio, or an earlier publish call landed before the state was saved): reconcile, never fail the upload for that
           if (v.titleMatches === false) store.logState('upload', u.id, from, 'PUBLISHED', `already public; remote title differs: ${String(v.remoteTitle).slice(0, 80)}`);
           setState(store, u.id, from, 'PUBLISHED', { vis: 'public' }); return 'PUBLISHED';

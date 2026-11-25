@@ -1,4 +1,4 @@
-import { validateMetadata, type Metadata } from './metadata.ts';
+import { validateMetadata, capDescriptionHashtags, type Metadata } from './metadata.ts';
 import { llmFetch } from '../ai/health.ts';
 import { composeDescription } from './brief.ts';
 import { scoreMetadata } from './score.ts';
@@ -49,6 +49,7 @@ export async function llmMetadata(base: Metadata, transcript: string, env: LlmEn
     }
     const parts = base.parts ? { ...base.parts, about: about || base.parts.about, highlights: highlights.length ? highlights : base.parts.highlights, searches: searches.length ? searches : base.parts.searches, hashtags: aiHashtags.length >= 5 ? ['#Shorts', ...aiHashtags] : base.parts.hashtags } : undefined; // 5+ AI hashtags = the AI's view of THIS video replaces the transcript-word template (mis-heard words like #Neeche #Bahal)
     const out: Metadata = { ...base, titles: [title, ...alts].filter((t, i, a) => a.indexOf(t) === i), title: /#shorts/i.test(title) ? title : `${title} #Shorts`.slice(0, 100), description: parts ? composeDescription(parts) : (clip(j.description, 4500) || base.description.split('\n\n#')[0]!) + (clip(j.description, 4500).includes(base.hashtags.join(' ')) ? '' : `\n\n${base.hashtags.join(' ')}`), parts, tags: tags.length ? tags : base.tags, hashtags: aiHashtags.length >= 5 ? [...new Set(['#Shorts', ...aiHashtags])] : aiHashtags.length ? [...new Set([...base.hashtags, ...aiHashtags])].slice(0, 25) : base.hashtags, thumbnailText: clip(j.thumbnailText, 24) || base.thumbnailText, source: 'llm', broll: arr(j.broll, 4, 40), warnings: [...base.warnings, ...warn] };
+    out.description = capDescriptionHashtags(out.description);
     const errs = validateMetadata(out); if (errs.length) throw new Error(errs.join('; '));
     if (out.seo) out.seo = { ...scoreMetadata(out, { keyphrases: base.keywords, hasChapters: out.seo.chapters >= 3, durationSec: base.parts?.chapters.length ? 30 : 0 }), chapters: out.seo.chapters };
     return out;

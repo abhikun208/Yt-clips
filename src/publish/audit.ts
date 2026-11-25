@@ -53,7 +53,7 @@ export function publishAudit(store: Store, cfg: Config, now = new Date()): Publi
       if (manual) add('warn', `${ch.slug}/${pf}: manual-post flow (khud upload nahi hoga).`, 'Us platform ka login/permission Connect karo.'); }
     catch (e) { const m = (e as Error).message; platforms.push({ channel: ch.slug, platform: pf, delivery: 'BROKEN', detail: m.slice(0, 140) }); add('bad', `${ch.slug}/${pf}: ${hint(m).why}`, hint(m).fix); }
   }
-  if (platforms.some((p) => p.platform === 'instagram_reels' && p.delivery === 'REAL_API') && !/^https:\/\//.test(process.env.PUBLIC_URL ?? '')) add('info', 'Instagram: PUBLIC_URL set nahi, isliye video resumable upload se jayegi (Meta har app ko ye allow nahi karta). Fail ho to .env me PUBLIC_URL=https://tumhara-server daalo.');
+  if (platforms.some((p) => p.platform === 'instagram_reels' && p.delivery === 'REAL_API') && !/^https:\/\//.test(process.env.PUBLIC_URL ?? '')) add('info', 'Instagram: video ko Meta ek public https link se uthata hai. PUBLIC_URL set nahi: server khud tunnel kholta hai (Termux: `pkg install cloudflared` ya `pkg install openssh`). Tunnel na chale to Instagram upload fail hoga (resumable Meta har app ko allow nahi karta).');
   if (!platforms.length) add('bad', 'Kisi channel par koi platform select nahi hai.', 'Channels → Platforms me tick karo.');
 
   const uploads: Record<string, number> = {}; for (const r of store.all<{ state: string; n: number }>('SELECT state, count(*) n FROM uploads GROUP BY state')) uploads[r.state] = r.n;

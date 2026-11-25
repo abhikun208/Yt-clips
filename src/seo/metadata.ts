@@ -61,6 +61,10 @@ function buildMetadataRaw(i: MetaInput): Metadata {
   return { titles: clean, title, description: lines.join('\n').slice(0, 4900), tags, hashtags, keywords: kws, language: i.language, thumbnailText, source: 'template', warnings, generic: true };
 }
 
+/** YouTube ignores ALL hashtags of a description that has more than 15. Keep the first `max` as #tags and turn the rest into plain words (they still help search; nothing is lost, nothing is invented). */
+export function capDescriptionHashtags(description: string, max = 15): string {
+  let n = 0; return description.replace(/(^|\s)#([\p{L}\p{N}_]+)/gu, (_m, pre: string, w: string) => (++n <= max ? `${pre}#${w}` : `${pre}${w}`));
+}
 export function validateMetadata(m: Metadata): string[] {
   const errs: string[] = [];
   if (m.title.length === 0 || m.title.length > 100) errs.push('title length must be 1..100');

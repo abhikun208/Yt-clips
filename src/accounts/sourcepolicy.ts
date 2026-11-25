@@ -11,6 +11,8 @@ import { mainChannel } from '../channels.ts';
 export interface SourcePolicy { mode: 'open' | 'own_only'; skipOwn: boolean }
 export const DEFAULT_POLICY: SourcePolicy = { mode: 'open', skipOwn: false };
 
+/** true once the owner has saved a policy for this source; before that nothing is restricted (older jobs keep working exactly as before) */
+export function hasSourcePolicy(store: Store, sourceId: number): boolean { try { return !!(JSON.parse(store.get<{ meta_json: string | null }>('SELECT meta_json FROM sources WHERE id=?', sourceId)?.meta_json || '{}') as { uploadPolicy?: unknown }).uploadPolicy; } catch { return false; } }
 export function getSourcePolicy(store: Store, sourceId: number): SourcePolicy {
   const r = store.get<{ meta_json: string | null }>('SELECT meta_json FROM sources WHERE id=?', sourceId); let p: Partial<SourcePolicy> = {};
   try { p = (JSON.parse(r?.meta_json || '{}') as { uploadPolicy?: Partial<SourcePolicy> }).uploadPolicy ?? {}; } catch { /* bad legacy data = default */ }
@@ -30,6 +32,7 @@ export interface Verdict { ok: boolean; reason?: string }
 export function sourceAllows(store: Store, sourceId: number | null, channelId: number | null, platform: string, explicit = false): Verdict {
   if (!sourceId) return { ok: true };
   const own = store.get<{ channel_id: number | null }>('SELECT channel_id FROM sources WHERE id=?', sourceId); if (!own) return { ok: true };
+  if (!hasSourcePolicy(store, sourceId)) return { ok: true }; // never configured = unrestricted (legacy behaviour)
   const pol = getSourcePolicy(store, sourceId); const ownId = own.channel_id ?? mainChannel(store).id; const ch = channelId ?? ownId;
   if (ch === ownId) return pol.skipOwn ? { ok: false, reason: 'source policy: is source ki clips apne channel par nahi jaani (sirf mapped channels)' } : { ok: true };
   if (pol.mode === 'own_only') return { ok: false, reason: 'source policy: ye source sirf apne channel par upload ho sakta hai (exclusive)' };

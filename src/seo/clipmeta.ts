@@ -7,7 +7,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { loadTranscript, guessLanguage, type Cue } from '../analysis/transcript.ts';
 import { transcribeVideo } from '../analysis/stt.ts';
-import { buildMetadata, validateMetadata, lintPackage, withPart, type Metadata } from './metadata.ts';
+import { buildMetadata, validateMetadata, capDescriptionHashtags, lintPackage, withPart, type Metadata } from './metadata.ts';
 import { llmMetadata } from './llm.ts';
 import { llmChain } from '../ai/settings.ts';
 import { makeThumbnail } from './thumbnail.ts';
@@ -91,6 +91,7 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   { const { buildResearch } = await import('./evidence.ts'); md = { ...md, research: buildResearch({ keywords: md.keywords, suggestions: related, trendsTried: !!transcript && llmChain(cfg).length > 0, trends, generatedBy: md.generatedBy, seoScore: md.seo?.seo ?? null }) }; }
   const aiWrote = md.generatedBy !== undefined ? !/^rules/.test(String(md.generatedBy)) : md.source === 'llm'; // 'rules (no AI answered)' = template text, not an analysis of THIS video -> counts as generic so the automation re-tries it later (owner: titles must come from the video, not from a button)
   const generic = md.generic === true || transcript.split(/\s+/).length < 8 || (!aiWrote && llmChain(cfg).length > 0); md = { ...md, generic }; // only when an AI WAS configured but did not answer (temporary): with no AI at all the rules text is the best possible, so it must not block publishing
+  md = { ...md, description: capDescriptionHashtags(md.description) }; // the 50-hashtag SEO pack must never make a clip unpublishable
   const errs = validateMetadata(md); if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);
   { const lw = lintPackage(md); if (lw.length) warn('metadata advice', { lw }); }
   try { const { finishClip, brollFor } = await import('../edit/retitle.ts'); const { screenTitle } = await import('../edit/retitle.ts'); // the AI has now seen the clip: print ITS title on the video

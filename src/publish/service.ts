@@ -164,6 +164,9 @@ const lastTried = new Map<number, number>(); // process-local turn memory for th
 export async function automationTick(store: Store, cfg: Config, now = new Date()): Promise<TickResult> {
   const r: TickResult = { queued: 0, advanced: 0, published: 0, blocked: {}, errors: [] };
   try { sweepSources(store, cfg); } catch (e) { r.errors.push(`cleanup: ${(e as Error).message}`); } // free disk of finished videos (storage.autoCleanup)
+  try { // one-time self-heal: clips whose metadata job died on the old ">15 hashtags" rule (they sat at NOT_READY forever) are generated again
+    if (!store.get(`SELECT 1 FROM kv WHERE k='heal:meta-hashtags:v1'`)) { const n = store.exec(`UPDATE jobs SET state='PENDING', attempts=0, run_after=0, lease_until=NULL, last_error=NULL, updated_at=datetime('now') WHERE kind='meta' AND state IN ('FAILED','DEAD') AND last_error LIKE '%too many #hashtags%'`).changes; store.exec(`INSERT INTO kv(k,v) VALUES('heal:meta-hashtags:v1', ?)`, String(n)); if (n) (await import('../util/log.ts')).info('re-queued metadata jobs that failed on the hashtag limit', { n }); }
+  } catch (e) { r.errors.push(`meta-heal: ${(e as Error).message}`); }
   if (!autopilotPass(store, cfg)) { r.blocked.PAUSED = 1; return r; } // owner pressed Pause Autopilot: nothing is queued/advanced/published
   if (cfg.automation.blockGenericMetadata !== false) await healGenericMetadata(store, cfg); // runs even when auto-queue is off: a title must come from the video itself, not from a button
   const queueOn = !!cfg.automation.autoQueue; // OFF: nothing new is queued, but jobs the OWNER already approved/scheduled (SCHEDULED_OR_APPROVED) must still go out at their time

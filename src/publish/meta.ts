@@ -1,3 +1,4 @@
+import { getTunnelUrl } from '../ops/tunnel.ts';
 import { fitCaption } from '../seo/brief.ts';
 import { randomBytes } from 'node:crypto';
 import { stat, readFile } from 'node:fs/promises';
@@ -81,9 +82,9 @@ export class InstagramReelsAdapter extends StagedAdapter {
   readonly name = 'instagram_reels';
   protected async send(s: Staged): Promise<string> {
     const { ig_user_id: ig, page_token, access_token } = this.cred as { ig_user_id?: string; page_token?: string; access_token?: string }; const tok = page_token ?? access_token; if (!ig || !tok) throw new Error('AUTH_NOT_CONNECTED: Instagram login missing');
-    const base = process.env.PUBLIC_URL; const viaUrl = isPublicBase(base) || process.env.META_ALLOW_HTTP_URL === '1';
+    const base = process.env.PUBLIC_URL ?? getTunnelUrl() ?? undefined; const viaUrl = isPublicBase(base) || process.env.META_ALLOW_HTTP_URL === '1'; // an https tunnel the server opened itself counts as a public base
     const body: Record<string, string> = { media_type: 'REELS', caption: caption(s), access_token: tok };
-    if (viaUrl) body.video_url = publicClipLink(this.store, s.file, base ?? process.env.PUBLIC_URL!); else body.upload_type = 'resumable';
+    if (viaUrl) body.video_url = publicClipLink(this.store, s.file, base!); else body.upload_type = 'resumable';
     const c = await call(`${graph()}/${ig}/media`, { method: 'POST', body: form(body) }); const id = c.j?.id; if (!id) throw fail('container', c);
     if (!viaUrl) {
       const size = (await stat(s.file)).size; const up = await call(`${rupload()}/ig-api-upload/${VER}/${id}`, { method: 'POST', headers: { authorization: `OAuth ${tok}`, offset: '0', file_size: String(size) }, body: await readFile(s.file), timeoutMs: 600_000 });

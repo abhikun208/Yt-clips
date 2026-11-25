@@ -88,6 +88,7 @@ export class TokenProvider {
   private markHealth(bad: string | null): void {
     try { const had = this.secrets.read<{ bad?: string }>(`${this.name}-health`)?.bad; if (bad) { if (had !== bad) this.secrets.write(`${this.name}-health`, { bad, at: new Date().toISOString() }); } else if (had) this.secrets.delete(`${this.name}-health`); } catch { /* health is best-effort */ }
   }
+  get id(): string { return this.name; }
   connected(): boolean { try { return !!this.secrets.read<{ refresh_token?: string }>(this.name)?.refresh_token; } catch { return false; } }
   async accessToken(): Promise<string> {
     if (this.cache && this.cache.exp > Date.now() + 60_000) return this.cache.token;

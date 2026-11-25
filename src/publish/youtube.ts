@@ -62,6 +62,10 @@ export class YouTubeAdapter implements Adapter {
       this.store.exec('INSERT INTO quota_usage(day, pool, units) VALUES (?,?,?) ON CONFLICT(day, pool) DO UPDATE SET units=MAX(units, excluded.units)', quotaDay(this.o.now()), pool, cap);
       return new Error(`QUOTA_EXCEEDED: ${what}: ${reason} (Google reports the daily ${pool} quota is used up; waiting for the midnight-Pacific reset)`);
     }
+    if (r.status === 403 && /uploadLimitExceeded/i.test(reason + t)) { // YouTube's own per-CHANNEL daily upload limit (not the API quota): pause only this channel's uploads, no retry storm
+      this.store.exec('INSERT INTO kv(k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', `ytlimit:${this.tokens.id}`, String(this.o.now().getTime() + 12 * 3600_000));
+      return new Error(`QUOTA_EXCEEDED: ${what}: YouTube is channel ki daily upload limit poori ho gayi (uploadLimitExceeded); 12 ghante baad apne aap dobara try hoga. Limit badhane ke liye channel ko phone-verify karo (youtube.com/verify).`);
+    }
     if (r.status === 401) return new Error(`AUTH_REVOKED: ${what}: unauthorized`);
     return new Error(`${what} failed: HTTP ${r.status} ${reason}`.trim());
   }
@@ -102,6 +106,7 @@ export class YouTubeAdapter implements Adapter {
     let session = row?.session_uri && row.total === total ? row.session_uri : null;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (!session) {
+        { const until = Number(this.store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', `ytlimit:${this.tokens.id}`)?.v ?? 0); if (until > this.o.now().getTime()) throw new Error(`QUOTA_EXCEEDED: is channel ki YouTube upload limit lagi hai, ${new Date(until).toISOString()} ke baad try hoga`); }
         this.charge('insert');
         const body = { snippet: { title: a.title, description: a.description, tags: a.tags, categoryId: a.categoryId ?? this.o.categoryId, ...(ytLang(a.language) ? { defaultLanguage: ytLang(a.language), defaultAudioLanguage: ytLang(a.language) } : {}) }, status: { privacyStatus: a.visibility, selfDeclaredMadeForKids: false } };
         const init = await this.req(`${API()}/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`, { method: 'POST', headers: { 'content-type': 'application/json; charset=UTF-8', 'x-upload-content-length': String(total), 'x-upload-content-type': 'video/mp4' }, body: JSON.stringify(body) });

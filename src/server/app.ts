@@ -4,7 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import { timingSafeEqual, randomUUID, randomBytes, createHash } from 'node:crypto';
 import { join, basename, resolve, sep } from 'node:path';
 import { Store } from '../db.ts';
-import { loadConfig, updateOwnerConfig, type Config } from '../config.ts';
+import { loadConfig, updateOwnerConfig, publishMode, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
 import { seedJobs, work, queuePaused } from '../pipeline.ts';
 import { publishAudit } from '../publish/audit.ts';
@@ -47,7 +47,7 @@ import { isPace } from '../edit/pace.ts';
 import { thumbCandidates } from '../review/review.ts';
 import { listDestinations, setDestinationEnabled, disconnectDestination, dedupeDestination, testDestination, listSourceMappings, setSourceMapping } from '../accounts/destinations.ts';
 import { startWebAuth, finishWebAuth, finishPaste, identityOf } from '../publish/webauth.ts';
-import { metaCanPublish, metaPerms } from '../publish/meta.ts';
+import { metaCanPublish, metaPerms, isPublicBase } from '../publish/meta.ts';
 import { storageTick, storageStatus, testRemote, listRemotes, rcloneAvailable, validRemote } from '../storage/cloud.ts';
 import { localReport } from '../localcheck.ts';
 import { pickLocal } from '../analysis/localStt.ts';
@@ -720,7 +720,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       try { installModelHealing(cfg, (m) => warn('ai model self-heal', { m })); } catch { /* optional */ }
       try { setRelay(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'oauth:relay')?.v || null); } catch { /* off */ }
       try { setSavedBase(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'oauth:base')?.v || null); } catch { /* none saved */ }
-      const wantTunnel = !getRelay() && !getSavedBase() && (process.env.YT_CLIPS_TUNNEL === '1' || (!process.env.NODE_TEST_CONTEXT && process.env.YT_CLIPS_AUTOTUNNEL !== '0' && (!!appCreds(cfg, 'facebook') || !!appCreds(cfg, 'tiktok')))); // login app saved -> keep an https link up from boot so Settings never shows http
+      const wantTunnel = !getRelay() && !getSavedBase() && (process.env.YT_CLIPS_TUNNEL === '1' || (!process.env.NODE_TEST_CONTEXT && process.env.YT_CLIPS_AUTOTUNNEL !== '0' && (!!appCreds(cfg, 'facebook') || !!appCreds(cfg, 'tiktok') || (publishMode() !== 'DRY_RUN' && !isPublicBase(process.env.PUBLIC_URL) && metaCanPublish(secretsFor(cfg), 'instagram_reels'))))); // login app saved -> keep an https link up from boot so Settings never shows http
       if (wantTunnel) void startTunnel(port, tunnelName(store)).then((u) => { if (u) info('social login redirect base', { base: u }); });
       });
     }),

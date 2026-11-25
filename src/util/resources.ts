@@ -11,7 +11,7 @@ export interface Assessment { level: Level; allowHeavy: boolean; maxLanes: numbe
 export function sampleResources(dir = '.', over: Partial<ResourceSample> = {}): ResourceSample {
   let memFree = freemem(); try { const m = /MemAvailable:\s+(\d+) kB/.exec(readFileSync('/proc/meminfo', 'utf8')); if (m) memFree = Number(m[1]) * 1024; } catch { /* non-linux */ } // MemAvailable counts reclaimable cache (freemem() understates it)
   let disk: number | null = null; try { const s = statfsSync(dir); disk = Math.round((s.bavail * s.bsize) / 1048576); } catch { /* unknown */ }
-  return { memFreeMB: Math.round(memFree / 1048576), memTotalMB: Math.round(totalmem() / 1048576), load1: +loadavg()[0]!.toFixed(2), cpus: cpus().length || 1, rssMB: Math.round(process.memoryUsage().rss / 1048576), diskFreeMB: disk, ...over };
+  return { memFreeMB: Math.round(memFree / 1048576), memTotalMB: Math.round(totalmem() / 1048576), load1: +loadavg()[0]!.toFixed(2), cpus: Math.max(4, cpus().length), /* Android/Termux often reports 1 core for an 8-core phone */ rssMB: Math.round(process.memoryUsage().rss / 1048576), diskFreeMB: disk, ...over };
 }
 export function assess(s: ResourceSample, l: ResourceLimits = DEFAULT_LIMITS): Assessment {
   const reasons: string[] = []; const rank = { ok: 0, warn: 1, critical: 2 }; let level: Level = 'ok'; const bump = (x: Level) => { if (rank[x] > rank[level]) level = x; };
