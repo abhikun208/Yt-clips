@@ -13,7 +13,7 @@ import { ingestComment } from './comments/comments.ts';
 import { addYoutubeSource, pollSources, ytdlpAvailable } from './sources/youtube.ts';
 import { transcribeVideo } from './analysis/stt.ts';
 import { PRESETS, getPreset } from './edit/captionPresets.ts';
-import { updateOwnerConfig } from './config.ts';
+import { updateOwnerConfig, publishMode } from './config.ts';
 import { sttCreds } from './ai/settings.ts';
 import { runDoctor } from './ops/doctor.ts';
 import { whyReport } from './diagnose.ts';
@@ -49,9 +49,9 @@ async function doctor(): Promise<number> {
   const s = new Store(cfg.dbPath);
   checks.push(['database migrates', s.get<{ user_version: number }>('PRAGMA user_version')!.user_version >= 1, cfg.dbPath]);
   const counts = { videos: s.get<{ n: number }>('SELECT count(*) n FROM videos')!.n, candidates: s.get<{ n: number }>('SELECT count(*) n FROM candidates')!.n, clips: s.get<{ n: number }>('SELECT count(*) n FROM clips')!.n };
-  checks.push(['safety gates all OFF', !cfg.gates.publishEnabled && !cfg.gates.commentsAutoPost && !cfg.gates.publicVisibilityAllowed, JSON.stringify(cfg.gates)]);
+  { const mode = publishMode(); const off = !cfg.gates.publishEnabled && !cfg.gates.commentsAutoPost && !cfg.gates.publicVisibilityAllowed; checks.push([off ? 'safety gates all OFF' : `publishing ON by owner (PUBLISH_MODE=${mode}, AUTO_APPROVE=${process.env.AUTO_APPROVE ?? 'unset'}) - real posts will go out`, off || mode !== 'DRY_RUN', JSON.stringify(cfg.gates)]); }
   let bad = 0;
-  for (const [n, ok, d] of checks) { const required = !/optional/.test(n) && n !== 'safety gates all OFF'; if (!ok && required) bad++; console.log(`${ok ? 'OK  ' : required ? 'FAIL' : 'WARN'} ${n}: ${d}`); }
+  for (const [n, ok, d] of checks) { const required = !/optional/.test(n) && !/^(safety gates|publishing ON)/.test(n); if (!ok && required) bad++; console.log(`${ok ? 'OK  ' : required ? 'FAIL' : 'WARN'} ${n}: ${d}`); }
   console.log('counts', counts);
   s.close(); return bad ? 1 : 0;
 }
