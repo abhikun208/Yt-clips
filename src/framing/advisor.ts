@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { run, which } from '../util/proc.ts';
 import { planLayout, safeCrop, type Sample, type Rect, type LayoutKind } from './plan.ts';
 
-export interface FramingAdvice { reframe: 'crop' | 'fit_blur'; /** 0..1 horizontal centre for the crop (only with reframe 'crop') */ cropX?: number; layout: LayoutKind | 'gaming'; note: string }
+export interface FramingAdvice { reframe: 'crop' | 'fit_blur' | 'multi_stack'; /** multi_stack: horizontal centre (0..1) of each of the 2-3 people */ tiles?: { cx: number }[]; /** 0..1 horizontal centre for the crop (only with reframe 'crop') */ cropX?: number; layout: LayoutKind | 'gaming'; note: string }
 export type Sampler = (src: string, rootDir: string) => Promise<Sample[] | null>;
 export interface AdvisorInput { src: string; rootDir: string; duration: number; gaming?: boolean; protect?: Rect[]; /** source width/height (default 16:9) */ aspect?: number; sampler?: Sampler }
 
@@ -45,6 +45,10 @@ export function decide(samples: Sample[], o: { duration: number; gaming?: boolea
   const xs = spans.filter((s) => s.layout !== 'fit').flatMap((s) => s.focus); const lo = Math.min(...xs) - FACE_MARGIN, hi = Math.max(...xs) + FACE_MARGIN;
   const kind = faceKinds[0] ?? 'single'; const win = (9 / 16) / aspect;
   if (kind === 'single') return o.gaming && protect.length ? (() => { const a = gamingCrop((lo + hi) / 2, 'one face'); return a.reframe === 'fit_blur' ? a : undefined; })() : undefined; // existing speaker-follow handles one face
+  if (hi - lo > win && (kind === 'split' || kind === 'trio')) { // 2-3 people too far apart for one 9:16 window: one tile per person instead of cutting someone or shrinking everything
+    const best = spans.filter((x) => x.layout === kind).sort((a, b) => (b.end - b.start) - (a.end - a.start))[0]; const cxs = (best?.focus ?? []).slice().sort((a, b) => a - b);
+    if (cxs.length >= 2 && cxs.length <= 3) return { reframe: 'multi_stack', tiles: cxs.map((cx) => ({ cx: +cx.toFixed(3) })), layout: kind, note: `framing advisor: ${kind} people are ${Math.round((hi - lo) * 100)}% of the frame wide (> 9:16 window ${Math.round(win * 100)}%): multi-person stack, one tile per person` };
+  }
   if (hi - lo > win) return { reframe: 'fit_blur', layout: kind, note: `framing advisor: ${kind} people are ${Math.round((hi - lo) * 100)}% of the frame wide (> 9:16 window ${Math.round(win * 100)}%): fit + blur instead of cutting someone` };
   const mid = (lo + hi) / 2; if (!o.gaming || !protect.length) return { reframe: 'crop', cropX: +mid.toFixed(3), layout: kind, note: `framing advisor: ${kind} people fit one 9:16 window: crop centred between them` };
   const a = gamingCrop(mid, `${kind} people`); if (a.reframe !== 'crop') return a;

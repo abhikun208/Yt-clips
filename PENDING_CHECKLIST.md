@@ -114,7 +114,7 @@
 - [x] docs/FEATURE_STATUS.md classification
 - [ ] OWNER: run `npm run verify:device -- --capture` on Termux while @ishowspeed is live; share data/device_verification.json
 - [x] Live chat/heatmap sidecar parsing, per-destination title prefix/suffix/tags, and horizontal→vertical derived copies exist; real sidecar capture and platform-specific policy UI are PARTIAL/UNVERIFIED.
-- [ ] AI upscale / 16:9 2560×1440 output is NOT_IMPLEMENTED.
+- [x] (2026-11-26) 16:9 / 1:1 at quality 2k now renders 2560x1440 / 1440x1440 (conventional Lanczos). AI upscale (Real-ESRGAN) is deliberately NOT built: far too slow on a phone and would need a GPU/binary.
 
 ## Final local audit (2026-11-21)
 - [x] PC/VPS PyAV 18 + faster-whisper compatibility checked in isolated Python; synthetic audio decoder smoke test passed.
@@ -144,7 +144,7 @@
 - [x] (AGENT loop T1) PUBLISH_MODE DRY_RUN/PRIVATE/PUBLIC. Owner: set `PUBLISH_MODE=PRIVATE` (env) before real uploads; PUBLIC only when you decide.
 - [x] (AGENT loop T2) Studio CSV import: export from YouTube Studio (Advanced mode > Export) and POST to /api/analytics/studio-import. Real Studio column names UNVERIFIED (aliases cover the documented ones); first real export may need an alias added.
 - [x] (AGENT loop T3) Opportunity score stored in `candidate_opportunity`; set `clip.opportunityMin` in data/config.json to reject weak clips (0/unset = off). Competition + search volume stay UNAVAILABLE until a real YouTube search source is wired.
-- [x] (AGENT loop T4) Hook candidates stored per clip. NOT done: actually reordering the video so the payoff teaser plays in the first 1-2 s (that is editing; needs an approved render hook).
+- [x] (AGENT loop T4) Hook candidates stored per clip. DONE 2026-11-26: opt-in `edit.hookTeaser` plays the payoff (from the stored moment peak) first (+1.5 s); off by default.
 - T5 DONE (mock-tested): metadata similarity; thresholds need tuning on real titles.
 - T6 DONE (mock-tested): rights screen; owner may list own handles in channel config `handles`; OCR watermark detection not available.
 - T7 DONE (mock-tested): failure analysis; needs >=5 judged peer videos from Studio CSV import to say anything.

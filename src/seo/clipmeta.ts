@@ -1,4 +1,5 @@
-import { statSync } from 'node:fs';
+import { statSync, readFileSync } from 'node:fs';
+import { wantsBroll, type StyleRecipe } from '../styles/recipes.ts';
 import { titleIssues } from './titlegate.ts';
 import { clipFrames, describeFrames, isVisionModel, isLocalEndpoint, groqVisionModel } from './vision.ts';
 import * as visionMod from './vision.ts';
@@ -95,7 +96,8 @@ export async function metaForClip(store: Store, cfg: Config, clipId: number, o: 
   const errs = validateMetadata(md); if (errs.length) throw new Error(`metadata invalid: ${errs.join('; ')}`);
   { const lw = lintPackage(md); if (lw.length) warn('metadata advice', { lw }); }
   try { const { finishClip, brollFor } = await import('../edit/retitle.ts'); const { screenTitle } = await import('../edit/retitle.ts'); // the AI has now seen the clip: print ITS title on the video
-    const useAi = !md.generic && md.source === 'llm'; const b = useAi ? await brollFor(cfg, md.broll ?? []) : [];
+    const useAi = !md.generic && md.source === 'llm'; let wantB = true; try { const mp = store.get<{ manifest_path: string | null }>('SELECT manifest_path FROM clips WHERE id=?', clipId)?.manifest_path; const rc = mp ? (JSON.parse(readFileSync(mp, 'utf8')) as { render?: { recipe?: { bRoll: 'never' | 'noFaceOnly' | 'topic'; faceOnScreen: boolean } | null } }).render?.recipe : null; if (rc) wantB = wantsBroll({ bRoll: rc.bRoll } as StyleRecipe, rc.faceOnScreen); } catch { wantB = true; }
+    const b = useAi && wantB ? await brollFor(cfg, md.broll ?? []) : [];
     const fin = await finishClip(store, cfg, clipId, useAi ? screenTitle(md.title) : null, b); if (fin.ok) md = { ...md, warnings: [...md.warnings, `on-screen title: ${fin.title}${fin.broll ? ` (+${fin.broll} B-roll)` : ''}`] };
   } catch (e) { warn('on-screen title step failed', { clip: clipId, err: String((e as Error).message).slice(0, 120) }); }
   const thumb = await makeThumbnail(row.edited_path, join(cfg.dirs.thumbnails, `${row.output_id}.jpg`), md.thumbnailText).catch((e: Error) => { warn('thumbnail failed', { clip: clipId, err: e.message.slice(0, 80) }); return null; });

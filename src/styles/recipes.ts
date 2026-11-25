@@ -6,7 +6,7 @@
  */
 export interface StyleRecipe {
   zoom: boolean; glow: boolean; emphasisZoom: boolean; jumpCuts: boolean; speedRamp: boolean; beats: boolean;
-  pace: 'slow' | 'medium' | 'fast';
+  pace: 'relaxed' | 'medium' | 'fast';
   /** which cue kinds may get a synthesised sound effect */ sfx: { whoosh: CueKind[]; pop: CueKind[] };
   music: { allowed: boolean; volume: number };
   /** never: no B-roll; noFaceOnly: only while no face is on screen; topic: also as topic cutaways */ bRoll: 'never' | 'noFaceOnly' | 'topic';
@@ -22,10 +22,10 @@ const TYPES: Record<string, StyleRecipe> = {
   gaming: R({ zoom: true, emphasisZoom: true, jumpCuts: true, speedRamp: true, beats: true, pace: 'fast', sfx: { whoosh: ['hook', 'reveal'], pop: ['kill', 'emphasis'] }, music: { allowed: true, volume: 0.15 }, silenceTrim: 'normal' }, 'gaming: fast pace, zoom + SFX on kills/reveals'),
   comedy: R({ zoom: true, emphasisZoom: true, jumpCuts: true, pace: 'fast', sfx: { whoosh: [], pop: ['punchline'] }, music: { allowed: true, volume: 0.12 }, silenceTrim: 'normal' }, 'comedy: tight cuts, a pop only on the punchline'),
   reaction: R({ jumpCuts: true, pace: 'medium', sfx: { whoosh: [], pop: ['punchline', 'reveal'] }, silenceTrim: 'light' }, 'reaction: keep the source audio clear, no music'),
-  podcast: R({ pace: 'slow', silenceTrim: 'light' }, 'podcast: natural speech, no effects, no music over voices'),
+  podcast: R({ pace: 'relaxed', silenceTrim: 'light' }, 'podcast: natural speech, no effects, no music over voices'),
   educational: R({ pace: 'medium', bRoll: 'topic', silenceTrim: 'light' }, 'educational: clarity first, topic B-roll, no SFX'),
   vlog: R({ glow: true, pace: 'medium', sfx: { whoosh: ['hook'], pop: [] }, music: { allowed: true, volume: 0.2 }, bRoll: 'noFaceOnly' }, 'vlog: light music, whoosh on the hook, B-roll only without a face'),
-  story: R({ pace: 'slow', music: { allowed: true, volume: 0.12 }, bRoll: 'noFaceOnly', silenceTrim: 'off' }, 'story: slow pace, quiet music, no SFX, keep the pauses'),
+  story: R({ pace: 'relaxed', music: { allowed: true, volume: 0.12 }, bRoll: 'noFaceOnly', silenceTrim: 'off' }, 'story: slow pace, quiet music, no SFX, keep the pauses'),
 };
 /** null = no recipe for this type: the caller must leave every option exactly as it is today. Sad/dialogue mood silences SFX. */
 export function recipeFor(type: string | null | undefined, mood?: string): StyleRecipe | null {

@@ -3,7 +3,7 @@
 - Meta HTTPS callback: needs owner domain/tunnel; GitHub Pages is not a proxy.
 - `yt-dead:main`: reconnect Main (Test user of the OAuth project or its own client in the connect dialog).
 - Source→destination mapping UI is a small per-source row (Sources list); no full schedule/platform-specific metadata profile per mapping yet. Social Test Connection is fake-server tested; real provider tokens are UNVERIFIED. Token-expiry (access token lifetime) is not shown.
-- 2K = conventional upscale only (no AI upscaler); 16:9 2560×1440 output not implemented.
+- 2K = conventional upscale only (no AI upscaler, deliberately); 16:9 2560x1440 works via quality 2k.
 - Unlimited candidate generation is now the default (`0 = unlimited`), but clip candidates still require quality, overlap and resource gates.
 - Per-destination title prefix/suffix and extra tags are implemented; exact platform-specific title/description policies need per-account UI and provider verification.
 - The 8-tab navigation matches Prompt1. Full dynamic-action click-through coverage is still incomplete.
@@ -22,3 +22,5 @@
 - Source upload permission: a source with no policy is unrestricted (backwards compatible).
 - YouTube: per-channel upload limit (uploadLimitExceeded) pauses that channel until the next day; vanished videos are re-uploaded max 2 times.
 - Publishing gates/PUBLISH_MODE/autoApprove are owner-only (`.env`), by design not writable via the API.
+
+- Locked files were unlocked by the owner on 2026-11-26: multi-person stack, content-style recipes (edit.styleRecipes, default on; ro.noRecipe=true skips), hook teaser (edit.hookTeaser, default off). Real-footage look UNVERIFIED.

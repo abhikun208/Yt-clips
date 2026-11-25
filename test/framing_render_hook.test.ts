@@ -34,9 +34,9 @@ test('HOOK (real repo): flag unset == flag false == flag on + detector unavailab
   assert.deepEqual(a, b); assert.deepEqual(a, c); assert.equal(a.reframe, 'present');
 });
 const NEAR = JSON.stringify({ samples: Array.from({ length: 30 }, (_, i) => ({ t: i * 0.5, faces: [{ x: 0.40, y: 0.3, w: 0.15, h: 0.25, speaking: 0.5 }, { x: 0.50, y: 0.3, w: 0.15, h: 0.25, speaking: 0.1 }] })), faces: 60 });
-test('HOOK (real repo): flag on + (FAKE) two close faces -> advisor switches the existing fit to a centred crop; far faces keep fit', { timeout: 280_000 }, async () => {
+test('HOOK (real repo): flag on + (FAKE) two close faces -> advisor switches the existing fit to a centred crop; far faces get a multi-person stack', { timeout: 280_000 }, async () => {
   const base = await renderWith({}, NEAR), near = await renderWith({ framingAdvisor: true }, NEAR), far = await renderWith({ framingAdvisor: true }, FAR);
-  assert.notEqual(near.detail, base.detail, 'decision reached the filter graph'); assert.match(near.detail, /crop|fill|centre|center/i); assert.equal(far.detail, base.detail, 'far apart: fit stays');
+  assert.notEqual(near.detail, base.detail, 'decision reached the filter graph'); assert.match(near.detail, /crop|fill|centre|center/i); assert.match(far.detail, /multi-person stack: 2 tiles/, 'far apart: one tile per person');
   console.log('# base:', base.detail, '| near:', near.detail);
 });
 

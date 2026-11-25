@@ -16,6 +16,9 @@ import { loadTranscript } from '../analysis/transcript.ts';
 import { buildStyledAss, type CaptionResult } from './captions.ts';
 import { getPreset } from './captionPresets.ts';
 import { fillPace, isPace } from './pace.ts';
+import { teaserAt, prependTeaser } from './teaser.ts';
+import { recipeFor, cuePlan, type StyleRecipe, type CueKind } from '../styles/recipes.ts';
+import { detectContent } from '../analysis/contentdetect.ts';
 import { applyCaptionLanguage, type CaptionTarget } from '../ai/translate.ts';
 import { llmChain } from '../ai/settings.ts';
 import { channelOfVideo } from '../channels.ts';
@@ -43,7 +46,7 @@ import { checkDisk, freeMb } from '../util/disk.ts';
 import { freeUpSpace } from '../util/cleanup.ts';
 import { skinFaceCenter } from './skinface.ts';
 
-export interface RenderOptions { /** the clip's speech hook: used as the title only when no AI title replaces it later (see titleDeferred); an explicit `title` always wins */ hook?: string | null; /** 1 / 1.05..1.10 */ speed?: number; /** top title strip */ titleBar?: 'black' | 'white' | 'off'; /** 0..1: how quickly the face-follow crop pans (default 0.5) */ trackSensitivity?: number; cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; captionPosition?: 'top' | 'center' | 'bottom'; /** effect at the start of the clip/captions */ transition?: 'none' | 'fade' | 'flash' | 'zoom'; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay' | 'auto'; bgColor?: string; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
+export interface RenderOptions { /** play the payoff moment first (needs a stored moment peak) */ hookTeaser?: boolean; /** skip the content-type style recipe for this render */ noRecipe?: boolean; /** the clip's speech hook: used as the title only when no AI title replaces it later (see titleDeferred); an explicit `title` always wins */ hook?: string | null; /** 1 / 1.05..1.10 */ speed?: number; /** top title strip */ titleBar?: 'black' | 'white' | 'off'; /** 0..1: how quickly the face-follow crop pans (default 0.5) */ trackSensitivity?: number; cutRanges?: [number, number][]; /** source-video seconds the owner deleted (transcript editor) */ aspect?: '9:16' | '1:1' | '16:9'; closeups?: boolean; pace?: string; translateTo?: CaptionTarget; captionPreset?: string; title?: string | null; captionPosition?: 'top' | 'center' | 'bottom'; /** effect at the start of the clip/captions */ transition?: 'none' | 'fade' | 'flash' | 'zoom'; reframe?: 'crop' | 'fit_blur' | 'gamer_stack' | 'split_gameplay' | 'auto'; bgColor?: string; cta?: string | null; memeHook?: boolean; facecam?: { x: number; y: number; w: number; h: number }; zoom?: boolean; glow?: boolean; fade?: boolean; faceTrack?: boolean; captions?: boolean; beats?: boolean; speedRamp?: boolean; variant?: number; jumpCuts?: boolean; emphasisZoom?: boolean; vfx?: Partial<{ lut: boolean; grain: boolean; particles: boolean; lightLeak: boolean; flash: boolean; progress: boolean }> }
 
 async function faceCenter(path: string, root: string, fallback = false, dur = 60): Promise<number | undefined> {
   const soft = (): number | undefined => { try { return fallback ? skinFaceCenter(path, 0, dur) : undefined; } catch { return undefined; } }; // no OpenCV (phone): ffmpeg skin-tone heuristic
@@ -68,8 +71,9 @@ async function faceTrack(path: string, root: string, sensitivity?: number): Prom
  */
 /** Output shape: 9:16 (default Shorts), 1:1 square or 16:9 landscape. Only width/height change; reframing, captions and QC all read them from cfg.edit. */
 export type Aspect = '9:16' | '1:1' | '16:9';
+export const ASPECT_SIZE_2K: Record<Aspect, [number, number]> = { '9:16': [1440, 2560], '1:1': [1440, 1440], '16:9': [2560, 1440] }; // quality '2k' (conventional upscale, not AI)
 export const ASPECT_SIZE: Record<Aspect, [number, number]> = { '9:16': [1080, 1920], '1:1': [1080, 1080], '16:9': [1920, 1080] };
-export const withAspect = (cfg: Config, a?: string | null): Config => { const sz = a && a !== '9:16' ? ASPECT_SIZE[a as Aspect] : undefined; return sz ? { ...cfg, edit: { ...cfg.edit, width: sz[0], height: sz[1] } } : cfg; };
+export const withAspect = (cfg: Config, a?: string | null): Config => { const sz = a && a !== '9:16' ? (cfg.edit.quality === '2k' ? ASPECT_SIZE_2K : ASPECT_SIZE)[a as Aspect] : undefined; return sz ? { ...cfg, edit: { ...cfg.edit, width: sz[0], height: sz[1] } } : cfg; };
 export async function renderCandidate(store: Store, cfgIn: Config, candidateId: number, ro: RenderOptions = {}): Promise<{ clipId: number; outputId: string; editedPath: string; qcPass: boolean; reused: boolean }> {
   const c = store.get<{ id: number; video_id: number; start_sec: number; end_sec: number; category: string; status: string; reason: string | null }>('SELECT id, video_id, start_sec, end_sec, category, status, reason FROM candidates WHERE id=?', candidateId);
   if (!c) throw new Error(`Unknown candidate ${candidateId}`);
@@ -118,10 +122,13 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   }
   const chan0early = channelOfVideo(store, c.video_id);
   const cleanFx = chan0early.config.effects === 'clean'; // owner/channel choice: dialogue/comedy content without film grain, dust, light leak, flash cuts, LUT, slow-mo
+  // CONTENT-SPECIFIC STYLE (owner-approved 2026-11-25): a recipe for the detected content type fills ONLY what the caller (ro) left undefined; edit.styleRecipes=false switches it off
+  let recipe: StyleRecipe | null = null; let recipeNote: string | null = null;
+  if (cfg.edit.styleRecipes !== false && !ro.noRecipe) { try { const tx = store.get<{ transcript: string | null }>('SELECT transcript FROM candidates WHERE id=?', candidateId)?.transcript ?? ''; const dc = detectContent(tx); recipe = dc.confidence >= 0.34 || dc.type !== 'general' ? recipeFor(dc.type === 'general' ? (c.category === 'gaming' ? 'gaming' : '') : dc.type, c.category) : null; if (recipe) recipeNote = `${dc.type}: ${recipe.reason}`; } catch { recipe = null; } }
   let m = await probe(rawPath);
   // 1a) optional jump cuts: dead-air (long silences) removed; captions re-timed. Verified by duration, else rendered without.
   let cuts: CutPlan | null = null; let srcPath = rawPath; let cutNote = 'disabled'; const tmpFiles: string[] = [];
-  if (((ro.jumpCuts ?? cfg.edit.jumpCuts) || ro.cutRanges?.length) && m.hasAudio) {
+  if (((ro.jumpCuts ?? recipe?.jumpCuts ?? cfg.edit.jumpCuts) || ro.cutRanges?.length) && m.hasAudio) {
     try {
       if (ro.cutRanges?.length) { cuts = planManualCuts(ro.cutRanges.map(([x, y]) => ({ start: x - c.start_sec, end: y - c.start_sec })), m.duration); cutNote = cuts ? `owner cut ${cuts.removed.length} part(s), ${cuts.saved}s removed` : 'owner cuts ignored (outside the clip or too little left)'; }
       else { cuts = planCuts(await detectSilence(rawPath, -35, 0.55), m.duration); cutNote = cuts ? '' : 'no long silences / clip too short'; }
@@ -136,7 +143,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   }
   // 1b) optional slow-motion window at the strongest audio peak (re-timed clip; captions are re-timed to match)
   let ramp: Ramp | null = null; let editSrc = srcPath; let rampNote = 'disabled';
-  if ((ro.speedRamp ?? (cleanFx ? false : cfg.edit.speedRamp)) && m.hasAudio) {
+  if ((ro.speedRamp ?? (cleanFx ? false : (recipe?.speedRamp ?? cfg.edit.speedRamp))) && m.hasAudio) {
     try {
       const peaks = pickPeaks(await audioEnergy(srcPath, 0.25), { duration: m.duration, max: 1 }); ramp = planRamp(peaks[0], m.duration); rampNote = ramp ? '' : 'no strong peak / clip too short';
       if (ramp) {
@@ -208,10 +215,10 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   if (!ro.reframe && reframe === 'crop' && c.reason === 'whole range as one clip') reframe = 'auto'; // a short source kept whole: never throw away picture just to fill 9:16 (portrait stays as is, wide gets Fit unless a face is found)
   const fill = reframe === 'split_gameplay' ? pickFiller(cfg.dirs.assets, c.id) : null; if (reframe === 'split_gameplay' && !fill) { reframe = 'crop'; reframeNote = 'split_gameplay: assets/gameplay/ mein koi video nahi, normal crop use hua'; }
   // FRAMING ADVISOR (opt-in, default OFF): may only choose between the EXISTING 'crop' / 'fit_blur' modes (+ a safer crop centre); any failure -> undefined -> behaviour below is exactly as before
-  let advice: FramingAdvice | undefined;
+  let advice: FramingAdvice | undefined; let tiles: { cx: number }[] | undefined;
   if (cfg.edit.framingAdvisor === true && !ro.reframe && (reframe === 'auto' || reframe === 'crop') && m.width / m.height > 1.2) {
     advice = await adviseFraming({ src: editSrc, rootDir: cfg.rootDir, duration: m.duration, gaming: chan.profile === 'gaming', ...(cfg.edit.gamingProtect ? { protect: cfg.edit.gamingProtect } : {}), aspect: m.width / m.height }).catch(() => undefined);
-    if (advice) { reframe = advice.reframe; reframeNote = advice.note; info('framing advisor', { reframe: advice.reframe, cropX: advice.cropX, layout: advice.layout, note: advice.note }); }
+    if (advice) { reframe = advice.reframe; if (advice.reframe === 'multi_stack') tiles = advice.tiles; reframeNote = advice.note; info('framing advisor', { reframe: advice.reframe, cropX: advice.cropX, layout: advice.layout, note: advice.note }); }
   }
   if (reframe === 'auto') { // Auto layout: wide source with a findable face -> Fill (face-tracked crop); wide without a face (screen, scenery, group) -> Fit (nothing cut off); already tall/square -> Fill
     if (m.width / m.height > 1.2) { const fc = await faceCenter(editSrc, cfg.rootDir, chan.profile !== 'gaming' && cfg.edit.faceFallback !== false, m.duration).catch(() => undefined); reframe = fc !== undefined ? 'crop' : 'fit_blur'; reframeNote = `auto layout: ${reframe === 'crop' ? 'face found -> fill' : 'no face -> fit'}`; } else reframe = 'crop';
@@ -222,9 +229,9 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   const cx = reframe === 'crop' && advice?.cropX !== undefined ? advice.cropX : reframe === 'crop' && ro.faceTrack !== false ? await faceCenter(editSrc, cfg.rootDir, chan.profile !== 'gaming' && cfg.edit.faceFallback !== false, m.duration) : undefined;
   const ctrack = reframe === 'crop' && ro.faceTrack !== false && cfg.edit.speakerFollow !== false ? await faceTrack(editSrc, cfg.rootDir, ro.trackSensitivity ?? cfg.edit.trackSensitivity) : [];
   let punch: number[] = []; let closeups: { start: number; end: number }[] = [];
-  if ((ro.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); if ((ro.closeups ?? cfg.edit.closeups) !== false) closeups = planCloseups(punch, m.duration); } catch { punch = []; closeups = []; } }
+  if ((ro.beats ?? recipe?.beats ?? cfg.edit.beatEffects) && m.hasAudio) { try { punch = pickPeaks(await audioEnergy(editSrc, 0.25), { duration: m.duration }); if ((ro.closeups ?? cfg.edit.closeups) !== false) closeups = planCloseups(punch, m.duration); } catch { punch = []; closeups = []; } }
   let emph: string[] = [];
-  if ((ro.emphasisZoom ?? cfg.edit.emphasisZoom) && cues.length) {
+  if ((ro.emphasisZoom ?? recipe?.emphasisZoom ?? cfg.edit.emphasisZoom) && cues.length) {
     try {
       const top = keyphrases(cues.map((x) => x.text).join(' '), 3).map((k) => k.phrase.split(' ')[0]!);
       const hits: number[] = []; for (const cu of cues) for (const w of cu.words ?? []) { const t = w.start - c.start_sec; if (top.includes(w.text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')) && t > 0.6 && t < m.duration - 0.6 && hits.every((h) => Math.abs(h - t) > 2)) hits.push(t); }
@@ -232,16 +239,17 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
     } catch { emph = []; }
   }
   if (ro.transition === 'zoom') punch = [0.4, ...punch.filter((q) => q > 1.4)];
-  const paceMode = isPace(ro.pace) ? ro.pace : cfg.edit.pace; if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
+  const paceMode = isPace(ro.pace) ? ro.pace : (recipe?.pace ?? cfg.edit.pace); if (ro.beats !== false) punch = fillPace(punch, m.duration, paceMode);
   if (cfg.edit.autoMusic !== false && m.hasAudio) { const { ensureSynthMusic } = await import('./synthmusic.ts'); await ensureSynthMusic(join(cfg.dataDir, 'synth')).catch(() => 0); }
   let musicPick = pickMusicTrack(cfg.dirs.assets, { mood: c.category, seed: c.id }) ?? (cfg.edit.autoMusic !== false ? pickMusicTrack(join(cfg.dataDir, 'synth'), { mood: c.category, seed: c.id }) : undefined); let musicNote: string | null = null;
   { const { acoustidKey, musicRisk } = await import('../media/acoustid.ts'); const key = acoustidKey(cfg); // pre-clear: an uncleared (no licence in library.json) track that matches a known commercial recording is not used
     if (musicPick && key && cfg.copyright?.checkMusic !== false && !musicPick.license) { const hit = await musicRisk(musicPick.path, key, cfg.copyright?.minScore ?? 0.85).catch(() => null); if (hit) { musicNote = `music skipped: matches "${hit.title}" by ${hit.artist} (AcoustID ${hit.score.toFixed(2)}), no licence listed in library.json`; warn(musicNote); musicPick = undefined; } } }
+  if (recipe && !recipe.music.allowed && musicPick) { recipeNote += '; music off for this content type'; musicPick = undefined; }
   const music = musicPick?.path;
   const speed = normSpeed(ro.speed ?? cfg.edit.speed); const outDur = m.duration / speed;
-  const vg = buildVideoGraph({ speed, bgColor: ro.bgColor ?? cfg.edit.bgColor, punch, closeups, fitZoom: burnedSrc ? (cfg.edit.fitZoomBurned ?? 0.88) : (cfg.edit.fitZoom ?? 0.8), /* source with its own subtitles: trim only 6% per side (was 0: tiny picture); TV subtitles are normally < 85% wide */  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, topReserve: (ro.titleBar ?? cfg.edit.titleBar ?? 'off') !== 'off' ? Math.round(cfg.edit.height * 0.13) : 0, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? true, glow: ro.glow ?? true, fade: ro.fade ?? (ro.transition === 'none' ? false : true),
+  const vg = buildVideoGraph({ speed, bgColor: ro.bgColor ?? cfg.edit.bgColor, punch, closeups, fitZoom: burnedSrc ? (cfg.edit.fitZoomBurned ?? 0.88) : (cfg.edit.fitZoom ?? 0.8), /* source with its own subtitles: trim only 6% per side (was 0: tiny picture); TV subtitles are normally < 85% wide */  inW: m.width, inH: m.height, outW: cfg.edit.width, outH: cfg.edit.height, fps: cfg.edit.fps, duration: m.duration, mood: c.category, reframe, ...(reframe === 'multi_stack' && tiles ? { tiles } : {}), fillIdx: fill ? (music && m.hasAudio ? 2 : 1) : undefined, facecam, topReserve: (ro.titleBar ?? cfg.edit.titleBar ?? 'off') !== 'off' ? Math.round(cfg.edit.height * 0.13) : 0, cropXFrac: cx, cropTrack: ctrack.length ? ctrack : undefined, deinterlace: deint, assPath, fontsDir: join(cfg.dirs.assets, 'fonts'), zoom: ro.zoom ?? recipe?.zoom ?? true, glow: ro.glow ?? recipe?.glow ?? true, fade: ro.fade ?? (ro.transition === 'none' ? false : true),
     vfx: { ...cfg.edit.vfx, ...(cleanFx ? { lut: false, grain: false, particles: false, lightLeak: false, flash: false } : {}), ...(ro.transition === 'flash' ? { flash: true } : ro.transition === 'none' ? { flash: false } : {}), ...(ro.vfx ?? {}), flashAt: [...(ro.transition === 'flash' ? [0.35] : []), ...punch.slice(0, 2), ...(ramp ? [ramp.a] : [])].sort((x, y) => x - y), lutFile: findLut(cfg.dirs.assets) } });
-  const ag = buildAudioGraph({ speed, hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: musicPick?.volume ?? cfg.edit.musicVolume, duration: m.duration, sfx: cfg.edit.sfx === false || cleanFx ? undefined : { whoosh: [0.05], pop: punch.filter((q) => q > 0.5 && q < m.duration - 0.6).slice(0, 4) } });
+  const ag = buildAudioGraph({ speed, hasAudio: m.hasAudio, targetLufs: cfg.edit.targetLufs, music: !!music && m.hasAudio, musicVolume: musicPick?.volume ?? (recipe?.music.allowed ? recipe.music.volume : undefined) ?? cfg.edit.musicVolume, duration: m.duration, sfx: cfg.edit.sfx === false || cleanFx ? undefined : recipe ? (() => { const peak: CueKind = chan0early.profile === 'gaming' ? 'kill' : 'emphasis'; const plan = cuePlan(recipe, [{ t: 0.05, kind: 'hook' }, ...punch.filter((q) => q > 0.5 && q < m.duration - 0.6).map((t) => ({ t, kind: peak }))]); return plan.whoosh.length || plan.pop.length ? plan : undefined; })() : { whoosh: [0.05], pop: punch.filter((q) => q > 0.5 && q < m.duration - 0.6).slice(0, 4) } });
   const filter = ag.graph ? `${vg.graph};${ag.graph}` : vg.graph;
   const argsFor = (enc: string) => ['-y', '-hide_banner', '-loglevel', 'error', '-threads', th, '-i', editSrc, ...(music && m.hasAudio ? ['-i', music] : []), ...(fill ? ['-stream_loop', '-1', '-i', fill] : []), '-filter_complex', filter, '-map', '[vout]', ...(ag.graph ? ['-map', '[aout]'] : []),
     '-r', String(cfg.edit.fps), ...encodeArgs(enc, { crf: cfg.edit.crf, preset: cfg.edit.preset }), ...(ag.graph ? ['-c:a', 'aac', '-b:a', '160k', '-ar', '48000'] : []), '-movflags', '+faststart', '-t', outDur.toFixed(3), finalPath + '.part.mp4'];
@@ -252,6 +260,11 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   let narrated = false; if ((chan0.config.narration ?? cfg.edit.narration) && ro.title && m.hasAudio) narrated = await narrate(finalPath, ro.title.replace(/#\w+/g, ''), cfg.dirs.tmp, { lang: (cfg.edit.captionLanguage === 'en' ? 'en' : 'hinglish') });
   // 3) QC (measured)
   let hookLen = 0; { const hk = (ro.memeHook ?? cfg.edit.memeHook) ? pickHook(cfg.dirs.assets, c.id) : null; if (hk && m.hasAudio) { try { hookLen = await prependHook(finalPath, hk, { width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps }); info('meme hook prepended', { hook: hk.split('/').pop(), sec: hookLen }); } catch (e) { warn('meme hook skipped', { err: (e as Error).message.slice(0, 120) }); } } }
+  let teaserNote: string | null = null; // HOOK TEASER (owner-approved 2026-11-25, opt-in edit.hookTeaser / ro.hookTeaser): the payoff plays first, then the clip
+  if ((ro.hookTeaser ?? cfg.edit.hookTeaser) === true && !hookLen && !cuts && m.hasAudio) { try {
+    const pk = store.get<{ peak_at: number | null }>('SELECT peak_at FROM moments WHERE candidate_id=? AND peak_at IS NOT NULL ORDER BY score DESC LIMIT 1', candidateId)?.peak_at; const at = teaserAt({ peakRel: pk == null ? null : (pk - c.start_sec) / speed, outDur });
+    if (at !== null) { hookLen = await prependTeaser(finalPath, at, { width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, tmpDir: cfg.dirs.tmp }); teaserNote = `payoff teaser from ${at}s plays first (${hookLen}s)`; info('hook teaser prepended', { at, sec: hookLen }); } else teaserNote = 'no usable payoff moment for a teaser';
+  } catch (e) { warn('hook teaser skipped', { err: (e as Error).message.slice(0, 120) }); teaserNote = 'teaser failed, clip unchanged'; } }
   const qc = await qcClip(finalPath, { width: cfg.edit.width, height: cfg.edit.height, duration: outDur + hookLen, targetLufs: cfg.edit.targetLufs, requireAudio: m.hasAudio });
   const treatments: Treatment[] = [...vg.treatments, ...ag.treatments, cuts ? { dimension: 'jump_cuts', applied: true, detail: `${cuts.removed.length} dead-air gaps removed, ${cuts.saved.toFixed(1)}s saved; captions re-timed` } : { dimension: 'jump_cuts', applied: false, detail: cutNote }, { dimension: 'emphasis_zoom', applied: emph.length > 0, detail: emph.length ? `punch-zoom on keyword(s): ${emph.join(', ')}` : 'no keyword with measured word timing in this clip (or disabled)' }, ramp ? { dimension: 'speed_ramp', applied: true, detail: `slow-motion ${ramp.rate}x from ${ramp.a.toFixed(1)}s to ${ramp.b.toFixed(1)}s (audio atempo, captions re-timed); clip ${(m.duration).toFixed(1)}s` } : { dimension: 'speed_ramp', applied: false, detail: rampNote }];
   const cov = treatmentCoverage(treatments);
@@ -262,7 +275,7 @@ export async function renderCandidate(store: Store, cfgIn: Config, candidateId: 
   const manifest = {
     outputId, source: { videoId: c.video_id, path: v.path, start: c.start_sec, end: c.end_sec, candidateId }, rawClip: rawPath, edited: finalPath,
     captions: cap ? { preset: cap.presetId, label: getPreset(cap.presetId)?.label, wordTiming: cap.timing, font: cap.font, script: cap.script, warnings: cap.warnings } : null,
-    render: { quality: cfg.edit.quality ?? 'standard', enhancement: m.height < cfg.edit.height ? `conventional lanczos upscale ${m.width}x${m.height} -> ${cfg.edit.width}x${cfg.edit.height} (no AI enhancement)` : 'none (source already at or above target)', titleDeferred: deferred, speed, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', narration: narrated, width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? { file: music.split('/').pop(), license: musicPick?.license ?? 'owner-supplied (licence not recorded)', source: musicPick?.source ?? null, moodMatched: musicPick?.matchedMood ?? false } : null },
+    render: { hookTeaser: teaserNote, recipe: recipe ? { note: recipeNote, bRoll: recipe.bRoll, faceOnScreen: cx !== undefined || ctrack.length > 0 || !!facecam || reframe === 'multi_stack' } : null, quality: cfg.edit.quality ?? 'standard', enhancement: m.height < cfg.edit.height ? `conventional lanczos upscale ${m.width}x${m.height} -> ${cfg.edit.width}x${cfg.edit.height} (no AI enhancement)` : 'none (source already at or above target)', titleDeferred: deferred, speed, titleBar: ro.titleBar ?? cfg.edit.titleBar ?? 'off', narration: narrated, width: cfg.edit.width, height: cfg.edit.height, fps: cfg.edit.fps, crf: cfg.edit.crf, preset: cfg.edit.preset, reframe, faceTracked: cx !== undefined, music: music ? { file: music.split('/').pop(), license: musicPick?.license ?? 'owner-supplied (licence not recorded)', source: musicPick?.source ?? null, moodMatched: musicPick?.matchedMood ?? false } : null },
     treatments, treatmentCoverage: cov, treatmentTarget: { target: cfg.edit.treatmentTarget, met: targetMet }, visualChange, translation, qc, createdAt: new Date().toISOString(),
   };
   const manifestPath = join(cfg.dirs.manifests, `${outputId}.json`);

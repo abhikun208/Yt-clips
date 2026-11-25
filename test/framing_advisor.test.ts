@@ -13,9 +13,9 @@ const root = join(import.meta.dirname, '..');
 
 test('advisor decide: no face (non-gaming) -> undefined (existing logic decides)', () => { assert.equal(decide(seq(20, []), { duration: 10 }), undefined); });
 test('advisor decide: one face (non-gaming) -> undefined (existing speaker-follow handles it)', () => { assert.equal(decide(seq(20, [f(0.5)]), { duration: 10 }), undefined); });
-test('advisor decide: two people close together -> crop centred between them; far apart -> fit_blur', () => {
+test('advisor decide: two people close together -> crop centred between them; far apart -> multi_stack (one tile each)', () => {
   const near = decide(seq(20, [f(0.42), f(0.50)]), { duration: 10 })!; assert.equal(near.reframe, 'crop'); assert.ok(Math.abs(near.cropX! - 0.5) < 0.06);
-  const far = decide(seq(20, [f(0.1), f(0.8)]), { duration: 10 })!; assert.equal(far.reframe, 'fit_blur'); assert.match(far.note, /instead of cutting someone/);
+  const far = decide(seq(20, [f(0.1), f(0.8)]), { duration: 10 })!; assert.equal(far.reframe, 'multi_stack'); assert.equal(far.tiles!.length, 2); assert.ok(far.tiles![0]!.cx < 0.3 && far.tiles![1]!.cx > 0.6);
 });
 test('advisor decide: layout that keeps changing (1 person, then 2) -> fit_blur', () => {
   const s = [...seq(14, [f(0.5)]), ...seq(14, [f(0.1), f(0.4)], 7)]; const a = decide(s, { duration: 14 })!; assert.equal(a.reframe, 'fit_blur'); assert.match(a.note, /layout changes/);
@@ -34,7 +34,7 @@ test('advisor: detector unavailable in every way -> undefined, never throws (exi
   assert.equal(await mk(async () => seq(3, [f(0.2), f(0.8)])), undefined, 'fewer than 8 face samples is not evidence'); // 3 samples: too few
 });
 test('advisor with a fake sampler works (FAKE data: this is not real face detection)', async () => {
-  const a = await adviseFraming({ src: 'x.mp4', rootDir: root, duration: 10, sampler: async () => seq(20, [f(0.1), f(0.8)]) }); assert.equal(a?.reframe, 'fit_blur');
+  const a = await adviseFraming({ src: 'x.mp4', rootDir: root, duration: 10, sampler: async () => seq(20, [f(0.1), f(0.8)]) }); assert.equal(a?.reframe, 'multi_stack');
 });
 test('real sidecar (tools/face_samples.py) on a real synthetic video: valid JSON; with no detector it reports an error and pythonSampler returns null', async (t) => {
   if (!(await which('ffmpeg')) || !(await which('python3'))) return t.skip('ffmpeg/python3 missing');
