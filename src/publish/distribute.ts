@@ -1,3 +1,4 @@
+import { sourceAllows, sourceOfClip } from '../accounts/sourcepolicy.ts';
 import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { listDestinations } from '../accounts/destinations.ts';
@@ -22,6 +23,7 @@ export function distribute(store: Store, cfg: Config, req: { clipIds: number[]; 
       if (!clip.qc_pass) { items.push({ ...base, status: 'blocked', reason: 'clip QC pass nahi hui' }); continue; }
       if (!d.enabled || d.status === 'disconnected') { items.push({ ...base, status: 'blocked', reason: d.enabled ? 'account disconnected' : 'account disabled' }); continue; }
       if (d.status === 'expired') { items.push({ ...base, status: 'blocked', reason: 'login expired — Reconnect' }); continue; }
+      { const v = sourceAllows(store, sourceOfClip(store, clipId), (d.channelSlug ? chans.find((c) => c.slug === d.channelSlug)?.id : null) ?? null, platform, true); if (!v.ok) { items.push({ ...base, status: 'blocked', reason: v.reason ?? 'source policy' }); continue; } }
       const ch = d.channelSlug ? chans.find((c) => c.slug === d.channelSlug) : undefined; const sched = ch ? scheduleFor(cfg, ch) : undefined; const tz = sched?.timezone ?? cfg.timezone;
       let plannedAt: string | null = null; try { if (ch && sched) plannedAt = planFromStore(store, { n: 1, tz, cfg: sched, from: now, platform, channelId: ch.id }).slots[0]?.at.toISOString() ?? null; } catch { /* preview only */ }
       const own = store.get<{ channel_id: number | null }>(`SELECT s.channel_id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id JOIN sources s ON s.id=v.source_id WHERE c.id=?`, clipId)?.channel_id ?? null;

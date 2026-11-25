@@ -26,3 +26,13 @@ test('API + Home card: moments summary counts tiers, editorial hold and resource
     assert.deepEqual(errors, []);
   } finally { await browser.close(); await app.stop?.(); }
 });
+
+test('Home shows the Publishing audit card with BLOCKED verdict and the exact fix text', { skip: pw ? false : 'playwright not installed', timeout: 90_000 }, async () => {
+  const T = 'test-token-0123456789'; const dataDir = tmpDir(); const old = process.env.PUBLISH_MODE; delete process.env.PUBLISH_MODE;
+  const app = createApp({ host: '127.0.0.1', port: 0, token: T, dataDir, autoRun: false }); const base = `http://127.0.0.1:${await app.start()}`; const browser = await pw!.chromium.launch(); const errors: string[] = [];
+  try {
+    const ctx = await browser.newContext({ extraHTTPHeaders: { authorization: `Bearer ${T}` }, viewport: { width: 390, height: 800 } }); const page = await ctx.newPage(); page.on('pageerror', (e: Error) => errors.push(e.message));
+    await page.goto(base + '/'); await page.waitForFunction(() => /BLOCKED|PUBLIC READY|nahi hua/.test(document.querySelector('#pubsum')?.textContent ?? ''), null, { timeout: 15000 }).catch(async (e: unknown) => { throw new Error(String(e) + ' :: ' + (await page.$eval('#pubsum', (x: Element) => x.textContent)) + ' :: ' + errors.join('|')); });
+    const txt = await page.$eval('#pubaudit', (e: Element) => (e as HTMLElement).innerText); assert.match(txt, /BLOCKED/); assert.match(txt, /PUBLISH_MODE=PUBLIC/); assert.doesNotMatch(txt, /undefined|\[object/); assert.deepEqual(errors, []);
+  } finally { if (old !== undefined) process.env.PUBLISH_MODE = old; await browser.close(); await app.stop?.(); }
+});

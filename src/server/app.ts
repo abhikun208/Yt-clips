@@ -7,6 +7,7 @@ import { Store } from '../db.ts';
 import { loadConfig, updateOwnerConfig, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
 import { seedJobs, work, queuePaused } from '../pipeline.ts';
+import { publishAudit } from '../publish/audit.ts';
 import { whyReport } from '../diagnose.ts';
 import { notify } from '../notify.ts';
 import { bootstrap as bootstrapTools } from '../ops/bootstrap.ts';
@@ -21,6 +22,7 @@ import { setSavedBase, getSavedBase, cleanBase, lastOAuth, handleOAuthCallback, 
 import { refetchSource } from '../sources/refetch.ts';
 import { cleanSettings, sourceSettings } from '../sources/sourcecfg.ts';
 import { liveTick, liveStatus } from '../watcher/live-monitor.ts';
+import { getSourcePolicy, setSourcePolicy } from '../accounts/sourcepolicy.ts';
 import { momentsSummary } from '../analysis/moments-store.ts';
 import { sampleResources, assess } from '../util/resources.ts';
 import { liveRetention, cleanLiveTemp } from '../watcher/live-retention.ts';
@@ -68,7 +70,7 @@ import { createExperiment, listExperiments, addObservation, concludeExperiment, 
 import { collectAnalytics, analyticsSummary, analyticsBreakdown } from '../analytics/collect.ts';
 import { titleTestTick, funnelTick, listTitleTests } from '../publish/titletest.ts';
 import { PLATFORMS, platformInfo, saveCredentials, credentialsConfigured, markPosted } from '../publish/direct.ts';
-import { listChannels, getChannel, createChannel, updateChannel, scheduleFor, ytSecretName, ALLOWED_PLATFORMS } from '../channels.ts';
+import { mainChannel, listChannels, getChannel, createChannel, updateChannel, scheduleFor, ytSecretName, ALLOWED_PLATFORMS } from '../channels.ts';
 
 export interface AppOptions { host?: string; port?: number; token?: string; dataDir?: string; autoRun?: boolean; loopSeconds?: number; maxUploadMb?: number; rootDir?: string; overrides?: Record<string, unknown>; studioDeps?: StudioDeps; /** test seams for the background lanes */ hooks?: { work?: typeof work; automation?: typeof automationTick } }
 export interface App { server: Server; cfg: Config; store: Store; start(): Promise<number>; stop(): Promise<void>; runOnce(): Promise<void>; readonly running: boolean; applyEnv?(force?: boolean): Promise<unknown>; bootstrap?(): Promise<unknown> }
@@ -312,11 +314,13 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/claims' && m === 'GET') return json(res, 200, claimSummary(store));
       { const cm = p.match(/^\/api\/clips\/(\d+)\/claim$/); if (cm && req.method === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind: ClaimKind; ranges?: unknown; note?: string }; try { const cr = await recordClaim(store, Number(cm[1]), b); if (cr.sourcePaused) void notify(store, cfg, `srcpause:${cr.sourceId}`, `Source #${cr.sourceId} paused after ${cr.sourceClaims} copyright claims.`); return json(res, 200, cr); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg }); } } }
       if (p === '/api/doctor' && m === 'GET') return json(res, 200, { report: lastDoctor_(store) });
+      { const pm = p.match(/^\/api\/sources\/(\d+)\/upload-policy$/); if (pm) { const sid = Number(pm[1]); if (m === 'GET') return json(res, 200, { policy: getSourcePolicy(store, sid), mappings: listSourceMappings(store, sid), ownChannel: store.get<{ slug: string }>('SELECT ch.slug FROM sources s JOIN channels ch ON ch.id=COALESCE(s.channel_id, ?) WHERE s.id=?', mainChannel(store).id, sid)?.slug ?? null }); if (m === 'POST') { const b = JSON.parse((await readBody(req, 1024)).toString('utf8') || '{}') as { mode?: string; skipOwn?: boolean }; try { return json(res, 200, { ok: true, policy: setSourcePolicy(store, sid, b) }); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg }); } } } }
       { const sm = p.match(/^\/api\/sources\/(\d+)\/destinations$/); if (sm) { const sid = Number(sm[1]);
         if (m === 'GET') return json(res, 200, { mappings: listSourceMappings(store, sid) });
         if (m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { channel?: string; platform?: string; enabled?: boolean; priority?: number; delayMin?: number; metadata?: { titlePrefix?: string; titleSuffix?: string; tags?: string[] }; remove?: boolean }; try { setSourceMapping(store, { sourceId: sid, channelId: getChannel(store, String(b.channel)).id, platform: b.platform, enabled: b.enabled, priority: b.priority, delayMin: b.delayMin, metadata: b.metadata, remove: b.remove === true }); return json(res, 200, { ok: true, mappings: listSourceMappings(store, sid) }); } catch (e) { const msg = (e as Error).message; return json(res, /^not found/.test(msg) ? 404 : 400, { error: msg.slice(0, 200) }); } } } }
       if (p === '/api/distribution' && m === 'GET') return json(res, 200, { distributions: listDistributions(store, Math.min(200, Number(url.searchParams.get('limit')) || 100)) });
       if (p === '/api/doctor' && m === 'POST') { const b = JSON.parse((await readBody(req, 512)).toString('utf8') || '{}') as { fix?: boolean }; return json(res, 200, { report: await runDoctor(store, cfg, { fix: b.fix !== false }) }); }
+      if (p === '/api/publish/audit' && m === 'GET') return json(res, 200, publishAudit(store, cfg));
       if (p === '/api/why' && m === 'GET') return json(res, 200, { items: whyReport(store, cfg, { running: running || !!timer, ytdlp: await ytdlpAvailable() }) });
       if (p === '/api/remeta' && m === 'POST') { const b = JSON.parse((await readBody(req, 2048)).toString('utf8') || '{}') as { clipId?: number; all?: boolean; push?: boolean; confirm?: boolean }; if (b.push && b.confirm !== true) return json(res, 400, { error: 'YouTube par push ke liye confirm:true bhejo' }); return json(res, 200, { ok: true, ...(await remetaClips(store, cfg, { clipIds: b.clipId ? [Number(b.clipId)] : undefined, all: b.all === true, push: b.push === true })) }); }
       if (p === '/api/clips') return json(res, 200, { clips: clipRows() });

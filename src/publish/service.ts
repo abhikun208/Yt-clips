@@ -21,6 +21,7 @@ import { probe } from '../media/probe.ts';
 import { ingestComment, postApprovedReply } from '../comments/comments.ts';
 import { connectedScope, YT_FORCE_SSL_SCOPE, YT_ANALYTICS_SCOPE } from './oauth.ts';
 import { tiktokAccessToken } from './socialOauth.ts';
+import { sourceAllows, sourceOfClip } from '../accounts/sourcepolicy.ts';
 import { editorialQc } from '../analysis/moments-store.ts';
 import { FacebookReelsAdapter, InstagramReelsAdapter, metaCanPublish, metaDestCred } from './meta.ts';
 import { TelegramAdapter, DiscordAdapter, MastodonAdapter, BlueskyAdapter, ManualAdapter, isManual, platformInfo } from './direct.ts';
@@ -86,6 +87,7 @@ export async function advance(store: Store, cfg: Config, uploadId: number, o: { 
   const dch = channelByUpload(store, uploadId);
   try { stampUpload(store, cfg, uploadId, dch.slug, u.platform); } catch { /* history label only */ }
   const off = (() => { try { return u.destination_id ? destinationBlockById(store, cfg, u.destination_id) : destinationBlock(store, cfg, dch.slug, u.platform); } catch { return null; } })(); if (off) return { state: u.state, blocked: off };
+  { const up = store.get<{ channel_id: number | null }>('SELECT channel_id FROM uploads WHERE id=?', uploadId); const v = sourceAllows(store, sourceOfClip(store, u.clip_id), up?.channel_id ?? null, u.platform, !!u.destination_id); if (!v.ok) { store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, `SOURCE_POLICY: ${v.reason}`.slice(0, 400), uploadId); return { state: u.state, blocked: 'SOURCE_POLICY' }; } } // owner's per-source channel permission: no path may bypass it
   let facts: ClipFacts; try { facts = await factsForClip(store, u.clip_id); } catch (e) { if (/^NOT_READY/.test((e as Error).message)) store.exec(`UPDATE uploads SET error=?, updated_at=datetime('now') WHERE id=?`, (e as Error).message.slice(0, 400), uploadId); throw e; } // visible in the Queue tab instead of silently looping
   try { return { state: await advanceUpload(store, cfg, adapterFor(store, cfg, u.platform, channelByUpload(store, uploadId), u.destination_id), uploadId, { facts, ...o }) }; }
   catch (e) { const m = (e as Error).message; if (/^QUOTA_EXCEEDED/.test(m)) void notify(store, cfg, `quota-hit:${quotaDay(new Date())}`, '⏸ YouTube ka daily quota khatam. Uploads kal (midnight Pacific ke baad) apne aap resume honge; video banti rahegi.'); if (/^(PUBLISH_DISABLED|PUBLIC_DISABLED|NEEDS_APPROVAL|NOT_READY|QUOTA_EXCEEDED|AUTH_|WAIT_SCHEDULE|MANUAL_POST_REQUIRED|UNLISTED_BUFFER|HELD_RESTRICTED)/.test(m)) return { state: store.get<{ state: string }>('SELECT state FROM uploads WHERE id=?', uploadId)!.state, blocked: m }; throw e; }
@@ -169,7 +171,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
     if (!cfg.automation.platforms.includes(platform)) continue; // the global list is the owner's master switch
     let liveLeft = liveBudget(store, cfg); // live-captured clips: at most N uploads per hour
     const allRows = store.all<{ id: number; sid: number; la: string | null; lv: number }>(`SELECT c.id, COALESCE(v.source_id, 0) AS sid, c.last_attempt_at AS la, CASE WHEN ${LIVE_VIDEO_SQL} THEN 1 ELSE 0 END AS lv FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id LEFT JOIN sources s ON s.id=v.source_id WHERE COALESCE(s.channel_id, ?)=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL AND ${cfg.automation.blockGenericMetadata === false ? '1=1' : `NOT (${isGenericSql('c')})`} AND c.edited_path IS NOT NULL AND c.review<>'rejected' AND (?=0 OR c.review='approved') AND k.score*100 >= ? AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.clip_id=c.id AND u.platform=?) ORDER BY c.id`, mainChannel(store).id, ch.id, cfg.automation.requireReview ? 1 : 0, ch.config.minViral ?? 0, platform);
-    const rows = allRows.filter((x) => !x.lv || liveLeft-- > 0);
+    const rows = allRows.filter((x) => sourceAllows(store, x.sid || null, ch.id, platform).ok).filter((x) => !x.lv || liveLeft-- > 0); // per-source permission first
     const prio = !livePriorityOff(store); const liveRows = prio ? rows.filter((x) => x.lv) : []; // Live Priority Mode: live-captured clips skip the fair-share queue and go first
     const fresh = liveRows.length ? [...liveRows.map((x) => ({ id: x.id })), ...fairPick(store, ch.id, platform, rows.filter((x) => !x.lv).map((x) => ({ clipId: x.id, sourceId: x.sid, lastAttemptAt: x.la })), { limit: Math.max(0, cfg.automation.maxAdvancePerCycle - liveRows.length), retryHours: cfg.automation.fairRetryHours, maxQueuedPerSource: cfg.automation.fairMaxQueued }).map((id) => ({ id }))] : cfg.automation.fairShare === false ? rows.slice(0, cfg.automation.maxAdvancePerCycle) : fairPick(store, ch.id, platform, rows.map((x) => ({ clipId: x.id, sourceId: x.sid, lastAttemptAt: x.la })), { limit: cfg.automation.maxAdvancePerCycle, retryHours: cfg.automation.fairRetryHours, maxQueuedPerSource: cfg.automation.fairMaxQueued }).map((id) => ({ id }));
     for (const c of fresh) { queueUpload(store, c.id, platform); r.queued++; }
@@ -178,6 +180,7 @@ export async function automationTick(store: Store, cfg: Config, now = new Date()
   for (const m of listSourceMappings(store).filter((x) => queueOn && x.enabled && cfg.automation.platforms.includes(x.platform))) {
     const rows = store.all<{ id: number }>(`SELECT c.id FROM clips c JOIN candidates k ON k.id=c.candidate_id JOIN videos v ON v.id=k.video_id WHERE v.source_id=? AND c.qc_pass=1 AND c.metadata_json IS NOT NULL ORDER BY c.id LIMIT ?`, m.sourceId, cfg.automation.maxAdvancePerCycle);
     for (const c of rows) {
+      if (!sourceAllows(store, m.sourceId, m.channelId, m.platform).ok) continue; // e.g. own_only source: mappings are ignored
       const before = store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n; queueUpload(store, c.id, m.platform, m.channelId);
       if (store.get<{ n: number }>('SELECT COUNT(*) n FROM uploads')!.n > before) { r.queued++; if (m.delayMin > 0) { const nu = store.get<{ id: number }>('SELECT MAX(id) AS id FROM uploads')!.id; store.exec(`INSERT OR REPLACE INTO kv(k, v) VALUES (?, ?)`, `uphold:${nu}`, new Date(now.getTime() + m.delayMin * 60_000).toISOString()); } } // per-destination stagger
     }
