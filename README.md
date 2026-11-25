@@ -19,7 +19,7 @@ Ek lambi video (ya YouTube channel) do → ye khud best moments dhoondta hai, un
 | Analytics → best time | Haan (YouTube/Instagram/Facebook/TikTok token ho to) | Platform token (optional) |
 | Comments ke reply | Comments khud padhta + draft banata hai; post tabhi jab aap approve karo + `commentsAutoPost` on karo | Ek baar `youtube-connect-full` (Desktop-app OAuth client) |
 
-Safety: publish, public visibility aur comment-posting teeno **default OFF** hain. Inhe sirf aap server par `data/config.json` edit karke on kar sakte ho, API/env se nahi.
+Safety: publish, public visibility aur comment-posting teeno **default OFF** hain; API se kabhi badalte nahi. Publishing aap apni `.env` se on karte ho: `PUBLISH_MODE=PUBLIC` (publish + public gates + auto-queue khul jaate hain; `PRIVATE` = kabhi public nahi; na likho = DRY_RUN, kuch upload nahi) aur `AUTO_APPROVE=true` (verified clip bina Approve dabaye schedule/public). Comment-posting gate sirf `data/config.json` se. Home par **Publishing audit** card batata hai ki kuch rukha ho to kyun aur fix kya hai.
 
 ## Multiple channels + schedule + platforms (session 5)
 - **Schedule tab**: har channel (Team Unknown, Decider Gaming...) ki alag policy: din ka cap, gap, quiet hours, best hours. Do channels ek hi time par post nahi hote (stagger, default 20 min). Best hours channel ke apne analytics se aate hain (>=8 rows), warna baseline.

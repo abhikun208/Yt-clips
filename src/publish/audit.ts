@@ -2,7 +2,7 @@ import type { Store } from '../db.ts';
 import type { Config } from '../config.ts';
 import { publishMode } from '../config.ts';
 import { listChannels } from '../channels.ts';
-import { adapterFor } from './service.ts';
+import { adapterFor, youtubeStatus } from './service.ts';
 import { autopilotPass } from '../autopilot/engine.ts';
 import { editorialQc } from '../analysis/moments-store.ts';
 import { sourceAllows, sourceOfClip } from '../accounts/sourcepolicy.ts';
@@ -20,10 +20,10 @@ export interface PublishAudit {
 }
 
 const HINTS: [RegExp, string, string][] = [
-  [/PUBLISH_MODE is DRY_RUN/, 'PUBLISH_MODE DRY_RUN hai: kuch upload nahi hota', 'Project folder ki `.env` me ek line likho: PUBLISH_MODE=PUBLIC  (sirf private chahiye to PRIVATE), phir server restart.'],
+  [/PUBLISH_MODE is DRY_RUN/, 'PUBLISH_MODE DRY_RUN hai: kuch upload nahi hota', 'Project folder ki `.env` me likho: PUBLISH_MODE=PUBLIC  (iske saath publish+public gates aur auto-queue khud khul jaate hain; sirf private chahiye to PRIVATE), phir server restart.'],
   [/PUBLIC_DISABLED: PUBLISH_MODE/, 'PUBLISH_MODE PUBLIC nahi hai', '`.env` me PUBLISH_MODE=PUBLIC karo aur server restart.'],
-  [/PUBLISH_DISABLED: gates\.publishEnabled/, 'gates.publishEnabled band hai', 'data/config.json me "gates": {"publishEnabled": true, ...} (sirf owner badal sakta hai).'],
-  [/PUBLIC_DISABLED: gates\.publicVisibilityAllowed/, 'gates.publicVisibilityAllowed band hai', 'data/config.json me "gates": {"publicVisibilityAllowed": true}.'],
+  [/PUBLISH_DISABLED: gates\.publishEnabled/, 'gates.publishEnabled band hai', '`.env` me PUBLISH_MODE=PUBLIC (ya PRIVATE) likho: gate khud khul jata hai. (data/config.json me gates false likha ho to .env wala jeetta hai.)'],
+  [/PUBLIC_DISABLED: gates\.publicVisibilityAllowed/, 'gates.publicVisibilityAllowed band hai', '`.env` me PUBLISH_MODE=PUBLIC likho (gate khud khulta hai) aur restart.'],
   [/AUTH_NOT_CONNECTED|not connected|login|token/i, 'Account connect nahi / token expire', 'Accounts/Settings me us platform ko dobara Connect karo.'],
   [/quota|rateLimit|429/i, 'Platform quota / rate limit', 'Quota reset hone ka intezaar (YouTube: Pacific midnight) ya din ke posts kam karo.'],
   [/SOURCE_POLICY/, 'Source ki upload permission ne roka', 'Sources tab → us source ka "Upload permission" badlo.'],
@@ -44,14 +44,16 @@ export function publishAudit(store: Store, cfg: Config, now = new Date()): Publi
   if (!gates.autoQueue) add('warn', 'automation.autoQueue off: naye clips khud queue nahi hote (sirf jo tumne approve/schedule kiye wo jaate hain).', 'Setup/Automation me autoQueue on karo.');
 
   const waiting = store.get<{ n: number }>(`SELECT count(*) n FROM uploads WHERE state='UNLISTED_VERIFIED'`)?.n ?? 0;
-  if (!gates.autoApprove && waiting) add('bad', `${waiting} upload(s) UNLISTED_VERIFIED par tumhari approval ke intezaar me ruke hain (automation.autoApprove = false): isi wajah se public nahi ho rahe.`, 'data/config.json me "automation": {"autoApprove": true} (owner-only), ya Clips/Publish tab me har clip Approve karo. Phir server restart.');
-  else if (!gates.autoApprove) add('warn', 'automation.autoApprove = false: har verified clip ko tumhari approval chahiye, tabhi schedule/public hoga.', 'data/config.json me "automation": {"autoApprove": true} (owner-only) ya manually Approve.');
+  if (!gates.autoApprove && waiting) add('bad', `${waiting} upload(s) UNLISTED_VERIFIED par tumhari approval ke intezaar me ruke hain (automation.autoApprove = false): isi wajah se public nahi ho rahe.`, '`.env` me AUTO_APPROVE=true likho aur restart (ya Clips/Publish tab me har clip Approve karo).');
+  else if (!gates.autoApprove) add('warn', 'automation.autoApprove = false: har verified clip ko tumhari approval chahiye, tabhi schedule/public hoga.', '`.env` me AUTO_APPROVE=true likho aur restart (ya manually Approve).');
   const platforms: AuditPlatform[] = []; const chans = listChannels(store);
   for (const ch of chans) for (const pf of (ch.config.platforms?.length ? ch.config.platforms : cfg.automation.platforms)) {
+    if (pf === 'youtube_shorts' || pf === 'youtube') { try { const ys = youtubeStatus(store, cfg, ch); if (!ys.clientConfigured) { platforms.push({ channel: ch.slug, platform: pf, delivery: 'BROKEN', detail: 'Google OAuth client set nahi' }); add('bad', `${ch.slug}/youtube: Google OAuth client (YT_OAUTH_CLIENT_ID/SECRET) set nahi.`, 'Google Cloud "TVs and Limited Input devices" client banao aur .env me daalo.'); continue; } if (!ys.connected) { platforms.push({ channel: ch.slug, platform: pf, delivery: 'BROKEN', detail: 'YouTube connect nahi / token expire' }); add('bad', `${ch.slug}/youtube: connected nahi (ya token expire): upload nahi ho sakta.`, 'Accounts → YouTube → Connect dobara karo (Google ka code enter karna hota hai).'); continue; } } catch { /* fall through to adapterFor */ } }
     try { const a = adapterFor(store, cfg, pf, ch); const manual = /manual/i.test(a.name); platforms.push({ channel: ch.slug, platform: pf, delivery: manual ? 'MANUAL_POST' : 'REAL_API', detail: manual ? 'API publish permission/login nahi: clip manual-post flow me jaati hai' : `adapter ${a.name}` });
       if (manual) add('warn', `${ch.slug}/${pf}: manual-post flow (khud upload nahi hoga).`, 'Us platform ka login/permission Connect karo.'); }
     catch (e) { const m = (e as Error).message; platforms.push({ channel: ch.slug, platform: pf, delivery: 'BROKEN', detail: m.slice(0, 140) }); add('bad', `${ch.slug}/${pf}: ${hint(m).why}`, hint(m).fix); }
   }
+  if (platforms.some((p) => p.platform === 'instagram_reels' && p.delivery === 'REAL_API') && !/^https:\/\//.test(process.env.PUBLIC_URL ?? '')) add('info', 'Instagram: PUBLIC_URL set nahi, isliye video resumable upload se jayegi (Meta har app ko ye allow nahi karta). Fail ho to .env me PUBLIC_URL=https://tumhara-server daalo.');
   if (!platforms.length) add('bad', 'Kisi channel par koi platform select nahi hai.', 'Channels → Platforms me tick karo.');
 
   const uploads: Record<string, number> = {}; for (const r of store.all<{ state: string; n: number }>('SELECT state, count(*) n FROM uploads GROUP BY state')) uploads[r.state] = r.n;

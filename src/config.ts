@@ -101,12 +101,30 @@ export function loadConfig(rootDir = resolve(process.cwd()), opts: { dataDir?: s
     try { cfg = deepMerge(cfg, JSON.parse(readFileSync(file, 'utf8'))); }
     catch (e) { throw new Error(`Invalid ${file}: ${(e as Error).message}`); }
   }
+  cfg = deepMerge(cfg, ownerEnvPatch(process.env)); // the owner's own .env (PUBLISH_MODE / AUTO_APPROVE) is the latest explicit decision: it wins over data/config.json
   if (opts.overrides) cfg = deepMerge(cfg, opts.overrides);
   if (cfg.edit.quality === '2k') { cfg.edit.width = 1440; cfg.edit.height = 2560; cfg.edit.crf = Math.min(cfg.edit.crf, 19); }
   if (opts.mkdirs !== false) {
     for (const d of [cfg.dataDir, cfg.dirs.sources, cfg.dirs.rawClips, cfg.dirs.editedShorts, cfg.dirs.manifests, cfg.dirs.thumbnails, cfg.dirs.transcripts, cfg.dirs.tmp]) mkdirSync(d, { recursive: true });
   }
   return cfg;
+}
+
+/**
+ * Owner-only switches that live in the owner's `.env` (nothing in the code sets them):
+ *  PUBLISH_MODE=PUBLIC  -> publishing + public visibility gates open, auto-queue on (the clip loop runs by itself)
+ *  PUBLISH_MODE=PRIVATE -> publishing gate open, never public
+ *  AUTO_APPROVE=true    -> verified clips are scheduled/published without a manual Approve (false = explicit off)
+ * Unset PUBLISH_MODE = DRY_RUN = nothing is changed here and nothing leaves the machine. YT_CLIPS_OWNER_ENV=0 disables this (tests).
+ */
+export function ownerEnvPatch(env: Record<string, string | undefined>): Record<string, unknown> {
+  if (env.YT_CLIPS_OWNER_ENV === '0') return {};
+  const mode = publishMode(env); const gates: Record<string, boolean> = {}; const automation: Record<string, boolean> = {};
+  if (mode === 'PUBLIC') { gates.publishEnabled = true; gates.publicVisibilityAllowed = true; automation.autoQueue = true; }
+  if (mode === 'PRIVATE') { gates.publishEnabled = true; automation.autoQueue = true; }
+  const aa = String(env.AUTO_APPROVE ?? env.autoApprove ?? '').trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(aa)) automation.autoApprove = true; else if (['0', 'false', 'no', 'off'].includes(aa)) automation.autoApprove = false;
+  return { ...(Object.keys(gates).length ? { gates } : {}), ...(Object.keys(automation).length ? { automation } : {}) };
 }
 
 /** Throws unless the owner has explicitly enabled publishing in config. Tests passing never enables this. */

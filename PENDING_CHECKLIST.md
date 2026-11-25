@@ -158,6 +158,10 @@
 - [x] Owner-approved/scheduled jobs publish at their due time even with autoQueue off (test/scheduled_due.test.ts).
 - [x] Distribute-created jobs (explicit destination) are advanced by the loop regardless of automation.platforms.
 - [x] Staged platforms (Telegram/Discord/Mastodon/Bluesky/Facebook/Instagram) reach PUBLISHED after the real send (verify reported unlisted forever before).
-- [ ] OWNER: for real posts set PUBLISH_MODE=PRIVATE (unlisted/private only) or PUBLISH_MODE=PUBLIC (public/scheduled posts) in .env and restart; gates publishEnabled/publicVisibilityAllowed must be ON too. The Home 'Publish ke liye kya ready hai' card shows the current mode.
+- [ ] OWNER: for real posts set PUBLISH_MODE=PRIVATE (unlisted/private only) or PUBLISH_MODE=PUBLIC (public/scheduled posts) in .env and restart; (since 2026-11-25 PUBLISH_MODE=PUBLIC/PRIVATE in .env also opens the gates and autoQueue; add AUTO_APPROVE=true for hands-free). The Home 'Publish ke liye kya ready hai' card shows the current mode.
 - [ ] UNVERIFIED on real Meta/Telegram/YouTube accounts (fake servers only).
 - [x] Slot planning (day cap / min gap) is per platform account, not shared across a channel's platforms.
+
+- [ ] (2026-11-25) OWNER: `.env` me PUBLISH_MODE=PUBLIC + AUTO_APPROVE=true, restart, Home 'Publishing audit' card me BLOCKED/PUBLIC READY dekho; lal lines ka fix wahin likha hai.
+- [ ] (2026-11-25) OWNER: Dubbing ke liye edge-tts + LLM key (Groq/Gemini) .env me; ek English clip par check karo (kv dub:<clip>); awaaz ki quality UNVERIFIED.
+- [ ] (2026-11-25) Phone: ek real Hindi gaming clip par moment engine (Home 'Moments' card) + live seam bridge UNVERIFIED; tier thresholds real footage par tune honge.
