@@ -1,166 +1,75 @@
-# yt-clips — free, self-hosted video → Shorts automation
+# yt-clips
 
-Ek lambi video (ya YouTube channel) do → ye khud best moments dhoondta hai, unhe 9:16 Shorts mein edit karta hai (captions, color, zoom, audio clean), title/description/tags/thumbnail banata hai, aur (jab aap allow karo) YouTube par unlisted upload → verify → schedule → publish karta hai. Phir views ka analytics padh kar aage ka posting time seekhta hai.
+Lambi video ya live stream do → ye khud best moments dhoondta hai, unhe 9:16 Shorts me edit karta hai, title/tags/thumbnail banata hai, aur YouTube / Facebook / Instagram (aur baaki platforms) par post karta hai. Free aur self-hosted: Node.js + FFmpeg + SQLite, **zero npm dependencies**.
 
-**Free hai:** koi paid API/subscription nahi. Sab kuch FFmpeg, SQLite, Node.js, YouTube ki free API quota, yt-dlp aur faster-whisper (open-source) par chalta hai. Zero npm dependencies.
+> **Sach:** pipeline ke tests (real ffmpeg + fake servers) pass hain. Asli Facebook / Instagram / YouTube account par posting abhi **UNVERIFIED** hai (sirf fake APIs par test hui). Pehli real run phone/server par aapko hi karni hai. Details: [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md).
 
-## Kya automatic hai, kya aapko dena hai
+## Kya karta hai
 
-| Step | Automatic? | Aapko kya dena hai |
-|---|---|---|
-| Video lena | Haan: file upload ya YouTube channel watch (yt-dlp) | Sirf wahi video/channel jiske rights aapke paas hain (checkbox) |
-| Best moments dhoondna, intro/outro skip | Haan | — |
-| Edit (crop 9:16, grade/LUT, zoom, beat+keyword punch, particles, light leak, flash cuts, jump cuts, slow-mo, progress bar, noise clean, -14 LUFS) | Haan | — |
-| Captions (72 styles, Hindi/Hinglish) | Haan, transcript milte hi | Style chuno (ek baar) |
-| Transcript | Haan agar faster-whisper installed; warna aap `.srt` do | — |
-| Title/desc/tags/thumbnail | Haan (template; optional free LLM) | — |
-| YouTube upload | Sirf jab aap allow karo | Google OAuth client (free) + `data/config.json` mein gate on |
-| Public karna / schedule | Aapke config par (`autoApprove`, `publicVisibilityAllowed`) | Ye decision aapka rehta hai |
-| Analytics → best time | Haan (YouTube/Instagram/Facebook/TikTok token ho to) | Platform token (optional) |
-| Comments ke reply | Comments khud padhta + draft banata hai; post tabhi jab aap approve karo + `commentsAutoPost` on karo | Ek baar `youtube-connect-full` (Desktop-app OAuth client) |
+| Kaam | Kaise |
+|---|---|
+| Source lena | file upload, YouTube/Kick/Twitch URL (yt-dlp), channel watch, live stream capture |
+| Best moments | audio/scene/motion/transcript (Hindi, Hinglish) events → setup→payoff pattern → score + tier. Sirf loudness wale moment kabhi top tier nahi paate |
+| Edit | 9:16 crop/fit, face-follow, gameplay+facecam, 2-3 logon ka stack layout, captions (72 styles), zoom, jump cuts, audio clean (-14 LUFS), content-type ke hisaab se style |
+| Dubbing | English video → Hindi awaaz (edge-tts + LLM key chahiye) |
+| Metadata | title, description, tags, hashtags, thumbnail (AI key ke saath ya bina) |
+| Publish | unlisted upload → verify → schedule → public. Har channel ki alag policy |
+| Kis channel par kya | har source ke liye permission: kin channels par jaye, ya sirf apne channel par |
+| Audit | Home tab ka "Publishing audit" card batata hai ki kuch public kyun nahi ho raha (BLOCKED + fix) |
+| Seekhna | analytics se best posting time, title A/B |
 
-Safety: publish, public visibility aur comment-posting teeno **default OFF** hain; API se kabhi badalte nahi. Publishing aap apni `.env` se on karte ho: `PUBLISH_MODE=PUBLIC` (publish + public gates + auto-queue khul jaate hain; `PRIVATE` = kabhi public nahi; na likho = DRY_RUN, kuch upload nahi) aur `AUTO_APPROVE=true` (verified clip bina Approve dabaye schedule/public). Comment-posting gate sirf `data/config.json` se. Home par **Publishing audit** card batata hai ki kuch rukha ho to kyun aur fix kya hai.
+## Shuru karo (2 minute)
 
-## Multiple channels + schedule + platforms (session 5)
-- **Schedule tab**: har channel (Team Unknown, Decider Gaming...) ki alag policy: din ka cap, gap, quiet hours, best hours. Do channels ek hi time par post nahi hote (stagger, default 20 min). Best hours channel ke apne analytics se aate hain (>=8 rows), warna baseline.
-- Har channel ka alag Google login (Schedule -> Connect). Source add/upload karte waqt channel chuno; us source ke saare clips usi channel ke jaate hain.
-- **Login system (sach):** ID/password se Instagram/TikTok/X mein bot-login **nahi** banaya (unki terms ke khilaf, ban + 2FA/captcha, aur aapka password store karna padta). Iski jagah: Telegram/Discord/Mastodon token/webhook se seedha post; baaki sab ke liye "Manual post tasks" (file + caption + time ready, aap post karke Posted dabao). Saare logins encrypted vault mein (key auto-generate hoti hai).
-- Gaming: live-chat spike + "most replayed" + booyah/clutch jaise words clip selection mein; gamer-stack layout (upar gameplay, neeche facecam) channel config se.
-- **Real test:** `npm run test:real` (apni keys export karke) — fake server nahi, asli Groq/YouTube/yt-dlp/Telegram. Author ke sandbox mein ye services block hain, isliye ye sirf aap chala sakte ho.
-- Naya: retention (avg view %) se clip selection seekhta hai, title A/B (rotation), "full live" comment (pin Studio mein manual), caption translation (en/hi), killfeed OCR, English words ke liye alag font.
-- **Pehle ye chalao:** `npm run cli -- smoke --url <video> [--upload short.mp4]` — real Groq/yt-dlp/YouTube check. Ab tak sab fake servers par tested hai. YouTube audit/quota: docs/YOUTUBE_AUDIT.md. Install helper: `./install.sh`.
+Chahiye: **Node ≥ 22.18**, **ffmpeg**.
 
-## Setup (naya user)
-
-Chahiye: **Node ≥ 22.18** aur **ffmpeg** (libass wala, normal build mein hota hai). Optional: `yt-dlp` (YouTube se download), `faster-whisper` (transcript), python3+opencv (face tracking), Noto fonts (Hindi captions).
-
-**Windows (PowerShell):** project folder se `npm run setup:windows` chalao (ya `.\setup.ps1`). Ye WinGet se Git, FFmpeg aur Python 3.12 install karta hai (Node.js 22.18+ missing ho to woh bhi), npm dependencies aur optional Python tools including faster-whisper install karta hai. Faster-whisper ke saath compatible PyAV 18.x pin hota hai. Setup local-only `.env` banata hai. Phir dashboard ke liye `npm start` chalao aur `http://127.0.0.1:8080` kholo. Agli baar `npm run update:windows` dependencies/typecheck update karega; GitHub source update sirf clean Git clone mein configured `origin` ke saath hota hai. ZIP/extracted folder se source auto-update nahi ho sakta.
-
-**Sabse aasan (Termux / VPS / Mac): ek command sab install kar deta hai** — ffmpeg, yt-dlp, edge-tts, OpenCV, whisper.cpp + speech model, `.env` (login token). Baad mein sirf dashboard mein API key daalna hai.
 ```bash
-git clone https://github.com/abhikun208/Yt-clips && cd Yt-clips && sh setup.sh
-npm start
-```
-Zip download kiya ho to bhi: unzip → `cd` → `sh setup.sh`. Dobara chalane se kuch nahi bigadta (jo installed hai wo skip). Agar speech engine na ho to auto-doctor khud background mein whisper.cpp install karta hai.
-
-Manual tareeka:
-```bash
-git clone https://github.com/abhikun208/yt-clips && cd yt-clips
-npm test            # "fail 0" aana chahiye
-npm run doctor      # kya installed hai, kya missing
-npm start           # UI: http://127.0.0.1:8080
-```
-Browser mein "Video add karo" → file upload (rights checkbox) ya YouTube channel URL. Clips `data/edited_shorts/`, manifest `data/manifests/`, thumbnail `data/thumbnails/`, captions `data/captions/` mein aate hain.
-
-Bina UI ke: `npm run cli -- add video.mp4 --authorized` → `npm run cli -- run` → `npm run cli -- status`. Saari commands: `npm run cli -- help`.
-
-### Dashboard (browser)
-Tabs: **Home** (live pipeline, setup checklist, video upload, channels auto-watch), **Clips** (review inbox: Approve/Reject, title/description/tags edit, thumbnail frame, re-render with another caption style/effects as a NEW version, ZIP export, Share to Instagram/TikTok/Facebook from phone), **Publish** (YouTube connect, upload queue, comments), **Insights** (analytics, best posting time), **Studio** (72 caption styles, transcript editor), **Setup** (Autopilot, AI, social login).
-
-### Captions/titles/AI — key ke saath ya bina key
-- **Bina kisi key ke:** local engine transcript se keyphrases, hook line, title, description, tags banata hai aur clip ke edges sentence par kaat-ta hai. Par captions ke liye speech-to-text chahiye (neeche).
-- **Free Groq key** (console.groq.com → API Keys → `gsk_...`): Setup tab → AI → provider "Groq" → key → "Save → speech-to-text" aur "Save → titles + ranking". Free limits Groq ke hain (docs 2026-10-23: whisper-turbo ~20 req/min, 7.2K audio-sec/ghanta; badal sakte hain).
-- **Bilkul key-free (local):** apni machine par Ollama/LM Studio chalao → Setup → AI → preset "Ollama" (base `http://127.0.0.1:11434/v1`, key khali) → titles + AI clip-ranking local model se. Local speech-to-text: `pip install "av>=18,<19" faster-whisper` ya koi OpenAI-compatible local STT server (base URL localhost ho to key nahi lagti).
-- **Claude-quality titles, officially:** Setup → AI me provider **Anthropic Claude (paid, official API)** chuno aur `sk-ant-...` key paste karo (key: platform.claude.com/settings/keys). Model `claude-haiku-5-5` sasta hai (ek clip ka metadata ~2k tokens = paise), `claude-sonnet-5-5` behtar. Ise Primary slot me rakho, free providers fallback me; paid key fail/limit par `orderChain` khud agle par chala jata hai. Docs ke hisaab se ye OpenAI-compatible layer 'testing ke liye hai, long-term nahi' - isliye fallback chain rakhna zaroori hai. Vision (frames) bhi isi se chalta hai.
-- **Test channel (sandbox):** ek alag test YouTube channel banao, dashboard me use channel add karke config me `sandbox: true` do. Us channel par upload asli API se jata hai (`[TEST]` title, unlisted, verify hota hai) par kabhi public/schedule nahi hota — approve dabane par bhi `SANDBOX_HOLD`. Pehle ek asli clip yahan chala kar payload/Hindi caption/thumbnail dekh lo, phir sandbox hata do.
-- **Local vision (unlimited, free):** server par `ollama pull moondream` (chhota) ya `llava` / `qwen2-vl` (bada, ~8 GB RAM) → Setup → AI ek slot me Ollama preset + model ka naam. Naam vision wala ho to clip ke 3 frames isse describe hote hain (cloud vision ka roz 10 clip ka budget isme nahi lagta). Phone/Termux par ye RAM ke liye bhaari hai; wahan cloud vision hi rakho.
-- **Fallback chain:** Primary + 2 fallback providers (Groq → Gemini → OpenRouter → Mistral ya local). Jo pehle chale. Presets ke base URLs unki docs se hain par maine kisi ko live call nahi kiya (sirf Groq docs padhe).
-- LLM clip timestamps nahi banata: sirf hamare candidates ko score karta hai (0.7 local + 0.3 AI).
-
-### Social accounts login — ID/password kyun nahi, kya hai
-Instagram/TikTok/YouTube ka ID-password kisi bot ko dena unki terms ke against hai (account ban, 2FA, password leak). Isliye official "Login with…" (OAuth): har platform par ek baar free developer app banao → Setup tab mein ID/Secret → Login → "Allow". Abhi ye logins **analytics** ke liye hain. **YouTube upload** bana hai. **Instagram/TikTok/Facebook upload adapters nahi bane** (unki app review/credentials chahiye) — unke liye Clips → **Share** (phone ka share sheet) ya **Export ZIP** (mp4 + thumbnail + srt + title/description/tags) use karo. TikTok/Meta redirect URI mein https maang sakte hain.
-
-### Full automation (Autopilot)
-Worker har ~30 sec: channels poll → analyze → clips → edit (LUT, grain, particles, light leak, flash cuts, jump cuts, slow-mo, beat/keyword zoom, progress bar, captions) → QC → title/thumbnail → [aapka review, optional] → unlisted upload → verify → schedule → publish → analytics → comments.
-- UI: Setup → Autopilot → "Auto-queue uploads" (+ "Pehle meri review").
-- Safety gates sirf server par (UI/API se nahi): `npm run cli -- autopilot on --publish --yes` (private/unlisted tak) · `npm run cli -- autopilot on --review --publish --approve --public --yes` (auto public, aapke review ke baad) · `npm run cli -- autopilot off`.
-- Source channel add karne ke baad kuch nahi karna: loop khud naye uploads dhoondh kar process karta rehta hai (yt-dlp chahiye).
-
-### AI keys (sirf key daalo)
-`.env` mein jis provider ki key ho utni daalo (`.env.ai.example` dekho): GROQ, GEMINI, OPENROUTER, CEREBRAS, SAMBANOVA, NVIDIA, HF_TOKEN, MISTRAL (free tier), LLM7, MODELSCOPE, SILICONFLOW, ZAI, NEBIUS, AI21 — DEEPSEEK/OPENAI/TOGETHER/XAI paid. Koi aur OpenAI-compatible provider ho to `AI_API_KEY=` + `AI_API_BASE=https://…/v1`. Restart ke baad `npm run cli -- env-check` har key ko asli call se test karta hai.
-
-### Background music (apni, pre-cleared)
-`assets/music/` mein YouTube Audio Library / Pixabay / apne tracks daalo. Optional `assets/music/library.json`: `[{"file":"calm.mp3","mood":["comedy"],"license":"YT Audio Library","volume":0.15}]`. Mood se track chuna jaata hai, awaaz ke neeche auto-duck hota hai, licence manifest mein save hota hai.
-
-### Optional installs (free)
-- Transcript (alternative to Groq): `pip install "av>=18,<19" faster-whisper` (PC/VPS). Ya apna `.srt/.vtt/.json` video ke saath rakho.
-- YouTube download: `pip install yt-dlp`.
-- Hindi fonts: `sudo apt install fonts-noto-core`.
-
-### Server par 24x7 chalana
-Docker: `cp .env.example .env` → `YT_CLIPS_TOKEN` set karo (`openssl rand -hex 24`) → `docker compose up -d --build`. VPS: `sudo bash deploy/install-vps.sh --with-ytdlp`. PaaS: Dockerfile + `/data` persistent volume. Poori detail: [DEPLOY.md](DEPLOY.md). Public host par token zaroori hai.
-
-### YouTube par publish (free, ek baar ka setup)
-1. Google Cloud Console → naya project → "YouTube Data API v3" enable → OAuth client banao (type **TVs and Limited Input devices**). Free quota 10,000 units/din milti hai.
-2. `.env` mein `YT_OAUTH_CLIENT_ID`, `YT_OAUTH_CLIENT_SECRET` (aur `YT_CLIPS_SECRET_KEY` taaki token encrypted rahe).
-3. `npm run cli -- youtube-connect` → jo code dikhe use google.com/device par daalo.
-4. `data/config.json`: `{"gates":{"publishEnabled":true}}` → sirf **unlisted** upload hoga.
-5. Test: `npm run cli -- queue <clipId> youtube_shorts` phir `npm run cli -- advance <uploadId>` baar baar.
-6. Full auto: `{"automation":{"autoQueue":true,"autoApprove":true},"gates":{"publishEnabled":true,"publicVisibilityAllowed":true}}`. Phir server khud queue → upload → verify → schedule karta hai (`npm run cli -- tick` se ek cycle haath se).
-
-Dhyan: Google naye/unverified API projects par videos ki visibility par pabandi laga sakta hai. Pehle ek clip unlisted test karo.
-
-### Analytics (best posting time)
-`npm run cli -- platforms` dikhata hai kaun connected hai. YouTube `youtube-connect` se milta hai. Instagram/Facebook/TikTok ke liye aapka khud ka access token: `echo TOKEN | npm run cli -- set-token instagram`. Ya CSV: `npm run cli -- analytics-import file.csv` (columns `published_at,views`). Worker har 6 ghante khud collect karta hai; `npm run cli -- plan 3` agle slots dikhata hai (data kam ho to baseline hours).
-
-## Kaise chalayein + PUBLISH_MODE
-
-```
-git pull && npm run typecheck && npm start      # Termux / VPS / PC, Node >= 22, koi npm dependency nahi
+git clone https://github.com/abhikun208/Yt-clips && cd Yt-clips
+sh setup.sh          # ffmpeg, yt-dlp, whisper, edge-tts, .env sab install (Termux/VPS/Mac)
+npm start            # dashboard: http://127.0.0.1:8080
 ```
 
-`PUBLISH_MODE` (sirf owner badalta hai, code kabhi nahi): `DRY_RUN` (default: kuch publish nahi hota) · `PRIVATE` (YouTube par sirf private upload) · `PUBLIC` (public). Asli upload se pehle `PUBLISH_MODE=PRIVATE` set karein. Public visibility aur auto-comments alag gates se band rehte hain.
+Windows: `npm run setup:windows`. Baad me update: `git pull && npm start`.
+Sahi chal raha hai ya nahi: `npm run doctor`. Tests: `npm test` (`fail 0` aana chahiye).
 
-## Smart features: integration table
+## Asli posting on karna (sirf owner, `.env` me)
 
-Status: **MOCK-TESTED** = fixtures/ffmpeg/fake data se test hua; **UNVERIFIED** = asli YouTube/video/phone par abhi nahi dekha. Koi bhi feature clip ko edit nahi karta (editing system locked hai) aur kahin bhi dubara-publish nahi karta.
+Publishing API/dashboard se kabhi on nahi hoti. `.env` me ye likho aur restart karo:
 
-| Feature | Module | Kahan dikhta / kaise use | Status |
-|---|---|---|---|
-| Publish safety | `src/config.ts` `assertPublishAllowed` | `PUBLISH_MODE`; `/api/youtube/status` | MOCK-TESTED |
-| Studio CSV import + judging rule | `src/analytics/studiocsv.ts` | `POST /api/analytics/studio-import`, `GET /api/analytics/studio` | MOCK-TESTED; asli CSV columns UNVERIFIED |
-| Opportunity score (13 parts) | `src/analysis/opportunity.ts` | analyzer; table `candidate_opportunity`; optional `clip.opportunityMin` | MOCK-TESTED; accuracy UNVERIFIED |
-| Hook engine (>=5 sachche hooks) | `src/seo/hooks.ts` | analyzer; table `candidate_hooks`; `clip.smartHooks` | MOCK-TESTED |
-| Metadata similarity | `src/seo/metasimilarity.ts` | clip metadata warnings / alternative title | MOCK-TESTED; thresholds UNVERIFIED |
-| Rights/originality screen | `src/analysis/rights.ts` | table `candidate_rights`; sirf text, watermark/OCR nahi | MOCK-TESTED |
-| Failure analysis | `src/analytics/failure.ts` | `GET /api/analytics/failure?remote_id=` | MOCK-TESTED; <5 peers => NO EVIDENCE YET |
-| Experiments memory | `src/analytics/experiments.ts` | `/api/experiments` (+ `/:id/observe`, `/:id/conclude`) | MOCK-TESTED |
-| Research evidence labels | `src/seo/evidence.ts` | clip metadata `research[]` | MOCK-TESTED; UI display baaki |
-| Channel DNA | `src/analytics/dna.ts` | `GET /api/analytics/dna` | MOCK-TESTED |
-| Report card | `src/analytics/report.ts` | Insights tab; `GET /api/analytics/report` (rules, koi AI model nahi) | MOCK-TESTED |
-| Smart framing | `src/framing/*`, `tools/face_samples.py` | Settings toggle, default OFF | Real face detection UNVERIFIED |
+```
+PUBLISH_MODE=PUBLIC     # PRIVATE = kabhi public nahi · likha nahi = DRY_RUN (kuch post nahi hota)
+AUTO_APPROVE=true       # verified clip bina Approve dabaye schedule/public ho jaye
+```
 
-Abhi blocked (provider/owner par): YouTube API audit, asli YouTube Analytics API pull, Meta HTTPS callback, TikTok audit, Main account reconnect.
+Phir Home → **Publishing audit** dekho: jo BLOCKED hai uske saath fix likha hota hai.
+
+**YouTube:** Google Cloud → YouTube Data API v3 → OAuth client → `.env` me `YT_OAUTH_CLIENT_ID`, `YT_OAUTH_CLIENT_SECRET` (+ `YT_CLIPS_SECRET_KEY` agar token ki key khud rakhni ho) → dashboard me Connect. OAuth app ko **Production** mode me rakho, warna token 7 din me mar jata hai. Naye/unaudited API project ke uploads Google private rakh sakta hai: [docs/YOUTUBE_AUDIT.md](docs/YOUTUBE_AUDIT.md). Free quota 10,000 units/din.
+**Facebook / Instagram:** Setup → Accounts me Meta login → Page chuno. Instagram Reels ko public https URL chahiye: `pkg install cloudflared` (tunnel khud start hota hai) ya `PUBLIC_URL=https://...`.
+**Baaki:** Telegram/Discord/Mastodon/Bluesky token se; jahan official API nahi, wahan "Manual post tasks" (file + caption ready, aap post karke Posted dabao). Kisi site ka ID/password bot ko nahi diya jata.
+
+## Dashboard
+
+8 tabs: **Home** (pipeline, audit, moments) · **Sources** (video add, channels, upload permission) · **Clips** (review, edit, re-render) · **Studio** · **Queue** (upload, distribution, comments) · **Accounts** · **Analytics** · **Settings** (AI keys, config).
+
+CLI (bina UI): `npm run cli -- add video.mp4 --authorized` → `npm run cli -- run` → `npm run cli -- status`. Saari commands: `npm run cli -- help`.
+
+## AI keys (optional)
+
+Bina key ke local engine title/tags banata hai. Behtar quality ke liye `.env` me koi bhi free key: `GROQ_API_KEY` (speech-to-text + titles), GEMINI, OPENROUTER, MISTRAL aadi (poori list `.env.ai.example` me). `npm run cli -- env-check` har key ko asli call se jaanchta hai. Dubbing ke liye `edge-tts` + ek LLM key chahiye.
+
+## 24x7 chalana
+
+- **Phone (Termux):** `npm run forever` (crash par auto-restart + wake-lock). Android me Termux ki battery "Unrestricted" karo. Reboot ke baad auto-start: [DEPLOY.md](DEPLOY.md).
+- **Server:** `docker compose up -d --build` ya `sudo bash deploy/install-vps.sh`. Public host par `YT_CLIPS_TOKEN` zaroori. Detail: [DEPLOY.md](DEPLOY.md).
 
 ## Common problems
-- `EADDRINUSE: address already in use ...:8080` → pehle se koi server (ya aapka purana `npm start`) chal raha hai. Naya port lo: `PORT=8090 npm start`, ya purana band karo (Termux mein `pkill node`).
-- Termux/Android par bhi chalta hai (Node ≥ 22.18, `pkg install ffmpeg`); heavy rendering phone par dheere hoga, `edit.preset`/`glow`/`zoom` kam karke tez karo.
-- `yt-dlp`/`whisper` WARN normal hai: local video + `.srt` se kaam chalta hai.
 
-## Sach: kya verified hai, kya nahi
-Verified (tests + real ffmpeg/process runs): ingest, analysis, clipping, rendering, captions, QC, state machine, server/auth, automation loop. **Fake-tested only** (asli account par kabhi nahi chala): YouTube/Instagram/Facebook/TikTok API calls. **Unverified:** Docker build, systemd, asli yt-dlp/faster-whisper. Pura hisaab: [PROGRESS.md](PROGRESS.md) aur [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md).
+- `EADDRINUSE :8080` → purana server chal raha hai: `pkill node` ya `PORT=8090 npm start`.
+- Phone par render dheere hota hai: `edit.preset` / `glow` / `zoom` kam karo.
+- `yt-dlp` / `whisper` WARN normal hai agar installed nahi; local video + `.srt` se kaam chalta hai.
+- Kuch public nahi ho raha → Home → Publishing audit.
 
-Rights: sirf apni ya authorized content use karo. Views/ranking ki koi guarantee nahi.
+## Docs
 
+[PENDING_CHECKLIST.md](PENDING_CHECKLIST.md) (kya baaki hai) · [PROGRESS.md](PROGRESS.md) (history) · [docs/FEATURE_STATUS.md](docs/FEATURE_STATUS.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/PUBLISHING_STATE_MACHINE.md](docs/PUBLISHING_STATE_MACHINE.md) · [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) · [DEPLOY.md](DEPLOY.md)
 
-## Start-up auto-install & security notes
-- On start, missing tools (ffmpeg, yt-dlp, whisper.cpp, edge-tts, opencv) are installed in the background via `setup.sh` (once per 24 h, log `data/bootstrap.log`). Disable with `AUTO_INSTALL=0`.
-- Behind a reverse proxy (Caddy/nginx) set `TRUST_PROXY=1` so rate limits use the real client IP; `COOKIE_SECURE=1` forces Secure cookies.
-- `data/config.json` and `.env` are created with 0600 permissions.
-- Hindi/Hinglish: Whisper language defaults to Hindi (`stt.indiaFirst`, set false for English-only channels or set a channel `language`). Wide sources in fit mode are trimmed 10% per side (`edit.fitZoom`, 1 = off).
-- Optional VoiceStudio voice-over: `YT_CLIPS_VOICESTUDIO_URL=http://127.0.0.1:<port>` (unverified route).
-
-## Studio (image / video / lip sync / cinema)
-Open `http://<server>:8080/studio` (or the ✨ Studio button in the dashboard). Settings → paste your Muapi API key (stored encrypted on your server; `MUAPI_API_KEY` in `.env` also works). Each generation spends your Muapi credits; `studio.dailyLimit` (default 40/day) in `data/config.json` is a safety stop. Results are saved in `data/studio/`. Add or hide models in `data/studio-models.json`. Install as an app from the browser menu (PWA). Model entries marked *unverified* are from memory: if one fails, fix its name in the file.
-
-## CapCut / JianYing (offline, built in)
-`node src/cli.ts capcut quickstart` (or `node bin/capcut.ts ...`): inspect, trim, speed, volume, subtitles (SRT/VTT), styles/templates, shorts, preview, doctor/fix. Every rendered clip also gets an editable draft in `data/capcut-drafts` (config `capcut`: `enabled`, `draftsDir`, `seedDraft`, `template`, `preview`). Clips are never cut from the first/last 90 s of a video (`clip.skipHeadSec` / `skipTailSec`). Drafts are not verified in the real CapCut app; JianYing 6+ is encrypted and unsupported.
-
-### Optional extras (all off/quiet when the tool is missing)
-- Facial mood: `pip install mediapipe opencv-python` (model downloads once); on Termux plain OpenCV 4 gives a smile-only signal. Disable: `clip.faceMood=false`.
-- Face-follow crop needs OpenCV (setup.sh installs it); on OpenCV 5 a small YuNet model is downloaded once to data/models.
-- Copyright pre-check: free key at acoustid.org, put `ACOUSTID_KEY=...` in `.env` (or `copyright.acoustidKey`). Advisory only.
-
-
-## Social accounts
-YouTube/TikTok/Instagram/X sirf **official OAuth Connect** se jodte hain (Setup tab). ID/password se site par login-automation supported nahi hai (platform ToS + account ban risk).
+Rights: sirf apna ya authorized content use karo. Views ki koi guarantee nahi.
