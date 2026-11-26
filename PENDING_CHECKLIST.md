@@ -138,7 +138,7 @@
 ## Shorts engine batch (2026-11-22, UNCOMMITTED until owner authorizes)
 - [x] Content type/sub-type detection + auto profile, quality gate (duplicate / repeated hook / missing context / bad boundary / weak payoff; 0 Shorts allowed), grounded titles/descriptions, framing planner (multi-person/active-speaker layout + gaming-safe 9:16 crop guard): tests pass (shorts_engine 5/5, framing 5/5, regression 47/47). Sandbox only.
 - [x] Framing advisor wired into src/edit/render.ts with the owner-approved minimal hook (default OFF; toggle: Studio > Smart Framing or POST /api/config {framingAdvisor}); real FFmpeg render verified with FAKE face data.
-- [ ] BLOCKED_LOCKED: content-specific edit styles, context-aware SFX/music/B-roll for no-face clips, and true multi-tile split/trio layouts need new branches in locked src/edit/filters.ts (separate approval). Real face/active-speaker detection needs a device with OpenCV + detector model (sandbox has none): UNVERIFIED.
+- [x] (2026-11-26, lock lifted by owner) content-specific edit styles, no-face SFX/music/B-roll rules and multi-tile split/trio layouts are built. Real face/active-speaker detection needs a device with OpenCV + detector model (sandbox has none): UNVERIFIED.
 - [ ] Real Termux/YouTube verification of all of the above is UNVERIFIED.
 
 - [x] (AGENT loop T1) PUBLISH_MODE DRY_RUN/PRIVATE/PUBLIC. Owner: set `PUBLISH_MODE=PRIVATE` (env) before real uploads; PUBLIC only when you decide.

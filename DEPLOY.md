@@ -12,7 +12,7 @@ Saari state ek folder mein: `YT_CLIPS_DATA_DIR` (SQLite + videos + outputs). Is 
 | `AUTO_RUN=1` | background worker + YouTube polling |
 | `MAX_UPLOAD_MB`, `LOOP_SECONDS`, `LOG_LEVEL` | optional |
 
-Publishing / auto-comment / public visibility **env ya API se on nahi hote**. Sirf server par `data/config.json` edit karke (owner decision).
+Publishing: **API se kabhi on nahi hota**. Sirf owner server par `.env` me `PUBLISH_MODE=PRIVATE|PUBLIC` (+ `AUTO_APPROVE=true` hands-free ke liye) ya `data/config.json` edit karke. Default `DRY_RUN` = kuch post nahi hota. Home ka "Publishing audit" card batata hai ki kya BLOCKED hai.
 
 ## 1) Docker (sabse aasaan)
 ```bash
