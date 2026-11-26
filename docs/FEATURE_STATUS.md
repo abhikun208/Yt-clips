@@ -34,7 +34,7 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | Safety | publish / public visibility / auto-comments gates OFF + read-only in UI | VERIFIED-LOCAL | |
 | UI | 8-tab dashboard and API wiring | VERIFIED-LOCAL / PARTIAL | Chromium confirms Prompt1 tab labels/order, live and bulk flows; full dynamic-action click-through remains incomplete |
 | AI | Local Ollama slot | BLOCKED_EXTERNAL | not running on owner device |
-| AI | Upscaling / 16:9 2560×1440 | NOT_IMPLEMENTED (secondary) | |
+| AI | Upscaling / 16:9 2560×1440 | 16:9 2560x1440 + 1:1 1440 via quality 2k = VERIFIED-LOCAL (sizes); AI upscaler deliberately NOT built (Lanczos only) | test/multi_stack.test.ts |
 | Analysis | Content type/sub-type detection, quality gate, grounded metadata | MOCK-TESTED | test/shorts_engine.test.ts; transcript heuristics only, real-video accuracy UNVERIFIED; uncommitted |
 | Framing | Smart Framing advisor (multi-person crop vs fit_blur, gaming-safe crop guard), default OFF, toggle in Studio | MOCK-TESTED (FAKE face data, real FFmpeg render) | test/framing*.test.ts + framing_render_hook + framing_config; real face/active-speaker detection and HUD zones on real games UNVERIFIED (sandbox OpenCV has no detector) |
 | Framing | True multi-tile split/trio layouts, content-specific styles, context SFX/music/B-roll | BLOCKED_LOCKED | need new branches in locked src/edit/filters.ts; owner approval required |
