@@ -13,6 +13,7 @@
     "verify:device": "node --disable-warning=ExperimentalWarning src/cli.ts verify-device",
     "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor",
     "cli": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "forever": "bash deploy/run-forever.sh",
     "start": "node --disable-warning=ExperimentalWarning src/server/main.ts",
     "test:real": "node --disable-warning=ExperimentalWarning --test \"test/real/*.test.ts\"",
     "setup": "sh setup.sh",

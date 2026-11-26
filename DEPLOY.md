@@ -66,3 +66,9 @@ Backup: sirf `YT_CLIPS_DATA_DIR` copy karo (SQLite WAL ke saath server band kark
 - **YouTube: publish the Google OAuth app ("OAuth consent screen" → *Publish app* / In production).** An app left in *Testing* makes Google expire the refresh token after 7 days - the #1 reason "login keeps expiring".
 - Uploads are paced for account safety: max 3/day per channel, 180 min apart, quiet hours 00-06, random jitter, platforms staggered; everything goes through the official upload APIs from one stable server IP (no scripted logins, so nothing looks like a bot).
 - Set `YT_CLIPS_SECRET_KEY` so saved tokens are encrypted on disk.
+
+## 24x7 non-stop (Termux / phone)
+- `npm run forever` (= `bash deploy/run-forever.sh`): crash/exit par khud restart (backoff 3→60 s), `termux-wake-lock` se Android Termux ko sone nahi deta. Log: `data/server.log`.
+- Phone restart ke baad bhi chalane ke liye: Termux:Boot (F-Droid) install karo, phir `mkdir -p ~/.termux/boot && cp deploy/termux-boot.sh ~/.termux/boot/yt-clips.sh`.
+- Android settings: Termux ke liye Battery → "Unrestricted"/"Don't optimise", warna OS background me maar sakta hai. Ye sirf tum kar sakte ho.
+- VPS/Docker par `deploy/yt-clips.service` (systemd, Restart=always) ya `docker compose` (restart policy) use hota hai.
