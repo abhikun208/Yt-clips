@@ -32,7 +32,7 @@ Nothing here is "VERIFIED" against real YouTube / Meta / TikTok / Android Termux
 | Meta (FB/IG) | Login/upload/Test Connection | MOCK-TESTED (Test Connection) / BLOCKED_EXTERNAL (login) | needs public HTTPS callback domain |
 | TikTok | Login/upload/Test Connection | MOCK-TESTED (Test Connection) / BLOCKED_EXTERNAL (Direct Post audit) | manual-post fallback is marked manual, never "uploaded" |
 | Safety | publish / public visibility / auto-comments gates OFF + read-only in UI | VERIFIED-LOCAL | |
-| UI | 8-tab dashboard and API wiring | VERIFIED-LOCAL / PARTIAL | Chromium confirms Prompt1 tab labels/order, live and bulk flows; full dynamic-action click-through remains incomplete |
+| UI | 8-tab dashboard and API wiring | VERIFIED-LOCAL / PARTIAL | Chromium confirms Prompt1 tab labels/order, live and bulk flows; test/ui_clickthrough.test.ts clicks every visible button of every tab (~90, empty DB) in real Chromium: 0 JS errors, 0 API 5xx; buttons hidden in collapsed panels / needing real data or accounts are not exercised |
 | AI | Local Ollama slot | BLOCKED_EXTERNAL | not running on owner device |
 | AI | Upscaling / 16:9 2560×1440 | 16:9 2560x1440 + 1:1 1440 via quality 2k = VERIFIED-LOCAL (sizes); AI upscaler deliberately NOT built (Lanczos only) | test/multi_stack.test.ts |
 | Analysis | Content type/sub-type detection, quality gate, grounded metadata | MOCK-TESTED | test/shorts_engine.test.ts; transcript heuristics only, real-video accuracy UNVERIFIED; uncommitted |

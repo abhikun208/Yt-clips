@@ -642,3 +642,5 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 (62) 2026-11-25 Docs completion pass: AGENT_STATE, KNOWN_ISSUES, COMPLETION_LEDGER, FEATURE_STATUS/FEATURES_STATUS/FEATURE_MATRIX, ARCHITECTURE, PUBLISHING_STATE_MACHINE, PENDING_CHECKLIST updated for moment engine, source upload permission, dubbing, publishing audit, owner .env switches. Remaining unchecked items are owner/device-only or locked-file work, labelled as such.
 
 (63) 2026-11-26 Lock lifted by owner. Added: multi_stack layout (advisor+filters+render), content-type style recipes wired into render (fixed latent 'slow' pace crash -> 'relaxed'), no-face B-roll gating in clipmeta, hook teaser, 2k 16:9 sizes. Tests: multi_stack, recipe_render. Locked checksums re-baselined.
+
+(64) 2026-11-26 UI click-through test (all visible buttons, 0 errors/5xx); fixed empty-video-id Reanalyze/Refetch.

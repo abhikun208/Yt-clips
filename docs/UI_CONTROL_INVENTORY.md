@@ -72,3 +72,5 @@ Static inventory. Classification: **ROUTE_EXISTS** = path is served by app.ts (e
 | `/api/why` | 1 | ROUTE_EXISTS |
 | `/api/youtube` | 2 | ROUTE_EXISTS |
 | `/api/youtube/settings` | 2 | ROUTE_EXISTS |
+
+**2026-11-26:** `test/ui_clickthrough.test.ts` clicks every visible enabled button on every tab (real Chromium, empty DB) and fails on any JS error or API 5xx. Found+fixed: Reanalyze/Refetch with no video selected sent `/api/videos//...`; now shows a hint.
