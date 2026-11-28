@@ -4,6 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import { timingSafeEqual, randomUUID, randomBytes, createHash } from 'node:crypto';
 import { join, basename, resolve, sep, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { autoBackup } from '../ops/dbsafety.ts';
 import { Store } from '../db.ts';
 import { loadConfig, updateOwnerConfig, publishMode, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
@@ -720,6 +721,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       server.listen(o.port ?? Number(process.env.PORT ?? 8080), host, () => {
         const port = (server.address() as { port: number }).port;
         if (o.autoRun ?? process.env.AUTO_RUN !== '0') { const every = (o.loopSeconds ?? Number(process.env.LOOP_SECONDS ?? 30)) * 1000; timer = setInterval(() => { if (!stopping) void runOnce(); }, every); void runOnce(); }
+        try { const sf = autoBackup(store, cfg.dataDir); if (!sf.integrity.ok) warn('DATABASE INTEGRITY PROBLEM', { detail: sf.integrity.detail, fix: 'backups/auto/ me last good snapshot hai: server band karke data/yt-clips.db ko usse badal do' }); setInterval(() => { try { autoBackup(store, cfg.dataDir); } catch { /* next time */ } }, 3_600_000).unref(); } catch { /* optional */ }
         info('server listening', { host, port, auth: token ? 'token' : 'none(loopback)', autoRun: !!timer }); ok(port);
       try { installModelHealing(cfg, (m) => warn('ai model self-heal', { m })); } catch { /* optional */ }
       try { setRelay(store.get<{ v: string }>('SELECT v FROM kv WHERE k=?', 'oauth:relay')?.v || null); } catch { /* off */ }

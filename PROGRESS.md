@@ -644,3 +644,5 @@ Root causes found by code reading + reproduced by tests (all VERIFIED in sandbox
 (63) 2026-11-26 Lock lifted by owner. Added: multi_stack layout (advisor+filters+render), content-type style recipes wired into render (fixed latent 'slow' pace crash -> 'relaxed'), no-face B-roll gating in clipmeta, hook teaser, 2k 16:9 sizes. Tests: multi_stack, recipe_render. Locked checksums re-baselined.
 
 (64) 2026-11-26 UI click-through test (all visible buttons, 0 errors/5xx); fixed empty-video-id Reanalyze/Refetch.
+
+(65) 2026-11-28 Owner video audit: per-channel Google client in add form, LITE mode + nice + overload pause, plain live status, one render per source (round-robin), audit warn-not-bad for unconnected, Pages workflow + app-served relay + relay check, daily DB backup + integrity. See docs/AUDIT_2026-11-28.md.

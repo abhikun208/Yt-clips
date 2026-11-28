@@ -1,3 +1,4 @@
+import { liteMode } from '../config.ts';
 import type { Config } from '../config.ts';
 
 /**
@@ -6,7 +7,7 @@ import type { Config } from '../config.ts';
  *  perPoll        videos downloaded per check for THIS channel      (default: global youtube.maxPerPoll)
  *  checkMinutes   how often THIS channel is searched               (default: global; never faster than the global timer tick)
  *  scanDepth      how many of the latest videos one listing reads  (default 30, max 200)
- *  backlog        true = when no new video is waiting, OLD videos of the channel are processed too (default true)
+ *  backlog        true = when no new video is waiting, OLD videos of the channel are processed too (default true; false on weak phones/lite mode)
  *  order          'newest' | 'oldest' - which waiting video goes first (default newest)
  *  maxDurationMin skip videos longer than this                    (default: global)
  */
@@ -14,7 +15,7 @@ export interface SourceSettings { perPoll: number; checkMinutes: number; scanDep
 const num = (v: unknown, lo: number, hi: number, d: number): number => { const n = Number(v); return Number.isFinite(n) && v !== null && v !== '' && v !== undefined ? Math.min(hi, Math.max(lo, Math.round(n))) : d; };
 export function sourceSettings(meta: Record<string, unknown> | null | undefined, cfg: Config): SourceSettings {
   const m = meta ?? {};
-  return { perPoll: num(m.perPoll, 1, 20, cfg.youtube.maxPerPoll), checkMinutes: num(m.checkMinutes, 0, 10080, 0), scanDepth: num(m.scanDepth, 5, 200, 30), backlog: m.backlog !== false, order: m.order === 'oldest' ? 'oldest' : 'newest', maxDurationMin: num(m.maxDurationMin, 0, 1440, cfg.youtube.maxDurationMin) };
+  return { perPoll: num(m.perPoll, 1, 20, cfg.youtube.maxPerPoll), checkMinutes: num(m.checkMinutes, 0, 10080, 0), scanDepth: num(m.scanDepth, 5, 200, 30), backlog: m.backlog === undefined ? !liteMode() : m.backlog !== false, /* weak phone (lite mode): old videos are NOT bulk-downloaded unless you switch backlog on */ order: m.order === 'oldest' ? 'oldest' : 'newest', maxDurationMin: num(m.maxDurationMin, 0, 1440, cfg.youtube.maxDurationMin) };
 }
 /** keep only known keys, validated (API input) */
 export function cleanSettings(b: Record<string, unknown>): Record<string, unknown> {
