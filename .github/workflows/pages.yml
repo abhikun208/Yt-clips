@@ -1,0 +1,20 @@
+# Publishes docs/ (login relay page) to GitHub Pages on every push, so https://<user>.github.io/Yt-clips/oauth-relay.html never goes 404 again.
+# One-time owner step if this fails with "Pages not enabled": repo Settings -> Pages -> Source = "GitHub Actions".
+name: pages
+on:
+  push: { branches: [main], paths: ['docs/**', '.github/workflows/pages.yml'] }
+  workflow_dispatch: {}
+permissions: { contents: read, pages: write, id-token: write }
+concurrency: { group: pages, cancel-in-progress: true }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: '${{ steps.d.outputs.page_url }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with: { enablement: true }
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: docs }
+      - id: d
+        uses: actions/deploy-pages@v4

@@ -23,7 +23,7 @@ export function setSourcePolicy(store: Store, sourceId: number, i: { mode?: stri
   if (i.mode !== undefined && !['open', 'own_only'].includes(i.mode)) throw new Error('invalid: mode must be open or own_only');
   const cur = getSourcePolicy(store, sourceId); const next: SourcePolicy = { mode: (i.mode as SourcePolicy['mode']) ?? cur.mode, skipOwn: i.skipOwn ?? cur.skipOwn };
   if (next.mode === 'own_only') next.skipOwn = false;
-  if (next.skipOwn && !store.get(`SELECT 1 FROM source_destinations WHERE source_id=? AND enabled=1`, sourceId)) throw new Error('invalid: own channel tabhi band ho sakta hai jab kam se kam ek dusra channel mapped ho (warna clips kahin nahi jaayengi)');
+  if (next.skipOwn && !store.get(`SELECT 1 FROM source_destinations WHERE source_id=? AND enabled=1`, sourceId)) throw new Error('invalid: pehle neeche kam se kam ek DOOSRA channel tick karo, tabhi "apna channel band" ho sakta hai (warna clips kahin nahi jaayengi)');
   let meta: Record<string, unknown> = {}; try { meta = JSON.parse(r.meta_json || '{}') as Record<string, unknown>; } catch { /* reset */ }
   meta.uploadPolicy = next; store.exec('UPDATE sources SET meta_json=? WHERE id=?', JSON.stringify(meta), sourceId); return next;
 }

@@ -31,7 +31,7 @@ test('policy rules: open / own_only / skipOwn / explicit distribute', () => {
   assert.equal(sourceAllows(store, null, b.id, 'x').ok, true, 'no source = nothing to restrict');
 });
 test('skipOwn needs at least one mapped channel (clips must not vanish)', () => {
-  const { store } = setup(); assert.throws(() => setSourcePolicy(store, 1, { skipOwn: true }), /mapped/);
+  const { store } = setup(); assert.throws(() => setSourcePolicy(store, 1, { skipOwn: true }), /DOOSRA channel/);
 });
 test('own_only: the auto loop never queues to a mapped channel and advance() blocks a job that sneaked in; open mapping still queues', async () => {
   const { dataDir, store, b } = setup(); const cfg = loadConfig(process.cwd(), { dataDir, overrides: { automation: { autoQueue: true, platforms: ['youtube_shorts'], blockGenericMetadata: false, unlistedBufferMin: 0 }, gates: { publishEnabled: false } } });

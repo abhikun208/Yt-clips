@@ -2,7 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server } 
 import { createWriteStream, createReadStream, existsSync, statSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { timingSafeEqual, randomUUID, randomBytes, createHash } from 'node:crypto';
-import { join, basename, resolve, sep } from 'node:path';
+import { join, basename, resolve, sep, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Store } from '../db.ts';
 import { loadConfig, updateOwnerConfig, publishMode, type Config } from '../config.ts';
 import { ingestLocal } from '../sources/local.ts';
@@ -118,6 +119,7 @@ async function revokeYoutubeGrant(cfg: Config, d?: { platform: string; secretRef
   try { const rt = secretsFor(cfg).read<{ refresh_token?: string }>(d.secretRef)?.refresh_token; if (!rt) return null;
     const r = await fetch(`${oauthBase()}/revoke`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: rt }), signal: AbortSignal.timeout(8000) }); return r.ok; } catch { return false; }
 }
+const RELAY_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs');
 export function createApp(o: AppOptions = {}): App {
   // PaaS (Render/Railway/Replit/Koyeb) set PORT and need 0.0.0.0; without HOST we used to listen on loopback only -> 'no open port' and a failed deploy.
   const host = o.host ?? process.env.HOST ?? (process.env.PORT || process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.REPL_ID ? '0.0.0.0' : '127.0.0.1');
@@ -249,6 +251,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
         return json(res, 200, { ok: true, version: VERSION, running, freeDiskMb: freeMb(cfg.dataDir), queue: Object.fromEntries(q.map((x) => [x.state, x.n])) });
       }
       if (p === '/live') return json(res, 200, { ok: true, processing: running });
+      if (p === '/oauth-relay.html' && m === 'GET') { try { const html = readFileSync(join(RELAY_DIR, 'oauth-relay.html')); res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex' }); return res.end(html); } catch { return json(res, 404, { error: 'relay page missing' }); } } // same login bounce page, served by the app itself: works on a VPS/tunnel even if GitHub Pages is down
       if (p === '/ready') { let dbOk = false; try { dbOk = !!store.get('SELECT 1 AS x'); } catch { dbOk = false; } const mb = freeMb(cfg.dataDir); const ok = dbOk && mb > 200; return json(res, ok ? 200 : 503, { ok, db: dbOk, freeDiskMb: mb, minFreeMb: 200 }); }
       if (p === '/metrics' && m === 'GET' && authed(req)) { // Prometheus text format, needs the token (unauthenticated requests fall through to the 401 below)
         const L: string[] = []; const g = (name: string, help: string, rows: [string, number][]) => { L.push(`# HELP ${name} ${help}`, `# TYPE ${name} gauge`); for (const [lab, v] of rows) L.push(`${name}${lab} ${v}`); };
@@ -501,6 +504,7 @@ const publicBase = (req: IncomingMessage) => resolveBase({ proto: String(req.hea
       if (p === '/api/settings/ai' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { kind?: string; apiKey?: string; baseUrl?: string; model?: string; slot?: number }; if (b.kind !== 'stt' && b.kind !== 'llm') return json(res, 400, { error: 'invalid: kind must be stt or llm' }); saveAi(cfg, b.kind, b); const test = await testConnection(store, cfg, b.kind === 'stt' ? 'stt' : `llm:${b.slot ?? 1}`); return json(res, 200, { ok: true, ai: aiStatus(cfg), test }); }
       if (p === '/api/settings/oauth-app' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { app?: string; clientId?: string; clientSecret?: string; configId?: string }; saveAppCreds(cfg, String(b.app), String(b.clientId ?? ''), String(b.clientSecret ?? '')); if (b.app === 'facebook' && b.configId !== undefined) setFbConfigId(store, String(b.configId)); const test = b.app === 'google' ? await testConnection(store, cfg, 'google-client') : null; const creds = b.app === 'facebook' ? await checkAppCreds(cfg, 'facebook') : null; return json(res, 200, { ok: true, test, creds }); }
       if (p === '/api/oauth/facebook/check' && m === 'GET') return json(res, 200, await checkAppCreds(cfg, 'facebook'));
+      if (p === '/api/oauth/relay/check' && m === 'GET') { const qu = new URL(req.url ?? '/', 'http://x').searchParams.get('url') ?? ''; const url = /^https?:\/\//.test(qu) ? qu : getRelay() || DEFAULT_RELAY; try { const r = await fetch(url, { method: 'GET', redirect: 'follow', signal: AbortSignal.timeout(10_000) }); const t = r.ok ? await r.text() : ''; const ok = r.ok && /yt-clips login relay/.test(t); return json(res, 200, { ok, url, status: r.status, fix: ok ? null : r.status === 404 ? 'GitHub Pages band/404: repo Settings -> Pages -> Source = "GitHub Actions" (ya main /docs), phir Actions me "pages" workflow chalao. Ya VPS/tunnel par PUBLIC_URL set karo: relay app se hi serve hota hai.' : 'Relay page khuli nahi: net/GitHub dekho.' }); } catch (e) { return json(res, 200, { ok: false, url, status: 0, fix: 'Relay tak pahunch nahi paya (' + (e as Error).message.slice(0, 80) + '). Net ya GitHub status dekho.' }); } }
       if (p === '/api/oauth/relay' && m === 'POST') { const b = JSON.parse((await readBody(req, 4096)).toString('utf8') || '{}') as { on?: boolean; url?: string }; const u = b.on === false ? '' : (b.url || DEFAULT_RELAY);
         if (u && !/^https:\/\//.test(u)) return json(res, 400, { error: 'https link do' }); store.exec('INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v', 'oauth:relay', u); setRelay(u || null);
         return json(res, 200, { relay: getRelay(), redirectUri: getRelay() }); }
