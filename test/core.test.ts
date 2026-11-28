@@ -49,3 +49,15 @@ test('logger redacts secrets', () => {
   const r = redact({ access_token: 'ya29.abcdef', note: 'Bearer abc.def-123', nested: { apiKey: 'sk-1234567890abcdefgh' } }) as any;
   assert.equal(r.access_token, '[REDACTED]'); assert.ok(!JSON.stringify(r).includes('abc.def-123')); assert.equal(r.nested.apiKey, '[REDACTED]');
 });
+
+test('claim: one render per source at a time; least-served source goes first (round-robin)', async () => {
+  const { Store, claim, enqueue, completeJob } = await import('../src/db.ts'); const { tmpDir } = await import('./helpers.ts'); const { join } = await import('node:path');
+  const s = new Store(join(tmpDir(), 'r.db'));
+  for (const [id, uri] of [[1, 'a'], [2, 'b']] as const) s.exec(`INSERT INTO sources(id,kind,uri,status) VALUES (?,?,?,?)`, id, 'youtube_channel', uri, 'active');
+  const mkc = (vid: number, src: number) => { s.exec(`INSERT INTO videos(id,source_id,path,duration,fingerprint) VALUES (?,?,?,?,?)`, vid, src, `/x${vid}`, 100, 'vf' + vid); };
+  mkc(1, 1); mkc(2, 2); let cid = 0; const cand = (vid: number) => { cid++; s.exec(`INSERT INTO candidates(id,video_id,start_sec,end_sec,score,category,fingerprint) VALUES (?,?,?,?,?,?,?)`, cid, vid, 1, 20, 0.9, 'g', 'fp' + cid); enqueue(s, 'render', 'render:' + cid); return cid; };
+  cand(1); cand(1); cand(2);
+  const a = claim(s)!; assert.equal(a.key, 'render:1');
+  const b = claim(s)!; assert.equal(b.key, 'render:3', 'source 1 already has a running render -> next source gets its turn'); assert.equal(claim(s), undefined, 'source 1 second clip waits');
+  completeJob(s, a.id); completeJob(s, b.id); const c = claim(s)!; assert.equal(c.key, 'render:2');
+});

@@ -5,6 +5,8 @@ import { readFileSync, statfsSync } from 'node:fs';
 export interface ResourceSample { memFreeMB: number; memTotalMB: number; load1: number; cpus: number; rssMB: number; diskFreeMB: number | null }
 export interface ResourceLimits { minFreeMemMB: number; warnFreeMemMB: number; maxLoadPerCpu: number; minDiskFreeMB: number; warnDiskFreeMB: number }
 export const DEFAULT_LIMITS: ResourceLimits = { minFreeMemMB: 150, warnFreeMemMB: 400, maxLoadPerCpu: 2.5, minDiskFreeMB: 500, warnDiskFreeMB: 2000 };
+/** Load per core above which no NEW heavy job starts (phone is already drowning). pipeline.ts lets one job through after 10 min so a permanently busy device never stalls forever. */
+export const OVERLOAD_PER_CPU = 4;
 export type Level = 'ok' | 'warn' | 'critical';
 export interface Assessment { level: Level; allowHeavy: boolean; maxLanes: number; reasons: string[] }
 
@@ -16,7 +18,7 @@ export function sampleResources(dir = '.', over: Partial<ResourceSample> = {}): 
 export function assess(s: ResourceSample, l: ResourceLimits = DEFAULT_LIMITS): Assessment {
   const reasons: string[] = []; const rank = { ok: 0, warn: 1, critical: 2 }; let level: Level = 'ok'; const bump = (x: Level) => { if (rank[x] > rank[level]) level = x; };
   if (s.memFreeMB < l.minFreeMemMB) { bump('critical'); reasons.push(`free memory ${s.memFreeMB} MB < ${l.minFreeMemMB} MB`); } else if (s.memFreeMB < l.warnFreeMemMB) { bump('warn'); reasons.push(`free memory low (${s.memFreeMB} MB)`); }
-  if (s.load1 / s.cpus > l.maxLoadPerCpu) { bump('warn'); reasons.push(`CPU load ${s.load1} on ${s.cpus} cores`); }
+  if (s.load1 / s.cpus > OVERLOAD_PER_CPU) { bump('critical'); reasons.push(`CPU overloaded (${s.load1} on ${s.cpus} cores): heavy work waits to cool down`); } else if (s.load1 / s.cpus > l.maxLoadPerCpu) { bump('warn'); reasons.push(`CPU load ${s.load1} on ${s.cpus} cores`); }
   if (s.diskFreeMB !== null) { if (s.diskFreeMB < l.minDiskFreeMB) { bump('critical'); reasons.push(`disk free ${s.diskFreeMB} MB < ${l.minDiskFreeMB} MB`); } else if (s.diskFreeMB < l.warnDiskFreeMB) { bump('warn'); reasons.push(`disk free low (${s.diskFreeMB} MB)`); } }
   return { level, allowHeavy: rank[level] < 2, maxLanes: rank[level] === 0 ? 6 : 1, reasons };
 }

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, chmodSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { totalmem } from 'node:os';
 
 // Termux/phone: the owner's log shows renders of 14-28 minutes for a 15 s clip. The full-frame blends (film grain, generated dust, light leak) are the heaviest filters -> off by default on a phone (still switchable per re-render in the dashboard, or YT_CLIPS_FULL_FX=1 for all).
 const PHONE_LITE = (/com\.termux/.test(process.env.PREFIX ?? '') || !!process.env.TERMUX_VERSION) && process.env.YT_CLIPS_FULL_FX !== '1';
@@ -96,6 +97,7 @@ export function loadConfig(rootDir = resolve(process.cwd()), opts: { dataDir?: s
     } };
   }
   const envPar = Number(process.env.YT_CLIPS_PARALLEL_JOBS); if (Number.isInteger(envPar) && envPar >= 1 && envPar <= 6) cfg = { ...cfg, resources: { ...cfg.resources, renderConcurrency: envPar } }; // VPS/PC: YT_CLIPS_PARALLEL_JOBS=3 (phone default 1); config.json still wins below
+  if (liteMode()) cfg = deepMerge(cfg, LITE_PATCH); // weak phone / small server: lighter encode, 1 lane, 1 ffmpeg thread; data/config.json below still overrides any of it
   const file = join(cfg.dataDir, 'config.json');
   if (existsSync(file)) {
     try { cfg = deepMerge(cfg, JSON.parse(readFileSync(file, 'utf8'))); }
@@ -152,3 +154,10 @@ export function updateOwnerConfig(cfg: Config, patch: Record<string, unknown>): 
   writeFileSync(tmp, JSON.stringify(merged, null, 2), { mode: 0o600 });
   renameSync(tmp, file); try { chmodSync(file, 0o600); } catch { /* best effort */ }
 }
+
+/** LITE mode = easy on old Android (e.g. Android 10 / 3 GB RAM) and small servers. Auto: Termux/Android or <= 3 GB RAM. YT_CLIPS_LITE=1 forces it, =0 turns it off. */
+export function liteMode(env: NodeJS.ProcessEnv = process.env, memMB = Math.round(totalmem() / 1048576), android = !!env.TERMUX_VERSION || existsSync('/system/build.prop')): boolean {
+  if (env.YT_CLIPS_LITE === '1') return true; if (env.YT_CLIPS_LITE === '0') return false;
+  return android || memMB <= 3072;
+}
+export const LITE_PATCH = { edit: { preset: 'ultrafast', crf: 23 }, resources: { ffmpegThreads: 1, renderConcurrency: 1 } };

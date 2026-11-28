@@ -93,6 +93,7 @@ function noteOutcome(store: Store, cfg: Config, ok: boolean): boolean {
 }
 
 /** Process jobs until the queue is empty (or `maxJobs`). Crash-safe: leases expire and jobs are re-claimed. */
+let heavySince = 0; // when the device first looked overloaded (CPU only); after 10 min one job is let through
 export async function work(store: Store, cfg: Config, o: { maxJobs?: number; shouldStop?: () => boolean } = {}): Promise<{ done: number; failed: number; dead: number }> {
   let done = 0, failed = 0, dead = 0, started = 0, halt = false;
   if (queuePaused(store)) return { done, failed, dead }; // breaker is open: let things recover first
@@ -102,7 +103,7 @@ export async function work(store: Store, cfg: Config, o: { maxJobs?: number; sho
   const lane = async () => {
     const me = laneNo++;
     while (!halt && started < max) {
-      { const g = assess(sampleResources(cfg.dirs.tmp)); if (!g.allowHeavy || me >= g.maxLanes) { if (Date.now() - lastGuard > 60_000) { lastGuard = Date.now(); warn('resource guard: heavy work paused, jobs stay queued (nothing is lost)', { level: g.level, reasons: g.reasons, lane: me }); } break; } } // backpressure: critical = start nothing; warn = one lane only
+      { const g = assess(sampleResources(cfg.dirs.tmp)); const onlyLoad = !g.allowHeavy && g.reasons.every((r) => /CPU overloaded/.test(r)); if (onlyLoad) { heavySince ||= Date.now(); if (Date.now() - heavySince > 600_000) { heavySince = Date.now(); g.allowHeavy = true; g.maxLanes = 1; } } else heavySince = 0; if (!g.allowHeavy || me >= g.maxLanes) { if (Date.now() - lastGuard > 60_000) { lastGuard = Date.now(); warn('resource guard: heavy work paused, jobs stay queued (nothing is lost)', { level: g.level, reasons: g.reasons, lane: me }); } break; } } // backpressure: critical = start nothing; warn = one lane only
       if (o.shouldStop?.()) break; // graceful shutdown between jobs; in-flight leases expire and are re-claimed after restart
       const job = claim(store);
       if (!job) break;

@@ -1,3 +1,4 @@
+import { setPriority } from 'node:os';
 import { spawn } from 'node:child_process';
 
 /** PIDs of children this process started and is still waiting for (the orphan sweep must never touch them). */
@@ -17,6 +18,7 @@ export function run(cmd: string, args: string[], opts: { timeoutMs?: number; inp
   const maxBuffer = opts.maxBuffer ?? 64 * 1024 * 1024;
   return new Promise((resolve, reject) => {
     const child = spawn(executableName(cmd), args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    if (child.pid && process.env.YT_CLIPS_NICE !== '0' && process.platform !== 'win32') { try { setPriority(child.pid, 10); } catch { /* not allowed: run at normal priority */ } } // ffmpeg/whisper/yt-dlp run at low priority: the phone/UI stays responsive instead of freezing under load
     if (child.pid) liveChildren.add(child.pid); if (!exitHook) { exitHook = true; process.on('exit', killAllChildren); } // parent dies -> its ffmpeg/python children die with it (no zombies)
     let stdout = '';
     let stderr = '';

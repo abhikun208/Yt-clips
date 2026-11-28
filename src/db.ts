@@ -181,8 +181,13 @@ export function claim(s: Store, leaseMs = 15 * 60_000, now = Date.now()): Job | 
       `SELECT j.id, j.kind, j.key, j.attempts, j.payload_json FROM jobs j
        LEFT JOIN videos v ON j.kind='analyze' AND j.key='analyze:' || v.id
        LEFT JOIN candidates cd ON j.kind='render' AND j.key='render:' || cd.id
-       WHERE (j.state IN ('PENDING','RETRY') AND j.run_after <= ?) OR (j.state='RUNNING' AND j.lease_until < ?)
-       ORDER BY CASE WHEN ? = 0 AND EXISTS (SELECT 1 FROM kv WHERE k = 'live:video:' || COALESCE(v.id, cd.video_id)) THEN 0 ELSE 1 END, (j.kind='analyze'), COALESCE(v.duration, 0), j.id LIMIT 1`, now, now, livePriorityOff(s) ? 1 : 0);
+       LEFT JOIN videos vr ON vr.id = cd.video_id
+       WHERE ((j.state IN ('PENDING','RETRY') AND j.run_after <= ?) OR (j.state='RUNNING' AND j.lease_until < ?))
+         AND NOT (j.kind='render' AND vr.source_id IS NOT NULL AND EXISTS (SELECT 1 FROM jobs r2 JOIN candidates c2 ON r2.key='render:' || c2.id JOIN videos v2 ON v2.id=c2.video_id WHERE r2.kind='render' AND r2.state='RUNNING' AND r2.lease_until >= ? AND v2.source_id = vr.source_id AND r2.id <> j.id))
+       ORDER BY CASE WHEN ? = 0 AND EXISTS (SELECT 1 FROM kv WHERE k = 'live:video:' || COALESCE(v.id, cd.video_id)) THEN 0 ELSE 1 END, (j.kind='analyze'),
+         CASE WHEN j.kind='render' AND vr.source_id IS NOT NULL THEN (SELECT COUNT(*) FROM jobs r3 JOIN candidates c3 ON r3.key='render:' || c3.id JOIN videos v3 ON v3.id=c3.video_id WHERE r3.kind='render' AND r3.state='DONE' AND r3.updated_at > datetime('now','-6 hours') AND v3.source_id = vr.source_id) ELSE 0 END,
+         COALESCE(v.duration, 0), j.id LIMIT 1`, now, now, now, livePriorityOff(s) ? 1 : 0);
+    // ONE CLIP PER SOURCE AT A TIME: a source never has two renders running together, and the source that was served least in the last 6 h goes first (round-robin) - less load, every channel keeps moving.
     // Live Priority Mode: chunks of a stream that is happening NOW are analysed/rendered before any backlog job (a live moment is worthless an hour later). // quick finishing work (render/meta) first, then analysis shortest-video-first: a 30 s upload must not wait behind a 3-hour video
     if (!j) return undefined;
     s.exec(`UPDATE jobs SET state='RUNNING', lease_until=?, attempts=attempts+1, updated_at=datetime('now') WHERE id=?`, now + leaseMs, j.id);
